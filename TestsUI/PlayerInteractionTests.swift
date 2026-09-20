@@ -29,6 +29,7 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "sleep-dark", state: "sleep", dark: true),
             CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true)
         ]
+        var regularSheetTitleHeights: [String: CGFloat] = [:]
         for fixture in fixtures {
             XCTContext.runActivity(named: "Capture " + fixture.name) { _ in
                 let app = startFixture(fixture)
@@ -38,12 +39,33 @@ final class PlayerInteractionTests: XCTestCase {
                     attach(app, named: "failed-readiness-" + fixture.name)
                     return
                 }
+                if fixture.largeText && fixture.state == "live" {
+                    XCTAssertTrue(app.staticTexts["Native layout fixture"].isHittable,
+                                  "The work title must remain visible below artwork at accessibility text sizes.")
+                }
                 if fixture.state == "sleep" {
                     XCTAssertTrue(app.buttons["timer-primary-action"].isHittable,
                                   "Sleep timer action must stay visible without scrolling.")
                 } else if ["schedule", "schedule-output"].contains(fixture.state) {
                     XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable,
                                   "Schedule action must stay visible without scrolling.")
+                }
+                if ["sleep", "schedule"].contains(fixture.state) {
+                    let title = app.staticTexts[fixture.state == "sleep" ? "Sleep Timer" : "Scheduled Start"]
+                    if fixture.largeText {
+                        if let regularHeight = regularSheetTitleHeights[fixture.state] {
+                            XCTAssertGreaterThan(title.frame.height, regularHeight * 1.4,
+                                                 "Accessibility text must visibly enlarge the presented sheet title.")
+                        } else {
+                            XCTFail("Missing regular-size sheet comparison: \(fixture.state)")
+                        }
+                        if fixture.state == "sleep" {
+                            XCTAssertLessThan(title.frame.minY, app.frame.height * 0.3,
+                                              "The accessibility sleep sheet must open at the large detent.")
+                        }
+                    } else {
+                        regularSheetTitleHeights[fixture.state] = title.frame.height
+                    }
                 }
                 // app.frame is the logical interface orientation, checked by
                 // waitForFixture. Preserve the complete native screen: an app

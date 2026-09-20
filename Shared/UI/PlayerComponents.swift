@@ -62,6 +62,7 @@ struct SheetCloseButton: View {
 }
 
 struct AlbumArtwork: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let image: UIImage?
     var body: some View {
         Group {
@@ -72,7 +73,9 @@ struct AlbumArtwork: View {
                     Color.kuscSurface
                     VStack(spacing: 14) {
                         Image(systemName: "music.note").font(.system(size: 48, weight: .ultraLight))
-                        Text("Artwork unavailable").font(.caption)
+                        if !dynamicTypeSize.isAccessibilitySize {
+                            Text("Artwork unavailable").font(.caption)
+                        }
                     }.foregroundStyle(.secondary)
                 }
             }

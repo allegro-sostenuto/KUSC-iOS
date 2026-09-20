@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var sheet: PlayerSheet?
     @State private var showingProgramme = false
     @State private var choosingPauseBehavior = false
+    @State private var accessibleControlsHeight: CGFloat = 0
 
     private enum PlayerSheet: String, Identifiable {
         case settings, sleep, schedule, output
@@ -59,6 +60,9 @@ struct ContentView: View {
                 case .output: AudioOutputView()
                 }
             }
+            #if DEBUG
+            .modifier(UIFixtureTextSize())
+            #endif
             .preferredColorScheme(colorScheme)
             .kuscSheetBackground()
         }
@@ -120,7 +124,8 @@ struct ContentView: View {
     }
 
     private func portrait(size: CGSize) -> some View {
-        let artworkSide = min(306, size.width - 80, max(140, (size.height - 240) * 0.62))
+        let artworkSide = min(dynamicTypeSize.isAccessibilitySize ? 144 : 306,
+                              size.width - 80, max(140, (size.height - 240) * 0.62))
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 22) {
@@ -156,7 +161,18 @@ struct ContentView: View {
 
     @ViewBuilder private func anchoredControls(landscape: Bool, height: CGFloat) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
-            ScrollView { playbackControls(landscape: landscape) }.frame(maxHeight: height * 0.48)
+            ScrollView {
+                playbackControls(landscape: landscape)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: ControlsHeightKey.self, value: geometry.size.height)
+                        }
+                    }
+            }
+            .frame(height: min(accessibleControlsHeight > 0 ? accessibleControlsHeight : height * 0.48,
+                               height * 0.48))
+            .onPreferenceChange(ControlsHeightKey.self) { accessibleControlsHeight = $0 }
         } else {
             playbackControls(landscape: landscape)
         }
@@ -197,5 +213,12 @@ struct ContentView: View {
             if model.isPlaying { choosingPauseBehavior = model.pauseFromApp() }
             else { model.play() }
         }, showSleep: { sheet = .sleep }, showSchedule: { sheet = .schedule }, showOutput: { sheet = .output })
+    }
+}
+
+private struct ControlsHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
