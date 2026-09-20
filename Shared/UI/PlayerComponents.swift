@@ -286,7 +286,7 @@ private struct BufferPositionView: View {
             } else {
                 VStack(spacing: 6) {
                     Text(model.statusText).font(.caption)
-                    Text("Collecting audio for rewind…").font(.caption2)
+                    Text(model.bufferFailureMessage ?? "Collecting audio for rewind…").font(.caption2)
                 }.foregroundStyle(.secondary)
             }
         }

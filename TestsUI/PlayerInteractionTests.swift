@@ -77,6 +77,40 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testDiagnosticsCaptureCanBeStartedStoppedAndSharedFromSettings() {
+        let app = launchFixture("settings")
+        let diagnostics = app.buttons["Playback Diagnostics"]
+        for _ in 0..<4 {
+            if diagnostics.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(diagnostics.isHittable)
+        diagnostics.tap()
+        let start = app.buttons["Start New Capture"]
+        let stop = app.buttons["Stop Capture"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertTrue(start.isEnabled)
+        XCTAssertFalse(stop.isEnabled)
+        start.tap()
+        XCTAssertTrue(app.staticTexts["Recording"].waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled)
+        XCTAssertTrue(stop.isEnabled)
+        attach(app, named: "capture-diagnostics-recording",
+               fixture: CaptureFixture(name: "diagnostics-recording", state: "settings"))
+        stop.tap()
+        XCTAssertTrue(app.staticTexts["Ready"].waitForExistence(timeout: 5))
+        let copy = app.buttons["Copy Report"]
+        for _ in 0..<5 {
+            if copy.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(copy.isHittable)
+        XCTAssertTrue(copy.isEnabled, "Stopping capture must preserve the report for copying.")
+        XCTAssertTrue(app.buttons["Share Report"].isEnabled)
+        copy.tap()
+    }
+
+    @MainActor
     func testMoreMenuUsesNativePresentation() {
         let app = launchFixture("live")
         let more = app.buttons["More controls"]

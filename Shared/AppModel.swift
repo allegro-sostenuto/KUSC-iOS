@@ -21,6 +21,8 @@ import UIKit
     @Published private(set) var schedulePhase: ScheduledStartPhase?
     @Published private(set) var currentOutputRoute = ObservedAudioRoute(ports: [])
     @Published private(set) var acquisitionIsStale = false
+    @Published private(set) var bufferFailureMessage: String?
+    var diagnostics: PlaybackDiagnostics { engine.diagnostics }
 
     // Transport exposes intent so Pause remains available while waiting or seeking.
     var isPlaying: Bool { wantsPlayback }
@@ -142,11 +144,24 @@ import UIKit
         settings.retentionMinutes = min(15, max(0, settings.retentionMinutes))
         settings.save()
         if settings.retentionMinutes != appliedSettings.retentionMinutes {
+            bufferFailureMessage = nil
+            diagnostics.record("settings retention=\(settings.retentionMinutes) resumeWherePaused=\(settings.resumeWherePaused)")
             engine.setRetention(minutes: settings.retentionMinutes)
             if settings.retentionMinutes == 0 { bufferWindow = nil; pausedAt = nil }
         }
         appliedSettings = settings
     }
+
+    func startPlaybackDiagnostics() {
+        let bundle = Bundle.main
+        let version = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "unknown"
+        let build = (bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "unknown"
+        let routeTypes = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.sorted().joined(separator: ",")
+        diagnostics.start(context: "KUSC \(version) build \(build); \(UIDevice.current.model); iOS \(UIDevice.current.systemVersion); retention=\(settings.retentionMinutes); resumeWherePaused=\(settings.resumeWherePaused); playbackRequested=\(wantsPlayback); outputTypes=[\(routeTypes)]")
+        engine.recordDiagnosticSnapshot()
+    }
+
+    func stopPlaybackDiagnostics() { diagnostics.stop() }
 
     func play() {
         #if DEBUG
@@ -323,9 +338,26 @@ import UIKit
         precondition(isUIFixture)
         updateGains()
     }
+
+    func configurePausedDiagnosticFailureForTesting() {
+        precondition(isUIFixture)
+        wantsPlayback = false
+        state = .pausedLive
+        settings.retentionMinutes = 5
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        let segments = (0..<2).map { index in
+            AudioSegment(url: URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac"),
+                         start: anchor.addingTimeInterval(Double(index * 10)),
+                         end: anchor.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
+        }
+        engine.configureBufferedTransportForTesting(segments: segments, pausedAt: anchor.addingTimeInterval(4))
+        startPlaybackDiagnostics()
+        engine.failForDiagnosticsTesting(AudioStreamError.unsupportedFormat("diagnostic fixture failure"))
+    }
     #endif
 
     private func startConnection() {
+        bufferFailureMessage = nil
         connectionTask?.cancel()
         let generation = UUID(); connectionGeneration = generation
         if scheduleOwnsPlayback { scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
@@ -345,6 +377,14 @@ import UIKit
     }
 
     private func connectionFailed(_ error: Error) {
+        // Engine failures normally freeze the report before this callback clears
+        // their state. Startup failures can arrive directly from startConnection.
+        diagnostics.captureFailure(error, origin: "model.connectionFailed")
+        if settings.retentionMinutes > 0 {
+            bufferFailureMessage = wantsPlayback
+                ? "Audio collection stopped. Reconnecting…"
+                : "Rewind stopped after an audio error. Tap Play to reconnect."
+        }
         guard wantsPlayback else {
             hasStartedEngine = false; engine.stop(); bufferWindow = nil; return
         }
@@ -364,6 +404,7 @@ import UIKit
         }
         if bufferWindow != snapshot.window { bufferWindow = snapshot.window }
         if acquisitionIsStale != snapshot.acquisitionIsStale { acquisitionIsStale = snapshot.acquisitionIsStale }
+        if snapshot.isPlaying { bufferFailureMessage = nil }
         audioIsAdvancing = snapshot.isPlaying && !snapshot.isWaiting && !snapshot.isSeeking
         if scheduleOwnsPlayback {
             if audioIsAdvancing && snapshot.isReady && !interruptionActive {

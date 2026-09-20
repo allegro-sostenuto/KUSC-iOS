@@ -92,7 +92,7 @@ For each run, schedule a new near-future event, confirm notification permission 
 
 After installing through AltStore, keep the same network, audio output and volume, and cancel active sleep timers or scheduled starts. Listen with retention Off for two minutes, then with five-minute retention for three minutes after connection. Rewind about 30 seconds, try Live and the slider's right edge, and try Pause then Play; distinguish deliberate seek transitions from unexpected pauses. Listen locked for one minute, then turn retention Off and listen for one final minute. If an unexpected pause occurs, record its approximate time, duration, recurrence, output, visible state and whether the thumb froze or jumped. This 8–10 minute check identifies whether the reported symptom persists; it does not establish long-run continuity.
 
-The ordinary Release IPA supports this check, but diagnostic logging is compiled out. Detailed queue/media-clock traces require a separate Debug device build with `-KUSCAudioDiagnostics` and development-console capture; that flag cannot enable logs in a Release installation.
+Build 6 does not include on-device diagnostic capture. The September 21 diagnostic update adds **Settings → Playback Diagnostics** to ordinary Release IPAs; no Xcode launch arguments are needed. Start capture explicitly, reproduce once, then copy or share the frozen first-failure report before closing the app. The older `-KUSCAudioDiagnostics` console trace remains Debug-only. See [the 14-second failure procedure](diagnostics_2026-09-21.md) for the current investigation and validation status.
 
 ### Extended measurements
 
@@ -126,8 +126,8 @@ Installation/runtime entries below are **Not run**. CI results apply only to the
 
 | Check | Required observation | Status |
 |---|---|---|
-| Device build jobs | Both Foundation test runs and iphoneos builds pass without Apple secrets | Passed at 0c37455, run 35517035789; native capture job tracked separately in the update report |
-| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Passed at 0c37455 in CI and after local download; artifact digests verified |
+| Device build jobs | Both Foundation test runs and iphoneos builds pass without Apple secrets | Passed at 2e73cc9, run 35518835405; native capture jobs also pass |
+| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Passed at 2e73cc9 in CI and after local download; artifact digests verified |
 | SE legacy AltStore selection, if applicable | On iOS 16–17.3 AltServer installs a compatible older AltStore | Not run |
 | SE signing/install | Correct IPA imports through AltStore, appears in My Apps, and launches | Not run |
 | iPhone 17 signing/install | App and kept Live Activity extension are provisioned and launch | Not run |

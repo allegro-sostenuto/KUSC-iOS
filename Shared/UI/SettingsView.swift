@@ -53,6 +53,15 @@ struct SettingsView: View {
                         .pickerStyle(.wheel)
                         .frame(height: 150)
                         .clipped()
+                        divider
+                        NavigationLink {
+                            PlaybackDiagnosticsView(diagnostics: model.diagnostics)
+                        } label: {
+                            Text("Playback Diagnostics")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .listRowSeparator(.hidden)
                     .listRowBackground(cardBackground)
