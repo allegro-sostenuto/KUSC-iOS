@@ -7,10 +7,11 @@ final class PlaybackDiagnosticsIntegrationTests: XCTestCase {
         let engine = RollingAudioEngine()
         defer { engine.stop() }
         let start = Date(timeIntervalSince1970: 1_800_000_000)
-        let segments = (0..<2).map { index in
-            AudioSegment(url: URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac"),
-                         start: start.addingTimeInterval(Double(index * 10)),
-                         end: start.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
+        let segments: [AudioSegment] = (0..<2).map { (index: Int) -> AudioSegment in
+            let url = URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac")
+            let segmentStart = start.addingTimeInterval(TimeInterval(index) * 10)
+            let segmentEnd = segmentStart.addingTimeInterval(10)
+            return AudioSegment(url: url, start: segmentStart, end: segmentEnd, byteCount: 100)
         }
         engine.configureBufferedTransportForTesting(segments: segments, pausedAt: start.addingTimeInterval(4))
         engine.diagnostics.start(context: "paused buffer regression")

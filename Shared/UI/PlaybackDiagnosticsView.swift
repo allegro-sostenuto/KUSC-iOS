@@ -58,7 +58,7 @@ struct PlaybackDiagnosticsView: View {
             Section("Reproduce the buffer issue") {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("1. Set the rolling buffer to 5 minutes in Settings, then start a new capture here.")
-                    Text("2. Return to Now Playing. Start playback and pause before the left history label reaches −00:14.")
+                    Text("2. Return to Now Playing and tap Play. Once you hear audio and history appears, pause before the left label reaches −00:14. If it fails sooner, save that report anyway.")
                     Text("3. Keep KUSC open and the screen unlocked for 45 seconds, or until the history disappears.")
                     Text("4. After the problem occurs, return here to share or copy the report.")
                 }

@@ -345,10 +345,11 @@ import UIKit
         state = .pausedLive
         settings.retentionMinutes = 5
         let anchor = Date(timeIntervalSince1970: 1_800_000_000)
-        let segments = (0..<2).map { index in
-            AudioSegment(url: URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac"),
-                         start: anchor.addingTimeInterval(Double(index * 10)),
-                         end: anchor.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
+        let segments: [AudioSegment] = (0..<2).map { (index: Int) -> AudioSegment in
+            let url = URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac")
+            let start = anchor.addingTimeInterval(TimeInterval(index) * 10)
+            let end = start.addingTimeInterval(10)
+            return AudioSegment(url: url, start: start, end: end, byteCount: 100)
         }
         engine.configureBufferedTransportForTesting(segments: segments, pausedAt: anchor.addingTimeInterval(4))
         startPlaybackDiagnostics()
