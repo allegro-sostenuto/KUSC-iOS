@@ -135,6 +135,7 @@ final class RollingAudioEngine {
         publish()
     }
     func acceptBufferedSegmentForTesting(_ segment: AudioSegment) { accept(segment) }
+    func refillBufferedQueueForTesting() { fillQueue(); publish() }
     #endif
 
     func start(url: URL, retentionMinutes: Int, playbackRequested: Bool = true) async throws {
@@ -262,6 +263,14 @@ final class RollingAudioEngine {
 
     func goLive() {
         guard let player else { return }
+        if switchTask != nil {
+            // The replacement already joins live. Until it runs, retentionMinutes
+            // may describe the new mode while player still owns the old mode.
+            // Never insert a direct HLS item into that outgoing buffered queue.
+            wantsInitialLivePosition = true
+            publish()
+            return
+        }
         if retentionMinutes > 0 {
             guard let live = safeLiveTarget() else {
                 // Buffered startup has exactly one acquisition path. Keep its
@@ -377,6 +386,11 @@ final class RollingAudioEngine {
         itemObservation = nil
         if !isSeeking, retentionMinutes > 0, let previous = lastCurrentItem, previous !== player?.currentItem,
            let segment = queued[ObjectIdentifier(previous)] {
+            if previous.status == .failed {
+                lastCurrentItem = player?.currentItem
+                reportFailure(previous.error ?? AudioStreamError.disconnected)
+                return
+            }
             // Our only non-seek queue transition is automatic advance-at-end.
             // Capture the consumed endpoint before mappings disappear; an end
             // notification can be delivered after the currentItem notification.
@@ -400,6 +414,10 @@ final class RollingAudioEngine {
     }
 
     private func accept(_ segment: AudioSegment) {
+        guard !failed else {
+            try? FileManager.default.removeItem(at: segment.url)
+            return
+        }
         segments.append(segment)
         lastAcquisitionUptime = ProcessInfo.processInfo.systemUptime
         applyRetention()
@@ -477,15 +495,34 @@ final class RollingAudioEngine {
     }
 
     private func fillQueue() {
-        guard let queue = player as? AVQueuePlayer, let tail = queue.items().last,
-              let lastSegment = queued[ObjectIdentifier(tail)] else { return }
+        guard !failed, let queue = player as? AVQueuePlayer else { return }
+        guard let tail = queue.items().last else {
+            guard !isSeeking, !wantsInitialLivePosition else { return }
+            // Auto-advance can empty the queue between an ingest callback's
+            // currentItem check and canInsert. Existing downloaded files must
+            // refill it now, not wait up to another whole segment's arrival.
+            observeCurrentItem()
+            pruneQueueMappings()
+            guard !failed, let requested = pausedAt ?? lastEndedPosition ?? cursor.position,
+                  let target = BufferRetention.seekTarget(requested, result: retention),
+                  segments.contains(where: { target >= $0.start && target < $0.end }) else { return }
+            recordDiagnostic("refill empty queue P=\(requested.timeIntervalSince1970) target=\(target.timeIntervalSince1970)")
+            reposition(to: target)
+            return
+        }
+        guard let lastSegment = queued[ObjectIdentifier(tail)] else { return }
         var previous = tail
         let availableSlots = max(0, 4 - queue.items().count)
-        for segment in segments.filter({ $0.start >= lastSegment.end.addingTimeInterval(-0.05) }).prefix(availableSlots) {
-            // Never replay a segment already queued after a manifest refresh.
-            guard !queued.values.contains(where: { $0.id == segment.id }) else { continue }
+        let followers = BufferQueuePolicy.followers(after: lastSegment, retained: segments,
+            alreadyQueued: Set(queued.values.map(\.id)), limit: availableSlots)
+        for segment in followers {
             let item = AVPlayerItem(url: segment.url)
-            guard queue.canInsert(item, after: previous) else { break }
+            guard queue.canInsert(item, after: previous) else {
+                // If the referenced tail was consumed meanwhile, the empty
+                // branch can seed the already retained successor immediately.
+                if queue.items().isEmpty { fillQueue() }
+                return
+            }
             queued[ObjectIdentifier(item)] = segment
             queue.insert(item, after: previous)
             previous = item

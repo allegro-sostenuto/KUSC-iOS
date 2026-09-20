@@ -88,6 +88,7 @@ import UIKit
     private var scheduleDiagnostics: [String] = []
     private var lastDiagnosticGain: Float = -1
     private var isUIFixture = ProcessInfo.processInfo.environment["KUSC_UI_STATE"] != nil
+    private var boundaryGainTrace: [Float]?
     #endif
     private var unpluggedAt: Date?
     private var notificationOnly = false
@@ -293,6 +294,34 @@ import UIKit
     }
     func configureUIFixtureOutputUnavailable() {
         currentOutputRoute = ObservedAudioRoute(ports: [])
+    }
+
+    /// Hosted XCTest exercises the real coordinator/engine gain boundary without
+    /// starting an AVPlayer, changing the audio session, or contacting the station.
+    func configureScheduledGainBoundaryTest(schedule: Float, sleep: Float) {
+        precondition(isUIFixture, "Boundary tests require the isolated UI fixture launch environment")
+        cancelSchedule(); cancelSleep()
+        ticker?.invalidate(); ticker = nil
+        gainTimer?.invalidate(); gainTimer = nil
+        scheduleRequest = ScheduledStartRequest(date: Date().addingTimeInterval(60))
+        scheduleOwnsPlayback = true
+        scheduleEnvelope = nil
+        wantsPlayback = true
+        hasStartedEngine = false
+        audioIsAdvancing = false
+        scheduleGain = schedule
+        sleepGain = sleep
+        boundaryGainTrace = []
+        applyGain()
+    }
+
+    var scheduledGainBoundaryState: (gain: Float, wantsPlayback: Bool, ownsPlayback: Bool, hasSchedule: Bool, trace: [Float]) {
+        (engine.volume, wantsPlayback, scheduleOwnsPlayback, scheduleRequest != nil, boundaryGainTrace ?? [])
+    }
+
+    func runScheduledGainCallbackForTest() {
+        precondition(isUIFixture)
+        updateGains()
     }
     #endif
 
@@ -640,6 +669,7 @@ import UIKit
         engine.volume = ScheduledStartPolicy.composedGain(schedule: scheduleGain, sleep: sleepGain,
                                                         muted: !wantsPlayback || interruptionActive)
         #if DEBUG
+        boundaryGainTrace?.append(engine.volume)
         if scheduleOwnsPlayback && abs(lastDiagnosticGain - engine.volume) >= 0.025 {
             lastDiagnosticGain = engine.volume
             recordScheduleDiagnostic("scheduleGain=\(scheduleGain) sleepGain=\(sleepGain) effective=\(engine.volume)")

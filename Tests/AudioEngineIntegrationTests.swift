@@ -23,6 +23,18 @@ import XCTest
         XCTAssertEqual(latest?.hasAudio, false)
     }
 
+    func testLiveDuringBufferedToDirectSwitchDoesNotUseTheOutgoingQueue() async throws {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        try await engine.start(url: source, retentionMinutes: 5)
+        engine.setRetention(minutes: 0)
+        engine.goLive()
+        XCTAssertEqual(latest?.hasAudio, false,
+                       "The queued mode replacement owns the next live join; the outgoing queue must stay local-only")
+    }
+
     func testLiveWhilePausedThenPlayPreservesThePendingLiveSeek() {
         let engine = RollingAudioEngine()
         defer { engine.stop() }
@@ -68,6 +80,26 @@ import XCTest
         XCTAssertNotNil(latest?.pendingSeekAt)
         XCTAssertEqual(latest!.pendingSeekAt!.timeIntervalSince(origin), 6, accuracy: 0.05)
         XCTAssertEqual(latest?.hasConfirmedPosition, false)
+    }
+
+    func testEmptyQueueRefillsAlreadyDownloadedAudioWithoutAnotherArrival() {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        let files = (0..<3).map { index in
+            AudioSegment(url: URL(fileURLWithPath: "/nonexistent/kusc-refill-\(index).aac"),
+                         start: origin.addingTimeInterval(Double(index * 10)),
+                         end: origin.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
+        }
+        let consumedEnd = origin.addingTimeInterval(20)
+        engine.configureBufferedTransportForTesting(segments: files, pausedAt: consumedEnd)
+        XCTAssertEqual(latest?.hasAudio, false)
+        engine.refillBufferedQueueForTesting()
+        XCTAssertEqual(latest?.hasAudio, true)
+        XCTAssertEqual(latest?.pendingSeekAt, consumedEnd)
+        XCTAssertEqual(latest?.heardAt, consumedEnd)
     }
 
     func testPauseBeforeRetentionSwitchKeepsReplacementPlaybackPaused() async throws {

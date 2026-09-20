@@ -31,9 +31,6 @@ struct SettingsView: View {
                                 Text(model.settings.resumeWherePaused ? "Where Paused" : "Live")
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.trailing)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 12)
                         }

@@ -139,6 +139,27 @@ final class BufferRegressionTests: XCTestCase {
         XCTAssertEqual(AcquisitionPollPolicy.delay(targetDuration: 4, elapsed: 0.2), 0.8, accuracy: 0.0001)
     }
 
+    func testQueuePreservesFilesWithAcceptedTimestampOverlap() {
+        let first = segment(0, 10)
+        let overlap = segment(9.8, 19.8)
+        let third = segment(19.8, 29.8)
+        let fourth = segment(29.8, 39.8)
+        let files = [first, overlap, third, fourth]
+        XCTAssertEqual(BufferQueuePolicy.followers(after: first, retained: files,
+            alreadyQueued: [first.id], limit: 3), [overlap, third, fourth])
+        XCTAssertEqual(BufferQueuePolicy.followers(after: first, retained: files,
+            alreadyQueued: [first.id, overlap.id], limit: 2), [third, fourth])
+        XCTAssertTrue(BufferQueuePolicy.followers(after: fourth, retained: files,
+            alreadyQueued: [fourth.id], limit: 3).isEmpty)
+    }
+
+    func testQueueCanFollowAnExpiredTailWithoutReplayingEarlierFiles() {
+        let expired = segment(0, 10)
+        let files = [segment(9.8, 19.8), segment(19.8, 29.8)]
+        XCTAssertEqual(BufferQueuePolicy.followers(after: expired, retained: files,
+            alreadyQueued: [], limit: 4), files)
+    }
+
     func testTenSecondSegmentCadenceMaintainsHeadroomAcrossAMinute() {
         var clock = LivePlaybackClock()
         var files = [segment(0, 10), segment(10, 20)]

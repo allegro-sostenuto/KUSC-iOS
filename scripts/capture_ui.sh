@@ -40,7 +40,10 @@ trap cleanup EXIT
     echo 'Output names, when available, come from the simulator audio session; no devices are fabricated.'
     echo 'These screenshots do not verify real playback, background scheduling, Bluetooth or AirPlay.'
     echo 'More menu capture is requested by native XCUITest using a real tap; test outcomes are recorded below.'
-    echo 'Large text uses accessibility3. Landscape uses the public UIWindowScene geometry request.'
+    echo 'All updated-layout screenshots use KUSC-SE shared UI on each device profile; KUSC-17 is also built and installed.'
+    echo 'Updated layouts wait for visible fixture controls in XCTest; no fixed launch delay accepts a blank image.'
+    echo 'Large text uses accessibility3. Landscape rotates XCUIDevice and captures its oriented native app screenshot.'
+    echo 'Named PNGs are copied byte-for-byte from XCTest attachments; pixels are never rotated or synthesized.'
 } > "$report"
 
 # Create our own devices from installed runtimes; never reset a developer's simulator.
@@ -110,27 +113,6 @@ else
     echo "UNEXECUTED: baseline capture; commit $baseline_ref is unavailable locally." >> "$report"
 fi
 
-capture() {
-    local state="$1" filename="$2" landscape="${3:-0}" large="${4:-0}" dark="${5:-0}" minimal="${6:-0}"
-    xcrun simctl terminate "$device" "$bundle" >/dev/null 2>&1 || true
-    SIMCTL_CHILD_KUSC_UI_STATE="$state" SIMCTL_CHILD_KUSC_UI_LANDSCAPE="$landscape" \
-    SIMCTL_CHILD_KUSC_UI_LARGE_TEXT="$large" SIMCTL_CHILD_KUSC_UI_DARK="$dark" \
-    SIMCTL_CHILD_KUSC_UI_MINIMAL="$minimal" \
-        xcrun simctl launch "$device" "$bundle" >> "$report" 2>&1
-    sleep 3
-    xcrun simctl io "$device" screenshot "$output/$label/$filename.png" >> "$report" 2>&1
-    python3 - "$output/$label/$filename.png" "$landscape" <<'PY'
-from pathlib import Path
-import struct, sys
-path = Path(sys.argv[1])
-data = path.read_bytes()
-width, height = struct.unpack('>II', data[16:24])
-if (width > height) != (sys.argv[2] == '1'):
-    raise SystemExit(f'Capture orientation mismatch: {path.name}: {width}x{height}')
-print(f'Captured {path.name}: {width}x{height}')
-PY
-}
-
 test_failures=0
 while IFS='|' read -r label device type runtime; do
     mkdir -p "$output/$label"
@@ -154,18 +136,6 @@ while IFS='|' read -r label device type runtime; do
     fi
     bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
     xcrun simctl install "$device" "$app"
-    for state in live dark programme settings sleep schedule schedule-output minimal reconnecting output paused \
-                 no-artwork unavailable-programme partial-buffer paused-buffer scheduled-silent scheduled-fade unavailable-output; do
-        capture "$state" "$state"
-    done
-    capture live landscape 1
-    capture minimal minimal-landscape 1 0 0 1
-    capture live large-text 0 1
-    capture programme programme-large-text 0 1
-    capture schedule schedule-large-text 0 1
-    capture settings settings-dark 0 0 1
-    capture sleep sleep-dark 0 0 1
-    capture schedule-output schedule-output-dark 0 0 1
     result="$output/$label/Interactions.xcresult"
     if xcodebuild -project "$root/KUSC.xcodeproj" -scheme KUSC-SE -configuration Debug \
         -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/ui-tests" \
@@ -177,9 +147,16 @@ while IFS='|' read -r label device type runtime; do
         echo "FAIL: $label hosted unit or native interaction tests; inspect ui-tests.log and Interactions.xcresult." >> "$report"
         test_failures=$((test_failures + 1))
     fi
-    if ! xcrun xcresulttool export attachments --path "$result" \
+    if xcrun xcresulttool export attachments --path "$result" \
         --output-path "$output/$label/test-attachments" >> "$report" 2>&1; then
+        if ! python3 scripts/collect_ui_attachments.py "$output/$label/test-attachments" \
+            "$output/$label" >> "$report" 2>&1; then
+            echo "FAIL: $label native screenshot collection is incomplete or has invalid dimensions." >> "$report"
+            test_failures=$((test_failures + 1))
+        fi
+    else
         echo "Attachment export unavailable for $label; original Interactions.xcresult is preserved." >> "$report"
+        test_failures=$((test_failures + 1))
     fi
     xcrun simctl shutdown "$device"
 done < "$simulators"

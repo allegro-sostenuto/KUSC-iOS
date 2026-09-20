@@ -85,6 +85,11 @@ import UIKit
         if state == "unavailable-output" {
             model.configureUIFixtureOutputUnavailable()
         }
+        // XCTest rotates the actual simulated device and captures its oriented
+        // app image. A scene-only rotation leaves simctl's framebuffer portrait.
+        if ProcessInfo.processInfo.environment["KUSC_UI_ROTATION_DRIVER"] == "xctest" {
+            return true
+        }
         let orientation: UIInterfaceOrientationMask =
             ProcessInfo.processInfo.environment["KUSC_UI_LANDSCAPE"] == "1" ? .landscapeRight : .portrait
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {

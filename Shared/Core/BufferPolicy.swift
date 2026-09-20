@@ -155,6 +155,22 @@ public enum AcquisitionPollPolicy {
     }
 }
 
+public enum BufferQueuePolicy {
+    /// Manifest order/identity determines the next file. Small timestamp overlap
+    /// does not authorize dropping an entire segment of otherwise valid audio.
+    public static func followers(after tail: AudioSegment, retained: [AudioSegment],
+                                 alreadyQueued: Set<UUID>, limit: Int) -> [AudioSegment] {
+        let candidates: [AudioSegment]
+        if let index = retained.firstIndex(where: { $0.id == tail.id }) {
+            candidates = Array(retained.dropFirst(index + 1))
+        } else {
+            // A paused queue can outlive retention trimming of its old tail.
+            candidates = retained.filter { $0.end > tail.end }
+        }
+        return Array(candidates.filter { !alreadyQueued.contains($0.id) }.prefix(max(0, limit)))
+    }
+}
+
 /// Retains actual media time when the queue has no current item. Only an
 /// explicitly confirmed seek is allowed to move this cursor backwards.
 public struct ConfirmedPlaybackCursor {

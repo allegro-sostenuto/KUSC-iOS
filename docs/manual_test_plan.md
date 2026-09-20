@@ -1,6 +1,6 @@
 # KUSC manual acceptance and device test plan
 
-**Execution status: Not run.** No signed iOS build, iPhone, iOS simulator, CarPlay head unit, or Xcode runtime was available during development. Every actual-device check below remains **Not run**. Source review and pure policy tests do not establish an audio, UI, background, hardware-route, or provisioning pass.
+**Physical-device execution status: Not run.** The local Windows editing host has no signed iOS build, iPhone, CarPlay head unit, or Xcode runtime. Native builds and simulator checks run separately in macOS CI; their exact results are recorded in `update_2026-09-20.md`. Every actual-device check below remains **Not run**. Source review, policy tests and simulator layouts do not establish an audible continuity, background, hardware-route, or provisioning pass.
 
 ## Test records
 
@@ -37,7 +37,7 @@ Numbers correspond to the supplied specification's 38 acceptance criteria. “Wi
 | 12 | Inspect portrait at standard text size. Confirm artwork, title/movement, composer, performers, retained range, and controls in the specified hierarchy. Long names wrap and remain scrollable. | Not run | Not run |
 | 13 | Swipe right over the normal information region. Programme content replaces that region. Swipe left or use the back chevron to restore now playing. Vertical scrolling must not switch panels. | Not run | Not run |
 | 14 | With sufficient published station context, show five previous and ten upcoming items relative to the heard timestamp. If the station provides fewer, show available real items and a truthful unavailable state without fabricated entries. | Not run | Not run |
-| 15 | Long-press a retained item start. Verify progressive haptics and seek on completion. Single tap, short hold, scrolling, future items, and expired starts must not seek. Test a boundary expiring during the hold. | Not run | Not run |
+| 15 | Long-press a retained item start. Verify one native selection haptic and seek on completion. Single tap, short hold, scrolling, future items, and expired starts must not seek. Test a boundary expiring during the hold. | Not run | Not run |
 | 16 | Enable minimalist mode. Metadata, artwork, and programme swipe disappear; Play/Pause, Live, buffer control, gear, and all three overflow actions remain available. System metadata remains present. | Not run | Not run |
 | 17 | Rotate in both directions, including the small SE landscape size. Normal artwork is left and information/controls right. Programme content remains scrollable. | Not run | Not run |
 | 18 | Choose System, Light, and Dark. Change system appearance while System is selected. Check main screen and every sheet. | Not run | Not run |
@@ -88,6 +88,8 @@ For each run, schedule a new near-future event, confirm notification permission 
 
 ## Network, timing, and resource checks
 
+The owner reports immediate intermittent pauses only when retention is enabled; Off is the control case. Record Off for five minutes, then 1, 5 and 15 minutes of retention on the same route/network, including initial startup and at least 30 minutes of segment joins. Correlate each audible pause with the debug queue depth, item transition, advertised/downloaded edge and last confirmed cursor. Repeat on speaker, Bluetooth and AirPlay. Specifically delay an arrival until the queue drains while later downloaded files already exist: playback must consume those files without waiting for another network arrival. A matching UI timestamp alone is not an audio pass.
+
 | Check | Procedure and observation | SE | iPhone 17 |
 |---|---|---|---|
 | No network at launch | Confirm visible connection handling and return to ordinary Play after the retry window. Restore connectivity and use Play. | Not run | Not run |
@@ -112,12 +114,12 @@ The package is **not device-validated**. Sign-off requires recorded results for 
 
 ## Windows / GitHub / AltStore workflow acceptance
 
-Every runtime entry below is **Not run**. Record the GitHub run URL/commit, AltServer and AltStore versions, device model, OS, and result when performing it.
+Installation/runtime entries below are **Not run**. CI results apply only to the recorded commit; see `update_2026-09-20.md` for the latest build and screenshot evidence. Record the GitHub run URL/commit, AltServer and AltStore versions, device model, OS, and result when performing each remaining check.
 
 | Check | Required observation | Status |
 |---|---|---|
-| Clean public-repository Actions run | Both Foundation test runs and iphoneos builds pass without Apple secrets | Not run |
-| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Not run |
+| Clean public-repository Actions run | Both Foundation test runs and iphoneos builds pass without Apple secrets | Passed at 85f1381, run 35508504490; subsequent changes require a new run |
+| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Passed at 85f1381 in CI and after local download |
 | SE legacy AltStore selection, if applicable | On iOS 16–17.3 AltServer installs a compatible older AltStore | Not run |
 | SE signing/install | Correct IPA imports through AltStore, appears in My Apps, and launches | Not run |
 | iPhone 17 signing/install | App and kept Live Activity extension are provisioned and launch | Not run |

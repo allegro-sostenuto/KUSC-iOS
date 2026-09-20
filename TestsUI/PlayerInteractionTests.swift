@@ -1,10 +1,55 @@
 import XCTest
+import UIKit
 
 /// Native gesture and layout checks use DEBUG fixtures. They deliberately do not
 /// claim audio continuity, scheduling, or route behavior was exercised.
 final class PlayerInteractionTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+    }
+
+    @MainActor
+    func testCaptureNativeLayouts() {
+        // A failed state should preserve the remaining evidence. XCTest still
+        // fails this test, and the artifact collector rejects missing captures.
+        continueAfterFailure = true
+        let states = ["live", "dark", "programme", "settings", "sleep", "schedule",
+                      "schedule-output", "minimal", "reconnecting", "output", "paused",
+                      "no-artwork", "unavailable-programme", "partial-buffer", "paused-buffer",
+                      "scheduled-silent", "scheduled-fade", "unavailable-output"]
+        var fixtures = states.map { CaptureFixture(name: $0, state: $0) }
+        fixtures += [
+            CaptureFixture(name: "landscape", state: "live", landscape: true),
+            CaptureFixture(name: "minimal-landscape", state: "minimal", landscape: true),
+            CaptureFixture(name: "large-text", state: "live", largeText: true),
+            CaptureFixture(name: "programme-large-text", state: "programme", largeText: true),
+            CaptureFixture(name: "schedule-large-text", state: "schedule", largeText: true),
+            CaptureFixture(name: "settings-dark", state: "settings", dark: true),
+            CaptureFixture(name: "sleep-dark", state: "sleep", dark: true),
+            CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true)
+        ]
+        for fixture in fixtures {
+            XCTContext.runActivity(named: "Capture " + fixture.name) { _ in
+                let app = startFixture(fixture)
+                defer { app.terminate() }
+                guard waitForFixture(fixture, in: app) else {
+                    XCTFail("Native UI did not become ready: \(fixture.name)")
+                    attach(app, named: "failed-readiness-" + fixture.name)
+                    return
+                }
+                let screenshot = app.screenshot()
+                let landscapePixels = screenshot.image.size.width > screenshot.image.size.height
+                guard landscapePixels == fixture.landscape else {
+                    XCTFail("Native screenshot orientation mismatch: \(fixture.name), \(screenshot.image.size)")
+                    attach(app, named: "failed-orientation-" + fixture.name)
+                    return
+                }
+                let attachment = XCTAttachment(screenshot: screenshot)
+                attachment.name = "capture-" + fixture.name
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
     }
 
     @MainActor
@@ -37,14 +82,55 @@ final class PlayerInteractionTests: XCTestCase {
 
     @MainActor
     private func launchFixture(_ state: String, landscape: Bool = false, largeText: Bool = false) -> XCUIApplication {
-        XCUIDevice.shared.orientation = landscape ? .landscapeRight : .portrait
-        let app = XCUIApplication()
-        app.launchEnvironment["KUSC_UI_STATE"] = state
-        app.launchEnvironment["KUSC_UI_LANDSCAPE"] = landscape ? "1" : "0"
-        app.launchEnvironment["KUSC_UI_LARGE_TEXT"] = largeText ? "1" : "0"
-        app.launch()
-        XCTAssertTrue(app.staticTexts["Native layout fixture"].waitForExistence(timeout: 10))
+        let fixture = CaptureFixture(name: state, state: state, landscape: landscape, largeText: largeText)
+        let app = startFixture(fixture)
+        XCTAssertTrue(waitForFixture(fixture, in: app))
         return app
+    }
+
+    private struct CaptureFixture {
+        let name: String
+        let state: String
+        var landscape = false
+        var largeText = false
+        var dark = false
+    }
+
+    @MainActor
+    private func startFixture(_ fixture: CaptureFixture) -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["KUSC_UI_STATE"] = fixture.state
+        app.launchEnvironment["KUSC_UI_ROTATION_DRIVER"] = "xctest"
+        app.launchEnvironment["KUSC_UI_LANDSCAPE"] = fixture.landscape ? "1" : "0"
+        app.launchEnvironment["KUSC_UI_LARGE_TEXT"] = fixture.largeText ? "1" : "0"
+        app.launchEnvironment["KUSC_UI_DARK"] = fixture.dark ? "1" : "0"
+        app.launch()
+        if fixture.landscape { XCUIDevice.shared.orientation = .landscapeRight }
+        return app
+    }
+
+    @MainActor
+    private func waitForFixture(_ fixture: CaptureFixture, in app: XCUIApplication) -> Bool {
+        let marker: XCUIElement
+        switch fixture.state {
+        case "settings": marker = app.switches["Auto-play on launch"]
+        case "sleep": marker = app.staticTexts["Sleep Timer"]
+        case "schedule": marker = app.staticTexts["Start once"]
+        case "schedule-output": marker = app.staticTexts["Audio Output"]
+        case "output", "unavailable-output": marker = app.staticTexts["Audio Output"]
+        case "paused": marker = app.buttons["Keep counting"]
+        case "programme": marker = app.staticTexts["Programme layout fixture"]
+        case "unavailable-programme": marker = app.staticTexts["Previous pieces are unavailable."]
+        case "minimal": marker = app.buttons["Pause"]
+        case "no-artwork": marker = app.buttons["Play"]
+        default: marker = app.buttons["More controls"]
+        }
+        guard marker.waitForExistence(timeout: 20) else { return false }
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            marker.isHittable && ((app.frame.width > app.frame.height) == fixture.landscape)
+        }, object: nil)
+        return XCTWaiter.wait(for: [ready], timeout: 10) == .completed
     }
 
     @MainActor
