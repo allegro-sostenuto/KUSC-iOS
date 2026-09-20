@@ -1,0 +1,160 @@
+[
+  {
+    "name": "Classical Music with Maggie Clennon Reberg",
+    "start": "2026-09-19T07:00:00-07:00",
+    "end": "2026-09-19T13:00:00-07:00",
+    "songs": [
+      {
+        "name": "Prelude to the Afternoon of a Faun L.86 - Claude Debussy",
+        "start": "2026-09-19T09:49:54-07:00",
+        "end": "2026-09-19T09:59:32-07:00",
+        "extraInfo": {
+          "MMID": "45160",
+          "artist": "Claude Debussy",
+          "Composer": "Claude Debussy",
+          "media_type": "Song",
+          "title": "Prelude to the Afternoon of a Faun L.86",
+          "MM_ID": "45160",
+          "Description": "Prelude to the Afternoon of a Faun L.86 - Claude Debussy",
+          "AirStarttime": "2026-09-19T16:49:54Z",
+          "AirStoptime": "2026-09-19T16:59:32Z",
+          "Record_Company": "Harmonia Mundi",
+          "ALBUM": "Debussy",
+          "UniversalIdentifier": "25b92e31-8f46-4213-bf40-80d1629babd2",
+          "Orchestra": "Philharmonia Orchestra",
+          "Conductor": "Pablo Heras-Casado",
+          "Spine_Number": "902310",
+          "MMGroupID": "Claude Debussy: Prelude to the Afternoon of a Faun"
+        }
+      },
+      {
+        "name": "Canarios - Gaspar Sanz",
+        "start": "2026-09-19T09:45:58-07:00",
+        "end": "2026-09-19T09:49:27-07:00",
+        "extraInfo": {
+          "MMID": "20505",
+          "artist": "Gaspar Sanz",
+          "Composer": "Gaspar Sanz",
+          "media_type": "Song",
+          "title": "Canarios",
+          "MM_ID": "20505",
+          "Description": "Canarios - Gaspar Sanz",
+          "AirStarttime": "2026-09-19T16:45:58Z",
+          "AirStoptime": "2026-09-19T16:49:27Z",
+          "Record_Company": "Analekta",
+          "ALBUM": "Constantinople - Early Dreams",
+          "UniversalIdentifier": "6ee0b4a2-e9e2-42e2-8450-06bfa445bc46",
+          "Orchestra": "Constantinople",
+          "Spine_Number": "9989",
+          "MMGroupID": "Gaspar Sanz: Canarios"
+        }
+      },
+      {
+        "name": "Symphonic Variations Op 78 - Antonin Dvorak",
+        "start": "2026-09-19T09:22:23-07:00",
+        "end": "2026-09-19T09:44:53-07:00",
+        "extraInfo": {
+          "MMID": "646",
+          "artist": "Antonin Dvorak",
+          "Composer": "Antonin Dvorak",
+          "media_type": "Song",
+          "title": "Symphonic Variations Op 78",
+          "MM_ID": "00646",
+          "Description": "Symphonic Variations Op 78 - Antonin Dvorak",
+          "AirStarttime": "2026-09-19T16:22:23Z",
+          "AirStoptime": "2026-09-19T16:44:53Z",
+          "Record_Company": "Philips",
+          "ALBUM": "Dvorak Symphonic Variations, etc.",
+          "UniversalIdentifier": "be338a0c-85e1-497c-8987-97474fc252ef",
+          "Orchestra": "London Symphony Orchestra",
+          "Spine_Number": "420349",
+          "Conductor": "Sir Colin Davis",
+          "MMGroupID": "Antonin Dvorak: Symphonic Variations"
+        }
+      },
+      {
+        "name": "Piano Sonata \"Easter Sonata\" in A - Fanny Mendelssohn",
+        "start": "2026-09-19T09:16:00-07:00",
+        "end": "2026-09-19T09:21:41-07:00",
+        "extraInfo": {
+          "MMID": "82281",
+          "artist": "Fanny Mendelssohn",
+          "Composer": "Fanny Mendelssohn",
+          "media_type": "Song",
+          "title": "Piano Sonata \"Easter Sonata\" in A",
+          "MM_ID": "82281",
+          "Description": "Piano Sonata \"Easter Sonata\" in A - Fanny Mendelssohn",
+          "AirStarttime": "2026-09-19T16:16:00Z",
+          "AirStoptime": "2026-09-19T16:21:41Z",
+          "Record_Company": "Decca",
+          "ALBUM": "Mendelssohn",
+          "UniversalIdentifier": "44844637-6b19-4628-b3e6-e2ee94716a30",
+          "MMGroupID": "Felix Medelssohn: Easter Sonata",
+          "Soloist": "Isata Kanneh-Mason, piano"
+        }
+      },
+      {
+        "name": "Clarinet Quintet in A K 581 - Wolfgang Amadeus Mozart",
+        "start": "2026-09-19T09:05:30-07:00",
+        "end": "2026-09-19T09:14:55-07:00",
+        "extraInfo": {
+          "MMID": "49944",
+          "artist": "Wolfgang Amadeus Mozart",
+          "Composer": "Wolfgang Amadeus Mozart",
+          "media_type": "Song",
+          "title": "Clarinet Quintet in A K 581",
+          "MM_ID": "49944",
+          "Description": "Clarinet Quintet in A K 581 - Wolfgang Amadeus Mozart",
+          "AirStarttime": "2026-09-19T16:05:30Z",
+          "AirStoptime": "2026-09-19T16:14:55Z",
+          "Record_Company": "Foghorn Classics",
+          "ALBUM": "Brahms & Mozart",
+          "UniversalIdentifier": "7a67b92e-078d-4cef-8afa-6ab3b5f77791",
+          "Orchestra": "Alexander String Quartet",
+          "Spine_Number": "2021",
+          "Soloist": "Eli Eban, clarinet",
+          "MMGroupID": "Wolfgang Amadeus Mozart: Clarinet Quintet"
+        }
+      },
+      {
+        "name": "The Theory of Everything - Johann Johannsson",
+        "start": "2026-09-19T09:02:14-07:00",
+        "end": "2026-09-19T09:04:50-07:00",
+        "extraInfo": {
+          "MMID": "26038",
+          "artist": "Johann Johannsson",
+          "Composer": "Johann Johannsson",
+          "media_type": "Song",
+          "title": "The Theory of Everything",
+          "MM_ID": "26038",
+          "Description": "The Theory of Everything - Johann Johannsson",
+          "AirStarttime": "2026-09-19T16:02:14Z",
+          "AirStoptime": "2026-09-19T16:04:50Z",
+          "Record_Company": "180",
+          "ALBUM": "The Theory of Everything - Original Motion Picture Soundtrack",
+          "UniversalIdentifier": "8f2641c5-5315-4def-b2c0-8e428fc998e3",
+          "Orchestra": "Original Soundtrack",
+          "Spine_Number": "B00NOWAM7C",
+          "Conductor": "Ben Foster",
+          "MMGroupID": "Johann Johannsson: The Theory of Everything"
+        }
+      }
+    ],
+    "extraInfo": {
+      "show_name": "Saturday Morning",
+      "host_name": "Maggie Clennon Reberg",
+      "show_id": "4rP7YRdvUnBhwEYI2IjoxG",
+      "host_id": "3iUtPawHpjuOvc0BLNNkFx"
+    },
+    "host": {
+      "slug": "maggie-clennon-reberg",
+      "name": "Maggie Clennon Reberg",
+      "image": "https://images.ctfassets.net/8usdt07j8s00/5UoUt5YzmNiQEAhG4mFzze/415d8c93e9bbf371ed9a0ad9bec22567/KDFCHosts_NHP_0004.webp"
+    },
+    "show": {
+      "slug": "classical-muisc-maggie",
+      "name": "Classical Music with Maggie Clennon Reberg",
+      "image": "https://images.ctfassets.net/8usdt07j8s00/fSzW2QevH0RVbCoM1WFI1/3e8a4b3ff72641bf72baae423ce56b11/Classical_Music_1_Banner.webp"
+    }
+  }
+]

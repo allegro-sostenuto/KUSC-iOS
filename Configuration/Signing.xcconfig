@@ -1,0 +1,6 @@
+// Windows/AltStore: keep the prefix stable and leave DEVELOPMENT_TEAM blank.
+// GitHub builds disable signing; Apple credentials are never supplied to CI.
+// Optional direct Xcode installation: set your Apple development Team ID.
+// All app and extension bundle identifiers derive from this one value.
+KUSC_BUNDLE_PREFIX = org.personal.kusc
+DEVELOPMENT_TEAM =

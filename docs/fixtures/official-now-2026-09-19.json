@@ -1,0 +1,34 @@
+{
+  "id": "hr37sdf6nv71umcd870uj1u6k0",
+  "created": "2026-09-19T16:49:56.000Z",
+  "updated": "2026-09-19T16:49:56.709Z",
+  "summary": "Prelude to the Afternoon of a Faun L.86 - Claude Debussy",
+  "description": "media_type: Song\ntitle: Prelude to the Afternoon of a Faun L.86\nartist: Claude Debussy\nMM_ID: 45160\nDescription: Prelude to the Afternoon of a Faun L.86 - Claude Debussy\nAirStarttime: 2026-09-19T16:49:54Z\nAirStoptime: 2026-09-19T16:59:32Z\nRecord_Company: Harmonia Mundi\nALBUM: Debussy\nUniversalIdentifier: 25b92e31-8f46-4213-bf40-80d1629babd2\nOrchestra: Philharmonia Orchestra\nConductor: Pablo Heras-Casado\nSpine_Number: 902310\nMMGroupID: Claude Debussy: Prelude to the Afternoon of a Faun\n",
+  "start": {
+    "dateTime": "2026-09-19T09:49:54-07:00",
+    "timeZone": "America/Los_Angeles"
+  },
+  "end": {
+    "dateTime": "2026-09-19T09:59:32-07:00",
+    "timeZone": "America/Los_Angeles"
+  },
+  "eventType": "default",
+  "extraInfo": {
+    "MMID": "45160",
+    "artist": "Claude Debussy",
+    "Composer": "Claude Debussy",
+    "media_type": "Song",
+    "title": "Prelude to the Afternoon of a Faun L.86",
+    "MM_ID": "45160",
+    "Description": "Prelude to the Afternoon of a Faun L.86 - Claude Debussy",
+    "AirStarttime": "2026-09-19T16:49:54Z",
+    "AirStoptime": "2026-09-19T16:59:32Z",
+    "Record_Company": "Harmonia Mundi",
+    "ALBUM": "Debussy",
+    "UniversalIdentifier": "25b92e31-8f46-4213-bf40-80d1629babd2",
+    "Orchestra": "Philharmonia Orchestra",
+    "Conductor": "Pablo Heras-Casado",
+    "Spine_Number": "902310",
+    "MMGroupID": "Claude Debussy: Prelude to the Afternoon of a Faun"
+  }
+}

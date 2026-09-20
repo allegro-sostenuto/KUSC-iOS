@@ -1,0 +1,22 @@
+{
+  "fetched_utc": "2026-09-19T17:11:57.156814+00:00",
+  "content_type": "audio/aacp",
+  "bytes": 122831,
+  "extinf_seconds": 9.98458,
+  "adts_seconds": 9.984580498866187,
+  "difference_seconds": 4.988661874705258e-07,
+  "frames": 215,
+  "core_rates": [
+    22050
+  ],
+  "skipped_ID3_or_header_bytes": 1357,
+  "trailing_bytes": 0,
+  "initial_bytes_hex": "49443304000000000a43505249560000",
+  "ffprobe_codec": "HE-AAC",
+  "decoded_sample_rate_hz": 44100,
+  "channels": 2,
+  "separate_fetch_timing_seconds": {
+    "master_including_redirects": 15.68,
+    "media_playlist": 7.55
+  }
+}

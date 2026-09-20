@@ -1,0 +1,71 @@
+name: Build unsigned iPhone apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.scheme }} device build
+    # Keep this zero-cost workflow from consuming private-repository minutes.
+    if: github.event.repository.private == false
+    # Standard runner: free for public repositories. Do not use a -large label.
+    runs-on: macos-26
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [KUSC-SE, KUSC-17]
+    env:
+      # Available on the documented macos-26 image; avoid the Xcode 27 preview.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check Xcode and device SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Validate source and run core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_source.py
+          swift test
+
+      - name: Build and validate unsigned IPA
+        shell: bash
+        env:
+          KUSC_SCHEME: ${{ matrix.scheme }}
+          KUSC_BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/build_unsigned_ipa.sh "$KUSC_SCHEME" dist
+
+      - name: Upload IPA and build record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.scheme }}-unsigned-ipa
+          path: |
+            dist/${{ matrix.scheme }}-unsigned.ipa
+            dist/${{ matrix.scheme }}-unsigned.ipa.sha256
+            dist/${{ matrix.scheme }}-build-info.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
