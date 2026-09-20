@@ -7,7 +7,7 @@ on:
       - '**.md'
       - 'docs/**'
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
     paths-ignore:
       - '**.md'
       - 'docs/**'

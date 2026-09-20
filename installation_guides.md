@@ -47,7 +47,7 @@ Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this rout
 ## 3. Compile both device IPAs on GitHub
 
 1. Open the repository's **Actions** tab and enable Actions if GitHub requests it.
-2. Open **Build unsigned iPhone apps**. Pushing to `main` or updating a pull request triggers it; **Run workflow** also starts it manually. Use the update's exact source revision when choosing an artifact.
+2. Open **Build unsigned iPhone apps**. Pushing to `main` or a `codex/` review branch, or updating a pull request, triggers it; **Run workflow** also starts it manually. Use the update's exact source revision when choosing an artifact.
 3. Wait for the SE and iPhone 17 jobs to finish successfully. Each runs the Foundation test suite before building the actual `iphoneos` target.
 4. Open the successful run's summary and download the artifact matching the phone from the table above. Artifact download may require signing into GitHub. [GitHub artifact downloads](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/downloading-workflow-artifacts).
 5. Extract the downloaded artifact ZIP. The resulting `.ipa` is the file imported into AltStore. Keep a local copy; Actions artifacts in this workflow expire after 14 days.
