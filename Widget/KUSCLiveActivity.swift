@@ -16,11 +16,12 @@ struct KUSCLiveActivity: Widget {
                     Text(context.state.title).font(.headline).lineLimit(2)
                     Text(context.state.composer).font(.subheadline).lineLimit(1)
                     HStack {
-                        Button(intent: ToggleKUSCPlaybackIntent()) { Image(systemName: context.state.playing ? "pause.fill" : "play.fill") }
+                        Button(intent: ToggleKUSCPlaybackIntent()) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
                         Button("Live", intent: GoLiveIntent())
-                    }.buttonStyle(.bordered)
+                    }.buttonStyle(ActivityControlStyle())
+                    if let status = context.state.status { Text(status).font(.caption).foregroundStyle(.secondary) }
                 }
-            }.padding().activityBackgroundTint(Color(.secondarySystemBackground))
+            }.padding().activityBackgroundTint(Color(.systemBackground))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -30,15 +31,17 @@ struct KUSCLiveActivity: Widget {
                     VStack(alignment: .leading) {
                         Text(context.state.title).font(.headline).lineLimit(2)
                         Text(context.state.composer).font(.caption).lineLimit(1)
+                        if let status = context.state.status { Text(status).font(.caption2).lineLimit(1) }
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 28) {
                         Button(intent: ToggleKUSCPlaybackIntent()) {
-                            Label(context.state.playing ? "Pause" : "Play", systemImage: context.state.playing ? "pause.fill" : "play.fill")
+                            Label((context.state.playbackRequested ?? context.state.playing) ? "Pause" : "Play",
+                                  systemImage: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill")
                         }
                         Button("Live", intent: GoLiveIntent())
-                    }.buttonStyle(.bordered).tint(.white)
+                    }.buttonStyle(ActivityControlStyle()).tint(.white)
                 }
             } compactLeading: {
                 ActivityArtwork(data: context.state.artwork).frame(width: 28, height: 28)
@@ -55,7 +58,16 @@ private struct ActivityArtwork: View {
     var body: some View {
         Group {
             if let data, let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFill() }
-            else { Image(systemName: "music.note").resizable().scaledToFit().padding(5).foregroundStyle(.red).background(.white) }
+            else { Image(systemName: "music.note").resizable().scaledToFit().padding(5).foregroundStyle(.red).background(Color(.systemBackground)) }
         }.clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+private struct ActivityControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.padding(.horizontal, 12).frame(minHeight: 44)
+            .background(Color(.systemBackground), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.35), lineWidth: 0.75))
+            .opacity(configuration.isPressed ? 0.65 : 1)
     }
 }

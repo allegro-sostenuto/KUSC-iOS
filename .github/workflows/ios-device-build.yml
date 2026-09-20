@@ -2,6 +2,10 @@ name: Build unsigned iPhone apps
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   push:
     branches: [main]
     paths-ignore:
@@ -69,3 +73,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  screenshots:
+    name: Native simulator layout capture
+    if: github.event.repository.private == false
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out source and baseline history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Capture native simulator layouts
+        shell: bash
+        run: bash scripts/capture_ui.sh artifacts/native-ui
+
+      - name: Upload native screenshots and capture limits
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-ui-screenshots
+          path: artifacts/native-ui
+          if-no-files-found: error
+          retention-days: 14

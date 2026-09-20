@@ -9,8 +9,13 @@ import UIKit
         WindowGroup {
             ContentView().environmentObject(model)
                 .preferredColorScheme(model.settings.appearance == "light" ? .light : model.settings.appearance == "dark" ? .dark : nil)
-                .tint(Color(red: 0.70, green: 0.06, blue: 0.12))
-                .task { model.launch() }
+                .tint(Color.kuscRed)
+                .task {
+                    #if DEBUG
+                    if UIFixture.configure(model: model) { return }
+                    #endif
+                    model.launch()
+                }
                 .onChange(of: scenePhase) { phase in if phase == .active { model.onForeground() } }
         }
     }

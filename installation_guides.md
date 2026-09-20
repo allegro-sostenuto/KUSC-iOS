@@ -47,7 +47,7 @@ Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this rout
 ## 3. Compile both device IPAs on GitHub
 
 1. Open the repository's **Actions** tab and enable Actions if GitHub requests it.
-2. Open **Build unsigned iPhone apps**. Pushing to `main` triggers it; **Run workflow** also starts it manually.
+2. Open **Build unsigned iPhone apps**. Pushing to `main` or updating a pull request triggers it; **Run workflow** also starts it manually. Use the update's exact source revision when choosing an artifact.
 3. Wait for the SE and iPhone 17 jobs to finish successfully. Each runs the Foundation test suite before building the actual `iphoneos` target.
 4. Open the successful run's summary and download the artifact matching the phone from the table above. Artifact download may require signing into GitHub. [GitHub artifact downloads](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/downloading-workflow-artifacts).
 5. Extract the downloaded artifact ZIP. The resulting `.ipa` is the file imported into AltStore. Keep a local copy; Actions artifacts in this workflow expire after 14 days.
@@ -55,6 +55,8 @@ Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this rout
 The supplied workflow uses standard `macos-26`, an explicitly selected Xcode 26 installation, shared `KUSC-SE` / `KUSC-17` schemes, Release configuration, and **`generic/platform=iOS`**. The build is a device binary, not a simulator app. Apple signing is disabled. Packaging checks verify the app/extension structure, device architecture/platform, deployment versions, and absence of provisioning material before artifact upload.
 
 The workflow runs only for public repositories. It excludes CarPlay schemes and contains no weekly schedule. GitHub rebuilds are needed after source changes or when an artifact needs to be regenerated; seven-day signing renewal happens through AltStore. Keep the standard runner label; larger runners are billed separately. [GitHub billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+
+The September 20 update preserves the app and extension identifiers. Install its IPA over the existing KUSC app using the same Apple account and retain the iPhone 17 extension. The `native-ui-screenshots` artifact, when present, is simulator evidence, not an installable app. Scheduled output preferences refer to an output actually selected through iOS; keep that device connected and selected until the start, or explicitly choose current-output fallback. Automatic playback and fades still require on-device verification after installing the update.
 
 If the job fails, open its failing step. A failed build produces no usable IPA. Xcode-image selection errors are resolved against GitHub's current [macOS 26 image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md), without switching the build to a simulator destination or adding Apple signing credentials.
 

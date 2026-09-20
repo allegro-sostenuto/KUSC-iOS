@@ -22,10 +22,11 @@ struct AppSettings: Codable, Equatable {
 
 enum PlaybackState: Equatable {
     case idle, connecting, playingLive, playingDelayed, pausedLive, pausedDelayed
-    case reconnecting(since: Date), fadingOut, scheduledStandby, stoppedBySleepTimer
+    case reconnecting(since: Date), buffering, seeking, interrupted, fadingOut, scheduledStandby, scheduledSilent, scheduledFadeIn, stoppedBySleepTimer
     var active: Bool {
         switch self {
-        case .connecting, .playingLive, .playingDelayed, .reconnecting, .fadingOut: return true
+        case .connecting, .playingLive, .playingDelayed, .reconnecting, .buffering, .seeking, .interrupted,
+             .fadingOut, .scheduledSilent, .scheduledFadeIn: return true
         default: return false
         }
     }

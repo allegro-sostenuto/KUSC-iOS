@@ -2,7 +2,7 @@
 
 Native private-use KUSC FM 91.5 player, with shared Swift/SwiftUI source and separate iOS 16 and iOS 26 app targets. Build from Windows through the included public-repository GitHub Actions workflow, then install with AltStore Classic and AltServer. Exact steps for both phones are in **[installation_guides.md](installation_guides.md)**; no local Mac or paid Apple membership is required for that route.
 
-**Delivery status:** source project, verified station endpoints, resources, provisioning configurations, 43 XCTest cases, and an unsigned device-build CI workflow are supplied. The workflow has not been run in a selected GitHub repository. This Linux environment has neither Xcode nor attached iPhones. The Apple-framework app has not been compiled, signed, installed, or device-tested here; the XCTest suite has not been executed. This is not a signed IPA or a claim that the specification's physical-device acceptance gate has passed. See [validation.md](docs/validation.md) and [manual_test_plan.md](docs/manual_test_plan.md).
+**Delivery status:** the starting revision `1cc5ae6` passed the [unsigned device workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35489878713); installation, background playback, and Live Activity were subsequently reported working by the owner. The September 20 update revises the interface, rolling-buffer timeline, and scheduled start. Its separate build/test results and remaining device checks are recorded in [the update report](docs/update_2026-09-20.md). Earlier successful playback does not validate the new implementation.
 
 ## Windows build and installation
 
@@ -33,10 +33,10 @@ CarPlay variants intentionally use the corresponding normal app's bundle identif
 - High-quality-only KUSC streaming, background audio session, system Play/Pause, interruption handling, automatic speaker fallback after output disconnection, and a one-minute reconnect window returning to ordinary Play.
 - Default zero-minute history; optional 1–15 minute wheel-controlled compressed rolling storage. A single HLS download path feeds playback and capture. Seeking clamps to retained audio. Resume Live is the default; Resume Where Paused clamps aged-out cursors to the oldest retained audio.
 - Timestamped metadata, bounded album-art cache, programme and host information, five previous and up to ten station-published upcoming items relative to heard audio.
-- Portrait and artwork-left landscape layouts; Dynamic Type; minimalist mode; system/light/dark appearance; top-right Settings; separate Sleep Timer, Scheduled Start, and Audio Output menu items.
-- Native programme long press with staged haptics, no single-tap seeking, and no system scrub/skip commands.
+- Reference-based portrait and artwork-left landscape layouts, separate work/movement typography, timed programme rows, and Dynamic Type. Standard transport follows the rendering's Live / Play-Pause / overflow row; minimalist portrait enlarges Play-Pause above Live and overflow. Dark app surfaces and controls stay pure black with borders. Native system picker highlights retain their system appearance.
+- Native programme long press with one selection haptic after eligibility is rechecked, no single-tap seeking, and no system scrub/skip commands.
 - Zero-to-twelve-hour sleep wheel, app-pause timer choices, broadcast-item endpoint/fallback/retry decisions, linear fades, and network shutdown on completion.
-- One-time scheduled start within 24 hours, notification fallback, charging-gated silent standby, ten-minute unplug grace, and 30% battery boundary.
+- One-time scheduled start within 24 hours: real muted playback begins one minute early, then fades over the final ten seconds. Short/late readiness retains the original deadline where possible. Observed output preferences default to notification-only fallback if the selected route is unavailable. Charging policy, unplug grace, interruptions, and explicit user actions govern execution.
 - iPhone 17 Live Activity with locally encoded artwork, Play/Pause and Live; optional CarPlay Now Playing and informational programme lists.
 
 ## Station interfaces and refresh

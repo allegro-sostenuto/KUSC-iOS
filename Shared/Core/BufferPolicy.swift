@@ -6,13 +6,15 @@ public struct AudioSegment: Identifiable, Equatable {
     public let start: Date
     public let end: Date
     public let byteCount: Int
+    public let discontinuity: Bool
 
-    public init(id: UUID = UUID(), url: URL, start: Date, end: Date, byteCount: Int) {
+    public init(id: UUID = UUID(), url: URL, start: Date, end: Date, byteCount: Int, discontinuity: Bool = false) {
         self.id = id
         self.url = url
         self.start = start
         self.end = end
         self.byteCount = max(0, byteCount)
+        self.discontinuity = discontinuity
     }
 }
 
@@ -85,6 +87,99 @@ public enum BufferRetention {
         }
         return window.live
     }
+}
+
+/// A live join is intentionally behind the downloaded edge. After joining, its
+/// clock advances continuously instead of jumping by one HLS segment per fetch.
+/// The margin is a bounded initial policy, not a claim of measured device latency.
+public struct LivePlaybackClock {
+    public static let joinHeadroom: TimeInterval = 8
+    public static let minimumHeadroom: TimeInterval = 2
+    public static let maximumHeadroom: TimeInterval = 128
+    private var anchor: Date?
+    private var anchorUptime: TimeInterval = 0
+
+    public init() {}
+
+    public mutating func target(in result: RetentionResult, uptime: TimeInterval) -> Date? {
+        guard let rawWindow = result.window, let newest = result.retained.last else { return nil }
+        // Never cross a gap to manufacture headroom. The last continuous suffix
+        // alone determines the join point; earlier history remains seekable.
+        var suffixStart = newest.start
+        var discontinuity = newest.discontinuity
+        for segment in result.retained.dropLast().reversed() {
+            guard !discontinuity, suffixStart.timeIntervalSince(segment.end) <= 0.05 else { break }
+            suffixStart = min(suffixStart, segment.start)
+            discontinuity = segment.discontinuity
+        }
+        let earliest = max(rawWindow.oldest, suffixStart)
+        let ceiling = max(earliest, newest.end.addingTimeInterval(-Self.minimumHeadroom))
+        // A full segment may not become available until its complete duration
+        // passes. Cover that observed cadence plus the two-second poll and a
+        // provisional two-second download allowance, not just a fixed 8 seconds.
+        let segmentDuration = result.retained.suffix(2).map { $0.end.timeIntervalSince($0.start) }.max() ?? 0
+        let headroom = min(64, max(Self.joinHeadroom, segmentDuration + 4))
+        let recoveryLimit = min(Self.maximumHeadroom, max(16, headroom + segmentDuration))
+        if anchor == nil {
+            anchor = max(earliest, newest.end.addingTimeInterval(-headroom))
+            anchorUptime = uptime
+        }
+        let projected = anchor!.addingTimeInterval(max(0, uptime - anchorUptime))
+        var target = min(ceiling, max(earliest, projected))
+        // Recovery may reveal a large acquisition gap. Keep the live definition
+        // bounded without moving a deliberately delayed listener's actual cursor.
+        if newest.end.timeIntervalSince(target) > recoveryLimit {
+            target = min(ceiling, max(earliest, newest.end.addingTimeInterval(-headroom)))
+        }
+        // Reanchor whenever capped, so time spent starved never becomes a jump
+        // when a new file arrives. Explicit gaps may advance to the next suffix.
+        anchor = target
+        anchorUptime = uptime
+        return target
+    }
+
+    public static func seekTarget(_ requested: Date, liveTarget: Date,
+                                  result: RetentionResult) -> Date? {
+        BufferRetention.seekTarget(min(requested, liveTarget), result: result)
+    }
+
+    public static func isAtLive(heardAt: Date, liveTarget: Date, acquisitionIsStale: Bool) -> Bool {
+        !acquisitionIsStale && heardAt >= liveTarget.addingTimeInterval(-0.75)
+    }
+}
+
+public enum AcquisitionPollPolicy {
+    /// Work already spent downloading is part of the interval, not extra delay.
+    public static func delay(targetDuration: TimeInterval, elapsed: TimeInterval) -> TimeInterval {
+        max(0, max(0.5, min(2, targetDuration / 4)) - max(0, elapsed))
+    }
+}
+
+/// Retains actual media time when the queue has no current item. Only an
+/// explicitly confirmed seek is allowed to move this cursor backwards.
+public struct ConfirmedPlaybackCursor {
+    public private(set) var position: Date?
+    public init() {}
+
+    public mutating func record(_ date: Date?, confirmingSeek: Bool = false) {
+        guard let date else { return }
+        if confirmingSeek || position == nil { position = date }
+        else { position = max(position!, date) }
+    }
+}
+
+/// A completion belongs only to the latest still-active seek. Pause, Live,
+/// teardown and a replacement seek revoke every prior completion.
+public struct PlaybackSeekGeneration {
+    public private(set) var pending: UUID?
+    public init() {}
+    @discardableResult public mutating func begin() -> UUID {
+        let request = UUID()
+        pending = request
+        return request
+    }
+    public mutating func invalidate() { pending = nil }
+    public func accepts(_ request: UUID) -> Bool { pending == request }
 }
 
 public enum ResumeMode: String, Codable, CaseIterable {

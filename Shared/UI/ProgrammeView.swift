@@ -3,43 +3,55 @@ import UIKit
 
 struct ProgrammeView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var timeColumnWidth: CGFloat = 44
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(nonempty(model.programmeName) ?? "Programme")
-                        .font(.title2.weight(.semibold))
+                        .font(.title.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
                     if let host = nonempty(model.hostName) {
-                        Text(host).font(.body).foregroundStyle(.secondary)
+                        Text(host)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                     }
-                    HStack(spacing: 4) {
-                        Text("Listening at")
-                        Text(model.heardAt, style: .time)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
+                programmeSection("Previous", items: Array(model.previousItems.prefix(5).reversed()),
+                                 emptyMessage: "Previous pieces are unavailable.")
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("Now playing")
+                    if let current = model.currentItem {
+                        row(current, isCurrent: true)
+                            .padding(14)
+                            .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                            }
+                    } else {
+                        Text("Current piece information is unavailable.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                programmeSection("Upcoming", items: Array(model.upcomingItems.prefix(10)),
+                                 emptyMessage: "Upcoming pieces have not been published.")
                 if model.bufferWindow != nil {
                     Text("Hold a retained piece to play from its beginning.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                programmeSection("Previous", items: Array(model.previousItems.prefix(5)),
-                                 emptyMessage: "Previous pieces are unavailable.")
-                if let current = model.currentItem {
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionHeading("Now heard")
-                        row(current)
-                    }
-                }
-                programmeSection("Upcoming", items: Array(model.upcomingItems.prefix(10)),
-                                 emptyMessage: "Upcoming pieces have not been published.")
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .foregroundStyle(Color.kuscInk)
+        .background(Color.kuscBackground)
     }
 
     private func nonempty(_ value: String?) -> String? {
@@ -48,68 +60,120 @@ struct ProgrammeView: View {
     }
 
     private func sectionHeading(_ title: String) -> some View {
-        Text(title)
-            .font(.headline)
+        Text(title.uppercased())
+            .font(.caption.weight(.medium))
+            .tracking(1)
             .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private func programmeSection(_ title: String, items: [ProgrammeItem], emptyMessage: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeading(title)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                sectionHeading(title)
+                Spacer()
+                if !items.isEmpty {
+                    Text("\(items.count) \(items.count == 1 ? "piece" : "pieces")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             if items.isEmpty {
                 Text(emptyMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(items, id: \.id) { item in
-                    row(item)
-                    Divider()
+                VStack(spacing: 0) {
+                    ForEach(items, id: \.id) { item in
+                        row(item)
+                            .padding(.vertical, 12)
+                        Rectangle()
+                            .fill(Color.kuscSeparator)
+                            .frame(height: 0.5)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
         }
     }
 
-    private func row(_ item: ProgrammeItem) -> some View {
-        let canSeek = model.settings.retentionMinutes > 0 &&
-            model.bufferWindow?.contains(item.start) == true &&
-            item.start <= Date()
-        return VStack(alignment: .leading, spacing: 5) {
-            Text(item.title.isEmpty ? "Untitled work" : item.title)
-                .font(.body.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-            if !item.composer.isEmpty {
-                Text(item.composer)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    private func row(_ item: ProgrammeItem, isCurrent: Bool = false) -> some View {
+        let canSeek = model.canSeek(to: item.start)
+        return rowContent(item, isCurrent: isCurrent, canSeek: canSeek)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay {
+                HapticSeekOverlay(isEnabled: canSeek) {
+                    // A retained boundary or gap can change during the hold.
+                    guard model.canSeek(to: item.start) else { return }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    model.seek(to: item.start)
+                }
+                .allowsHitTesting(canSeek)
+                .accessibilityHidden(true)
             }
-            HStack(spacing: 8) {
-                Text(item.start, style: .time)
+            .accessibilityElement(children: .combine)
+            .accessibilityActions {
                 if canSeek {
-                    Image(systemName: "waveform")
-                        .accessibilityLabel("Audio retained")
+                    Button("Play from beginning") {
+                        guard model.canSeek(to: item.start) else { return }
+                        model.seek(to: item.start)
+                    }
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .overlay {
-            HapticSeekOverlay(isEnabled: canSeek) {
-                // Recheck because the retained boundary can advance during the hold.
-                guard model.bufferWindow?.contains(item.start) == true else { return }
-                model.seek(to: item.start)
+    }
+
+    @ViewBuilder
+    private func rowContent(_ item: ProgrammeItem, isCurrent: Bool, canSeek: Bool) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                timeLabel(item, isCurrent: isCurrent, canSeek: canSeek)
+                pieceLabel(item, isCurrent: isCurrent)
             }
-            .allowsHitTesting(canSeek)
-            .accessibilityHidden(true)
+        } else {
+            HStack(alignment: .top, spacing: 12) {
+                timeLabel(item, isCurrent: isCurrent, canSeek: canSeek)
+                    .frame(width: timeColumnWidth, alignment: .leading)
+                    .padding(.top, 3)
+                pieceLabel(item, isCurrent: isCurrent)
+            }
         }
+    }
+
+    private func timeLabel(_ item: ProgrammeItem, isCurrent: Bool, canSeek: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(item.start, format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                .monospacedDigit()
+                .accessibilityLabel(item.start.formatted(date: .omitted, time: .shortened))
+            if canSeek {
+                Image(systemName: "waveform")
+                    .accessibilityLabel("Audio retained")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(isCurrent ? Color.kuscRed : Color.secondary)
+    }
+
+    private func pieceLabel(_ item: ProgrammeItem, isCurrent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(nonempty(item.work) ?? "Untitled work")
+                .font(.body.weight(isCurrent ? .semibold : .regular))
+            if let movement = nonempty(item.movement) {
+                Text(movement).font(.subheadline)
+            }
+            if let composer = nonempty(item.composer) {
+                Text(composer)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Uses the recognizer's native default timing and movement tolerance.
-/// Single taps have no playback action; scrolling cancels the hold.
+/// Native timing and movement tolerance; scrolling cancels the hold.
+/// A normal tap remains informational and produces no feedback or playback action.
 private struct HapticSeekOverlay: UIViewRepresentable {
     let isEnabled: Bool
     let action: () -> Void
@@ -117,29 +181,18 @@ private struct HapticSeekOverlay: UIViewRepresentable {
     func makeUIView(context: Context) -> HoldView {
         let view = HoldView(frame: .zero)
         view.action = action
-        view.isHoldEnabled = isEnabled
+        view.hold.isEnabled = isEnabled
         return view
     }
 
     func updateUIView(_ uiView: HoldView, context: Context) {
         uiView.action = action
-        uiView.isHoldEnabled = isEnabled
+        uiView.hold.isEnabled = isEnabled
     }
 
     final class HoldView: UIView {
         var action: (() -> Void)?
-        var isHoldEnabled = false {
-            didSet {
-                hold.isEnabled = isHoldEnabled
-                if !isHoldEnabled { cancelFeedback() }
-            }
-        }
-        private let hold = UILongPressGestureRecognizer()
-        private let onset = UIImpactFeedbackGenerator(style: .soft)
-        private let middle = UIImpactFeedbackGenerator(style: .medium)
-        private let completion = UIImpactFeedbackGenerator(style: .heavy)
-        private var feedbackWork: [DispatchWorkItem] = []
-        private var origin: CGPoint?
+        let hold = UILongPressGestureRecognizer()
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -152,65 +205,8 @@ private struct HapticSeekOverlay: UIViewRepresentable {
 
         required init?(coder: NSCoder) { return nil }
 
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-            super.touchesBegan(touches, with: event)
-            guard isHoldEnabled else { return }
-            cancelFeedback()
-            origin = touches.first?.location(in: self)
-            onset.prepare()
-            middle.prepare()
-            completion.prepare()
-            stageFeedback(after: hold.minimumPressDuration * 0.2) { [weak self] in
-                self?.onset.impactOccurred(intensity: 0.45)
-            }
-            stageFeedback(after: hold.minimumPressDuration * 0.6) { [weak self] in
-                self?.middle.impactOccurred(intensity: 0.7)
-            }
-        }
-
-        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-            super.touchesMoved(touches, with: event)
-            if let origin, let point = touches.first?.location(in: self),
-               hypot(point.x - origin.x, point.y - origin.y) > hold.allowableMovement {
-                cancelFeedback()
-            }
-        }
-
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-            super.touchesEnded(touches, with: event)
-            cancelFeedback()
-        }
-
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-            super.touchesCancelled(touches, with: event)
-            cancelFeedback()
-        }
-
         @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
-            switch recognizer.state {
-            case .began:
-                cancelFeedback()
-                completion.impactOccurred()
-                action?()
-            case .cancelled, .failed, .ended:
-                cancelFeedback()
-            default:
-                break
-            }
+            if recognizer.state == .began { action?() }
         }
-
-        private func stageFeedback(after delay: TimeInterval, action: @escaping () -> Void) {
-            let work = DispatchWorkItem(block: action)
-            feedbackWork.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        }
-
-        private func cancelFeedback() {
-            feedbackWork.forEach { $0.cancel() }
-            feedbackWork.removeAll()
-            origin = nil
-        }
-
-        deinit { feedbackWork.forEach { $0.cancel() } }
     }
 }

@@ -1,10 +1,19 @@
 import Foundation
 
+struct HLSAcquisitionStatus {
+    let mediaSequence: Int64
+    let advertisedEdge: Date?
+    let targetDuration: TimeInterval
+    var downloadedSequence: Int64? = nil
+    var encodedDurationDelta: TimeInterval? = nil
+}
+
 /// One HLS audio downloader feeds both the local player and the retained history.
 /// Its actor keeps parsing and disk writes off the UI actor. Each completed file is
 /// acknowledged by the player before another is fetched, bounding pending work.
 actor HLSIngestor {
     func run(url: URL, directory: URL,
+             status: @escaping @MainActor (HLSAcquisitionStatus) -> Void,
              receive: @escaping @MainActor (AudioSegment) -> Void) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
@@ -35,6 +44,10 @@ actor HLSIngestor {
         var lastEnd: Date?
         var lastNewAudio = Date()
         while !Task.isCancelled {
+            let iterationUptime = ProcessInfo.processInfo.systemUptime
+            await status(HLSAcquisitionStatus(mediaSequence: manifest.segments.first?.sequence ?? 0,
+                                             advertisedEdge: manifest.segments.last?.end,
+                                             targetDuration: manifest.targetDuration))
             // Join close to the station's live edge. Do not download its complete
             // server window merely to start playback. Older history accumulates
             // from this point onward, according to the selected retention.
@@ -60,6 +73,11 @@ actor HLSIngestor {
                 guard abs(encodedDuration - remote.duration) <= max(0.2, remote.duration * 0.01) else {
                     throw AudioStreamError.unsupportedFormat("AAC duration disagrees with the HLS clock")
                 }
+                await status(HLSAcquisitionStatus(mediaSequence: manifest.segments.first?.sequence ?? 0,
+                                                 advertisedEdge: manifest.segments.last?.end,
+                                                 targetDuration: manifest.targetDuration,
+                                                 downloadedSequence: remote.sequence,
+                                                 encodedDurationDelta: encodedDuration - remote.duration))
                 try Task.checkCancellation()
                 let local = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("aac")
                 try bytes.write(to: local, options: .atomic)
@@ -71,7 +89,8 @@ actor HLSIngestor {
                 var protectedURL = local
                 try protectedURL.setResourceValues(excluded)
                 let segment = AudioSegment(url: local, start: start,
-                                           end: start.addingTimeInterval(remote.duration), byteCount: bytes.count)
+                                           end: start.addingTimeInterval(remote.duration), byteCount: bytes.count,
+                                           discontinuity: remote.discontinuity)
                 if Task.isCancelled {
                     try? FileManager.default.removeItem(at: local)
                     throw CancellationError()
@@ -85,8 +104,12 @@ actor HLSIngestor {
             if Date().timeIntervalSince(lastNewAudio) > max(30, manifest.targetDuration * 3) {
                 throw AudioStreamError.stalled
             }
-            let delay = max(1, min(5, manifest.targetDuration / 2))
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            // Download/acknowledgement time counts toward the poll interval.
+            // A slow batch must fetch a fresh manifest immediately, not add
+            // another five seconds to a growing acquisition backlog.
+            let delay = AcquisitionPollPolicy.delay(targetDuration: manifest.targetDuration,
+                                                   elapsed: ProcessInfo.processInfo.systemUptime - iterationUptime)
+            if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
             let (data, responseURL) = try await fetch(mediaURL, session: session, maximumSize: 1024 * 1024)
             mediaURL = responseURL
             manifest = try HLSManifest.parse(data, baseURL: mediaURL)

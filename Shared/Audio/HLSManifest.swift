@@ -10,6 +10,7 @@ struct HLSMediaSegment {
     let url: URL
     let start: Date?
     let duration: TimeInterval
+    let discontinuity: Bool
     var end: Date? { start?.addingTimeInterval(duration) }
 }
 
@@ -35,6 +36,7 @@ struct HLSManifest {
         var nextDate: Date?
         var nextDuration: Double?
         var nextBandwidth: Int?
+        var nextDiscontinuity = false
         var target: Double = 10
         var ended = false
         for rawLine in text.components(separatedBy: .newlines) {
@@ -55,6 +57,10 @@ struct HLSManifest {
                     throw AudioStreamError.unsupportedFormat("invalid HLS program date")
                 }
                 nextDate = date
+            } else if line == "#EXT-X-DISCONTINUITY" {
+                nextDiscontinuity = true
+                // A discontinuous media clock must be explicitly reanchored.
+                nextDate = nil
             } else if line.hasPrefix("#EXTINF:") {
                 let value = line.dropFirst("#EXTINF:".count).split(separator: ",", maxSplits: 1).first
                 guard let value, let duration = Double(value), duration.isFinite, duration > 0, duration <= 60 else {
@@ -77,10 +83,12 @@ struct HLSManifest {
                     nextBandwidth = nil
                 } else if let duration = nextDuration {
                     segments.append(HLSMediaSegment(sequence: sequence, url: url,
-                                                    start: nextDate, duration: duration))
+                                                    start: nextDate, duration: duration,
+                                                    discontinuity: nextDiscontinuity))
                     sequence += 1
                     nextDate = nextDate?.addingTimeInterval(duration)
                     nextDuration = nil
+                    nextDiscontinuity = false
                 }
             }
         }

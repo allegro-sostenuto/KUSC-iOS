@@ -45,6 +45,22 @@ final class HLSManifestTests: XCTestCase {
         b.aac
         """)
         XCTAssertEqual(manifest.segments[1].start!.timeIntervalSince(manifest.segments[0].start!), 60)
+        XCTAssertTrue(manifest.segments[1].discontinuity)
+        XCTAssertFalse(manifest.segments[0].discontinuity)
+    }
+
+    func testDiscontinuityWithoutNewStationClockDoesNotInventTimestamp() throws {
+        let manifest = try parse("""
+        #EXTM3U
+        #EXT-X-PROGRAM-DATE-TIME:2026-09-19T12:00:00Z
+        #EXTINF:10,
+        a.aac
+        #EXT-X-DISCONTINUITY
+        #EXTINF:10,
+        b.aac
+        """)
+        XCTAssertNil(manifest.segments[1].start)
+        XCTAssertTrue(manifest.segments[1].discontinuity)
     }
 
     func testMasterVariantsPreserveBandwidthForHighestQualitySelection() throws {
