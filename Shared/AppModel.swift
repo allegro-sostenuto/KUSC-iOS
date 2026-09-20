@@ -422,16 +422,16 @@ import UIKit
             Task { @MainActor in
                 guard let self else { return }
                 if kind == .began {
-                    wasPlayingBeforeInterruption = wantsPlayback
-                    interruptionActive = true; engine.pause(); standby.stop()
+                    self.wasPlayingBeforeInterruption = self.wantsPlayback
+                    self.interruptionActive = true; self.engine.pause(); self.standby.stop()
                 } else {
-                    interruptionActive = false
-                    if wasPlayingBeforeInterruption && wantsPlayback && AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
-                        try? activateSession(); engine.play(); invalidateSleepEndpoint()
-                    } else if wasPlayingBeforeInterruption {
-                        pauseRemote()
+                    self.interruptionActive = false
+                    if self.wasPlayingBeforeInterruption && self.wantsPlayback && AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
+                        try? self.activateSession(); self.engine.play(); self.invalidateSleepEndpoint()
+                    } else if self.wasPlayingBeforeInterruption {
+                        self.pauseRemote()
                     }
-                    wasPlayingBeforeInterruption = false
+                    self.wasPlayingBeforeInterruption = false
                 }
             }
         })
@@ -439,12 +439,12 @@ import UIKit
             let reason = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             Task { @MainActor in
                 guard let self, reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue,
-                      wantsPlayback, !interruptionActive else { return }
-                try? activateSession(); engine.play()
+                      self.wantsPlayback, !self.interruptionActive else { return }
+                try? self.activateSession(); self.engine.play()
             }
         })
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in guard let self, wantsPlayback else { return }; try? activateSession(); startConnection() }
+            Task { @MainActor in guard let self, self.wantsPlayback else { return }; try? self.activateSession(); self.startConnection() }
         })
     }
     enum ScheduleError: LocalizedError {
