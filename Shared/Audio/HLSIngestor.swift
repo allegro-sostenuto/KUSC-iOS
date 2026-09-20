@@ -142,7 +142,19 @@ actor HLSIngestor {
                 let (data, responseURL) = try await fetch(mediaURL, session: session, maximumSize: 1024 * 1024, diagnostic: diagnostic)
                 mediaURL = responseURL
                 stage = "parseRefreshedPlaylist"
-                manifest = try HLSManifest.parse(data, baseURL: mediaURL)
+                // A sliding playlist may drop its only program-date tag along
+                // with an old segment. Verified overlap retains that timeline.
+                let refreshed = try HLSManifest.parse(data, baseURL: mediaURL, previous: manifest)
+                let previousSegments = Dictionary(manifest.segments.map { ($0.sequence, $0) },
+                                                  uniquingKeysWith: { first, _ in first })
+                let overlap = refreshed.segments.filter { previousSegments[$0.sequence] != nil }
+                let matchingOverlap = overlap.filter { segment in
+                    guard let old = previousSegments[segment.sequence] else { return false }
+                    return segment.url == old.url && segment.duration == old.duration &&
+                        segment.discontinuitySequence == old.discontinuitySequence
+                }
+                await diagnostic("reload overlap=\(overlap.count) matchingOverlap=\(matchingOverlap.count) resolved=\(refreshed.segments.filter { $0.start != nil }.count)/\(refreshed.segments.count)")
+                manifest = refreshed
                 guard manifest.variants.isEmpty else {
                     throw AudioStreamError.unsupportedFormat("media playlist became a master playlist")
                 }

@@ -8,8 +8,17 @@ import XCTest
 
 final class HLSManifestTests: XCTestCase {
     private let base = URL(string: "https://stream.example.test/live/playlist.m3u8")!
-    private func parse(_ text: String) throws -> HLSManifest {
-        try HLSManifest.parse(Data(text.utf8), baseURL: base)
+    private func parse(_ text: String, previous: HLSManifest? = nil) throws -> HLSManifest {
+        try HLSManifest.parse(Data(text.utf8), baseURL: base, previous: previous)
+    }
+
+    private func window(_ range: ClosedRange<Int>, anchor: String? = nil, duration: String = "9.98458",
+                        epoch: Int = 0, prefix: String = "") -> String {
+        var lines = ["#EXTM3U", "#EXT-X-MEDIA-SEQUENCE:\(range.lowerBound)",
+                     "#EXT-X-DISCONTINUITY-SEQUENCE:\(epoch)", "#EXT-X-TARGETDURATION:10"]
+        if let anchor { lines.append("#EXT-X-PROGRAM-DATE-TIME:\(anchor)") }
+        for sequence in range { lines += ["#EXTINF:\(duration),", "\(prefix)\(sequence).aac"] }
+        return lines.joined(separator: "\n")
     }
 
     func testProgrammeDateTimePropagatesAcrossSegmentBoundaries() throws {
@@ -61,6 +70,147 @@ final class HLSManifestTests: XCTestCase {
         """)
         XCTAssertNil(manifest.segments[1].start)
         XCTAssertTrue(manifest.segments[1].discontinuity)
+    }
+
+    func testPendingExplicitProgrammeDateSurvivesEitherDiscontinuityTagOrder() throws {
+        let pdt = "#EXT-X-PROGRAM-DATE-TIME:2026-09-21T00:00:14Z"
+        let discontinuity = "#EXT-X-DISCONTINUITY"
+        for tags in [[pdt, discontinuity], [discontinuity, pdt]] {
+            let manifest = try parse((["#EXTM3U", "#EXT-X-MEDIA-SEQUENCE:4"] + tags +
+                ["#EXTINF:7,", "4.aac"]).joined(separator: "\n"))
+            XCTAssertEqual(manifest.segments[0].start, ISO8601DateFormatter().date(from: "2026-09-21T00:00:14Z"))
+            XCTAssertTrue(manifest.segments[0].discontinuity)
+            XCTAssertEqual(manifest.segments[0].discontinuitySequence, 1)
+        }
+    }
+
+    func testRollingWindowsKeepTheDeviceReportsFractionalClockAfterAnchorEviction() throws {
+        let origin = Date(timeIntervalSince1970: 1_789_924_548)
+        let anchor = ISO8601DateFormatter().string(from: origin)
+        var manifest = try parse(window(1...3, anchor: anchor))
+        XCTAssertEqual(manifest.segments[1].start!.timeIntervalSince1970, 1_789_924_557.98458, accuracy: 0.000_001)
+        XCTAssertEqual(manifest.segments[2].start!.timeIntervalSince1970, 1_789_924_567.96916, accuracy: 0.000_001)
+        manifest = try parse(window(2...4), previous: manifest)
+        XCTAssertEqual(manifest.segments[2].start!.timeIntervalSince1970, 1_789_924_577.9537401, accuracy: 0.000_001)
+        // More than one reload proves the newly resolved edge becomes the next
+        // bounded manifest's evidence, without a global history or wall clock.
+        for lower in 3...40 {
+            manifest = try parse(window(lower...(lower + 2)), previous: manifest)
+            XCTAssertTrue(manifest.segments.allSatisfy { $0.start != nil })
+            XCTAssertEqual(manifest.segments[0].start!.timeIntervalSince(origin),
+                           Double(lower - 1) * 9.98458, accuracy: 0.000_02)
+            XCTAssertEqual(manifest.segments.last!.end!.timeIntervalSince(origin),
+                           Double(lower + 2) * 9.98458, accuracy: 0.000_02)
+            XCTAssertEqual(manifest.segments.count, 3)
+        }
+    }
+
+    func testNoPreviousManifestAndNoOverlapCannotInventDates() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z"))
+        XCTAssertTrue(try parse(window(2...4)).segments.allSatisfy { $0.start == nil })
+        for range in [4...6, 7...9] {
+            XCTAssertTrue(try parse(window(range), previous: previous).segments.allSatisfy { $0.start == nil },
+                          "Neither adjacent nor skipped windows prove a shared media identity")
+        }
+    }
+
+    func testChangedOverlappingIdentityOrDurationRejectsAllCachedClockReuse() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z"))
+        let changedURL = window(2...4).replacingOccurrences(of: "2.aac", with: "replacement-2.aac")
+        let changedDuration = window(2...4).replacingOccurrences(of: "#EXTINF:9.98458,\n2.aac", with: "#EXTINF:9.5,\n2.aac")
+        for text in [changedURL, changedDuration] {
+            let manifest = try parse(text, previous: previous)
+            XCTAssertTrue(manifest.segments.allSatisfy { $0.start == nil }, "Partial matching overlap must not hide changed media")
+        }
+    }
+
+    func testSequenceResetOrPlaylistIdentityChangeCannotInheritClock() throws {
+        let previous = try parse(window(2...4, anchor: "2026-09-21T00:00:00Z"))
+        // Retain matching URLs in the overlap to prove the regressing window
+        // itself blocks reuse, rather than an incidental filename mismatch.
+        XCTAssertTrue(try parse(window(1...3), previous: previous).segments.allSatisfy { $0.start == nil })
+        let otherURL = URL(string: "https://stream.example.test/live/another-session.m3u8")!
+        let anotherSession = try HLSManifest.parse(Data(window(3...5).utf8), baseURL: otherURL, previous: previous)
+        XCTAssertTrue(anotherSession.segments.allSatisfy { $0.start == nil })
+    }
+
+    func testExplicitFreshProgrammeDateOverridesCachedOverlap() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z"))
+        let fresh = try parse(window(2...4, anchor: "2026-09-21T00:02:00Z"), previous: previous)
+        XCTAssertEqual(fresh.segments[0].start, ISO8601DateFormatter().date(from: "2026-09-21T00:02:00Z"))
+        XCTAssertEqual(fresh.segments[1].start, fresh.segments[0].end)
+        XCTAssertEqual(fresh.segments[2].start, fresh.segments[1].end)
+        XCTAssertNotEqual(fresh.segments[0].start, previous.segments[1].start)
+    }
+
+    func testConflictingLaterProgrammeDateDoesNotMixWithCachedPrefix() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z", duration: "10"))
+        let current = window(2...4, duration: "10").replacingOccurrences(of: "#EXTINF:10,\n3.aac",
+            with: "#EXT-X-PROGRAM-DATE-TIME:2026-09-21T00:00:30Z\n#EXTINF:10,\n3.aac")
+        let fresh = try parse(current, previous: previous)
+        XCTAssertNil(fresh.segments[0].start, "A conflicting fresh anchor cannot share an inferred cached prefix")
+        XCTAssertEqual(fresh.segments[1].start, ISO8601DateFormatter().date(from: "2026-09-21T00:00:30Z"))
+        XCTAssertEqual(fresh.segments[2].start, fresh.segments[1].end)
+    }
+
+    func testKnownDiscontinuityAnchorSurvivesProgrammeDateRemoval() throws {
+        let boundary = "#EXT-X-DISCONTINUITY\n"
+        let initial = window(1...3, anchor: "2026-09-21T00:00:00Z").replacingOccurrences(
+            of: "#EXTINF:9.98458,\n2.aac",
+            with: boundary + "#EXT-X-PROGRAM-DATE-TIME:2026-09-21T00:01:00Z\n#EXTINF:9.98458,\n2.aac")
+        let previous = try parse(initial)
+        let current = window(2...4).replacingOccurrences(of: "#EXTINF:9.98458,\n2.aac",
+                                                        with: boundary + "#EXTINF:9.98458,\n2.aac")
+        let fresh = try parse(current, previous: previous)
+        XCTAssertTrue(fresh.segments[0].discontinuity)
+        XCTAssertEqual(fresh.segments[0].start, previous.segments[1].start)
+        XCTAssertEqual(fresh.segments[1].start, previous.segments[2].start)
+        XCTAssertEqual(fresh.segments[2].start, fresh.segments[1].end)
+        XCTAssertTrue(fresh.segments.allSatisfy { $0.discontinuitySequence == 1 && $0.start != nil })
+    }
+
+    func testUndatedNewDiscontinuityStopsForwardClockPropagation() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z"))
+        let text = window(2...5).replacingOccurrences(of: "#EXTINF:9.98458,\n4.aac",
+                                                   with: "#EXT-X-DISCONTINUITY\n#EXTINF:9.98458,\n4.aac")
+        let manifest = try parse(text, previous: previous)
+        XCTAssertEqual(manifest.segments[0].start, previous.segments[1].start)
+        XCTAssertEqual(manifest.segments[1].start, previous.segments[2].start)
+        XCTAssertNil(manifest.segments[2].start)
+        XCTAssertNil(manifest.segments[3].start)
+        XCTAssertNil(manifest.segments.last?.end)
+    }
+
+    func testChangedDiscontinuityEpochOrNewBoundaryOnOverlapRejectsCachedDates() throws {
+        let previous = try parse(window(1...3, anchor: "2026-09-21T00:00:00Z", epoch: 2))
+        let changedEpoch = window(2...4, epoch: 3)
+        let newBoundary = window(2...4, epoch: 2).replacingOccurrences(of: "#EXTINF:9.98458,\n3.aac",
+                                                                    with: "#EXT-X-DISCONTINUITY\n#EXTINF:9.98458,\n3.aac")
+        for text in [changedEpoch, newBoundary] {
+            XCTAssertTrue(try parse(text, previous: previous).segments.allSatisfy { $0.start == nil })
+        }
+    }
+
+    func testDiscontinuityEpochSurvivesWhenBoundaryLeavesWindow() throws {
+        let initial = """
+        #EXTM3U
+        #EXT-X-MEDIA-SEQUENCE:1
+        #EXT-X-DISCONTINUITY-SEQUENCE:0
+        #EXT-X-PROGRAM-DATE-TIME:2026-09-21T00:00:00Z
+        #EXTINF:9.98458,
+        1.aac
+        #EXT-X-DISCONTINUITY
+        #EXT-X-PROGRAM-DATE-TIME:2026-09-21T00:01:00Z
+        #EXTINF:9.98458,
+        2.aac
+        #EXTINF:9.98458,
+        3.aac
+        """
+        let previous = try parse(initial)
+        let fresh = try parse(window(3...5, epoch: 1), previous: previous)
+        XCTAssertEqual(fresh.segments[0].start, previous.segments[2].start)
+        XCTAssertTrue(fresh.segments.allSatisfy { $0.discontinuitySequence == 1 && $0.start != nil })
+        XCTAssertEqual(fresh.segments[2].start, fresh.segments[1].end)
     }
 
     func testMasterVariantsPreserveBandwidthForHighestQualitySelection() throws {
