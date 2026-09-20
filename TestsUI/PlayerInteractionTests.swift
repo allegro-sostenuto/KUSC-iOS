@@ -24,6 +24,7 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "large-text", state: "live", largeText: true),
             CaptureFixture(name: "programme-large-text", state: "programme", largeText: true),
             CaptureFixture(name: "schedule-large-text", state: "schedule", largeText: true),
+            CaptureFixture(name: "sleep-large-text", state: "sleep", largeText: true),
             CaptureFixture(name: "settings-dark", state: "settings", dark: true),
             CaptureFixture(name: "sleep-dark", state: "sleep", dark: true),
             CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true)
@@ -37,17 +38,18 @@ final class PlayerInteractionTests: XCTestCase {
                     attach(app, named: "failed-readiness-" + fixture.name)
                     return
                 }
-                let screenshot = app.screenshot()
-                let landscapePixels = screenshot.image.size.width > screenshot.image.size.height
-                guard landscapePixels == fixture.landscape else {
-                    XCTFail("Native screenshot orientation mismatch: \(fixture.name), \(screenshot.image.size)")
-                    attach(app, named: "failed-orientation-" + fixture.name)
-                    return
+                if fixture.state == "sleep" {
+                    XCTAssertTrue(app.buttons["timer-primary-action"].isHittable,
+                                  "Sleep timer action must stay visible without scrolling.")
+                } else if ["schedule", "schedule-output"].contains(fixture.state) {
+                    XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable,
+                                  "Schedule action must stay visible without scrolling.")
                 }
-                let attachment = XCTAttachment(screenshot: screenshot)
-                attachment.name = "capture-" + fixture.name
-                attachment.lifetime = .keepAlways
-                add(attachment)
+                // app.frame is the logical interface orientation, checked by
+                // waitForFixture. Preserve the complete native screen: an app
+                // screenshot can incorrectly crop the landscape window to a
+                // portrait rectangle on some simulator versions.
+                attach(app, named: "capture-" + fixture.name, fixture: fixture)
             }
         }
     }
@@ -61,7 +63,7 @@ final class PlayerInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["Sleep Timer"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Scheduled Start"].exists)
         XCTAssertTrue(app.buttons["Audio Output"].exists)
-        attach(app, named: "more-native-menu")
+        attach(app, named: "more-native-menu", fixture: CaptureFixture(name: "more", state: "live"))
     }
 
     @MainActor
@@ -165,10 +167,33 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    private func attach(_ app: XCUIApplication, named name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+    private func attach(_ app: XCUIApplication, named name: String, fixture: CaptureFixture? = nil) {
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        guard let fixture else { return }
+        let frame = app.frame
+        let metadata: [String: Any] = [
+            "capture": fixture.name,
+            "captureSource": "XCUIScreen.main",
+            "fixtureState": fixture.state,
+            "requestedOrientation": fixture.landscape ? "landscape" : "portrait",
+            "logicalFrame": ["width": Double(frame.width), "height": Double(frame.height)],
+            "deviceOrientation": XCUIDevice.shared.orientation.rawValue,
+            "uiImageOrientation": screenshot.image.imageOrientation.rawValue,
+            "uiImageSize": ["width": Double(screenshot.image.size.width), "height": Double(screenshot.image.size.height)],
+            "uiImageScale": Double(screenshot.image.scale)
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+            let evidence = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            evidence.name = "capture-metadata-" + fixture.name
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        } catch {
+            XCTFail("Could not record native capture metadata: \(error)")
+        }
     }
 }

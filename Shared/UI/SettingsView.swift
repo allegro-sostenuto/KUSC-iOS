@@ -89,8 +89,15 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(Color.kuscBackground, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    SheetCloseButton { dismiss() }
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .confirmationAction) {
+                        SheetCloseButton { dismiss() }
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        SheetCloseButton { dismiss() }
+                    }
                 }
             }
         }

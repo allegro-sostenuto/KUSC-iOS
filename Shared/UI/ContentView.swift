@@ -76,7 +76,6 @@ struct ContentView: View {
             if phase == .active { model.onForeground() }
         }
         #if DEBUG
-        .modifier(UIFixtureTextSize())
         .onAppear {
             guard let fixture = UIFixture.state else { return }
             showingProgramme = ["programme", "unavailable-programme"].contains(fixture)

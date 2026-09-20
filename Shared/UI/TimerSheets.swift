@@ -3,6 +3,7 @@ import SwiftUI
 struct SleepTimerView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var hours = 0
     @State private var minutes = 0
 
@@ -46,12 +47,6 @@ struct SleepTimerView: View {
                 TimerStatusCard(title: "Active timer", message: description, symbol: "moon.zzz")
             }
 
-            Button(totalMinutes == 0 ? "Turn Timer Off" : "Start Timer") {
-                model.startSleep(minutes: totalMinutes)
-                dismiss()
-            }
-            .buttonStyle(KUSCPrimaryButtonStyle())
-
             if model.sleepDescription != nil {
                 Button("Cancel Sleep Timer", role: .destructive) {
                     model.cancelSleep()
@@ -59,8 +54,15 @@ struct SleepTimerView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 44)
             }
+        } footer: {
+            Button(totalMinutes == 0 ? "Turn Timer Off" : "Start Timer") {
+                model.startSleep(minutes: totalMinutes)
+                dismiss()
+            }
+            .buttonStyle(KUSCPrimaryButtonStyle())
+            .accessibilityIdentifier("timer-primary-action")
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear {
             let duration = min(720, max(0, model.settings.lastSleepMinutes))
@@ -125,6 +127,15 @@ struct ScheduledStartView: View {
                 TimerStatusCard(title: "Current schedule", message: description, symbol: "clock")
             }
 
+            if model.scheduleDescription != nil {
+                Button("Cancel Scheduled Start", role: .destructive) {
+                    model.cancelSchedule()
+                    dismiss()
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .disabled(isScheduling)
+            }
+        } footer: {
             Button {
                 isScheduling = true
                 Task { @MainActor in
@@ -144,16 +155,8 @@ struct ScheduledStartView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(KUSCPrimaryButtonStyle())
+            .accessibilityIdentifier("schedule-primary-action")
             .disabled(isScheduling || (prefersSpecificOutput && preferredRoute == nil))
-
-            if model.scheduleDescription != nil {
-                Button("Cancel Scheduled Start", role: .destructive) {
-                    model.cancelSchedule()
-                    dismiss()
-                }
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .disabled(isScheduling)
-            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -272,14 +275,16 @@ struct ScheduledStartView: View {
     }
 }
 
-private struct TimerSheetLayout<Content: View>: View {
+private struct TimerSheetLayout<Content: View, Footer: View>: View {
     @Environment(\.dismiss) private var dismiss
     let title: String
     let content: Content
+    let footer: Footer
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.content = content()
+        self.footer = footer()
     }
 
     var body: some View {
@@ -315,6 +320,17 @@ private struct TimerSheetLayout<Content: View>: View {
                 }
                 #endif
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            footer
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity)
+                .background(Color.kuscSurface)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.kuscSeparator).frame(height: 0.5)
+                }
         }
         .foregroundStyle(Color.kuscInk)
         .background(Color.kuscSurface.ignoresSafeArea())

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Capture real SwiftUI/UIKit simulator output with DEBUG-only, silent layout data.
-# Usage: bash scripts/capture_ui.sh [artifact-directory]
+# Usage: bash scripts/capture_ui.sh [artifact-directory] [all|iphone17|se]
+# KUSC_CAPTURE_PROFILE selects the profile when the second argument is omitted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ "$(uname -s)" != Darwin ] || ! command -v xcodebuild >/dev/null; then
@@ -10,6 +11,11 @@ fi
 
 root="$(pwd)"
 output="${1:-artifacts/native-ui}"
+profile="${2:-${KUSC_CAPTURE_PROFILE:-all}}"
+case "$profile" in
+    all|iphone17|se) ;;
+    *) echo 'Capture profile must be all, iphone17, or se.' >&2; exit 2 ;;
+esac
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/kusc-ui.XXXXXX")"
@@ -33,6 +39,7 @@ trap cleanup EXIT
 {
     echo "Native simulator layout capture"
     echo "Commit: $(git rev-parse HEAD)"
+    echo "Requested device profile: $profile"
     echo "UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     xcodebuild -version
     echo 'Fixtures are synthetic layout state; audio and network are disabled.'
@@ -40,14 +47,16 @@ trap cleanup EXIT
     echo 'Output names, when available, come from the simulator audio session; no devices are fabricated.'
     echo 'These screenshots do not verify real playback, background scheduling, Bluetooth or AirPlay.'
     echo 'More menu capture is requested by native XCUITest using a real tap; test outcomes are recorded below.'
-    echo 'All updated-layout screenshots use KUSC-SE shared UI on each device profile; KUSC-17 is also built and installed.'
+    echo 'All updated-layout screenshots use KUSC-SE shared UI; both simulator schemes are built, and KUSC-17 is installed on the iPhone17 profile.'
     echo 'Updated layouts wait for visible fixture controls in XCTest; no fixed launch delay accepts a blank image.'
-    echo 'Large text uses accessibility3. Landscape rotates XCUIDevice and captures its oriented native app screenshot.'
+    echo 'Large text uses accessibility3. Landscape rotates XCUIDevice and asserts the logical app.frame orientation.'
+    echo 'Full-screen XCUIScreen captures avoid app-window cropping; raw dimensions, EXIF and logical orientation are recorded independently.'
     echo 'Named PNGs are copied byte-for-byte from XCTest attachments; pixels are never rotated or synthesized.'
+    echo 'Open each profile index.html for a CSS-oriented display of the unchanged native PNGs.'
 } > "$report"
 
 # Create our own devices from installed runtimes; never reset a developer's simulator.
-python3 - "$simulators" <<'PY'
+python3 - "$simulators" "$profile" <<'PY'
 import json, subprocess, sys
 def sim(*args):
     return subprocess.check_output(['xcrun', 'simctl', *args], text=True)
@@ -66,6 +75,8 @@ def choose(names):
     return None
 selections = [('iphone17', choose(['iPhone 17', 'iPhone 17 Pro'])),
               ('se', choose(['iPhone SE (3rd generation)', 'iPhone SE (2nd generation)']))]
+if sys.argv[2] != 'all':
+    selections = [entry for entry in selections if entry[0] == sys.argv[2]]
 with open(sys.argv[1], 'w') as stream:
     for label, kind in selections:
         if not kind:
@@ -141,7 +152,7 @@ while IFS='|' read -r label device type runtime; do
         -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/ui-tests" \
         -resultBundlePath "$result" -parallel-testing-enabled NO \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
-        test > "$output/$label/ui-tests.log" 2>&1; then
+        test 2>&1 | tee "$output/$label/ui-tests.log"; then
         echo "PASS: $label hosted KUSCTests and native More menu, landscape slider/paging and large-text slider/paging tests." >> "$report"
     else
         echo "FAIL: $label hosted unit or native interaction tests; inspect ui-tests.log and Interactions.xcresult." >> "$report"
@@ -151,7 +162,7 @@ while IFS='|' read -r label device type runtime; do
         --output-path "$output/$label/test-attachments" >> "$report" 2>&1; then
         if ! python3 scripts/collect_ui_attachments.py "$output/$label/test-attachments" \
             "$output/$label" >> "$report" 2>&1; then
-            echo "FAIL: $label native screenshot collection is incomplete or has invalid dimensions." >> "$report"
+            echo "FAIL: $label native screenshot collection is incomplete or has invalid logical orientation metadata." >> "$report"
             test_failures=$((test_failures + 1))
         fi
     else

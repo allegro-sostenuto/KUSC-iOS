@@ -8,6 +8,9 @@ import UIKit
     var body: some Scene {
         WindowGroup {
             ContentView().environmentObject(model)
+                #if DEBUG
+                .modifier(UIFixtureTextSize())
+                #endif
                 .preferredColorScheme(model.settings.appearance == "light" ? .light : model.settings.appearance == "dark" ? .dark : nil)
                 .tint(Color.kuscRed)
                 .task {
