@@ -9,6 +9,19 @@ import XCTest
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
     private let source = URL(string: "https://example.invalid/kusc-test.m3u8")!
 
+    private func fixedSegments(origin: Date, filenamePrefix: String) -> [AudioSegment] {
+        var result: [AudioSegment] = []
+        for index in 0..<2 {
+            let url: URL = URL(fileURLWithPath: "/nonexistent/\(filenamePrefix)-\(index).aac")
+            let offset: TimeInterval = TimeInterval(index) * 10
+            let start: Date = origin.addingTimeInterval(offset)
+            let end: Date = start.addingTimeInterval(10)
+            let segment: AudioSegment = AudioSegment(url: url, start: start, end: end, byteCount: 100)
+            result.append(segment)
+        }
+        return result
+    }
+
     func testLiveBeforeBufferedMediaDoesNotInsertASecondRemotePlayerItem() async throws {
         let engine = RollingAudioEngine()
         defer { engine.stop() }
@@ -42,11 +55,7 @@ import XCTest
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
         let origin = Date(timeIntervalSince1970: 1_000_000)
-        let files = (0..<2).map { index in
-            AudioSegment(url: URL(fileURLWithPath: "/nonexistent/kusc-fixture-\(index).aac"),
-                         start: origin.addingTimeInterval(Double(index * 10)),
-                         end: origin.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
-        }
+        let files: [AudioSegment] = fixedSegments(origin: origin, filenamePrefix: "kusc-fixture")
         engine.configureBufferedTransportForTesting(segments: files, pausedAt: origin.addingTimeInterval(1))
         engine.goLive()
         let live = latest?.pendingSeekAt
@@ -65,11 +74,7 @@ import XCTest
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
         let origin = Date(timeIntervalSince1970: 1_000_000)
-        let files = (0..<2).map { index in
-            AudioSegment(url: URL(fileURLWithPath: "/nonexistent/kusc-startup-\(index).aac"),
-                         start: origin.addingTimeInterval(Double(index * 10)),
-                         end: origin.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
-        }
+        let files: [AudioSegment] = fixedSegments(origin: origin, filenamePrefix: "kusc-startup")
         engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, initialJoinPending: true)
         engine.acceptBufferedSegmentForTesting(files[0])
         XCTAssertNil(latest?.window)
@@ -92,8 +97,8 @@ import XCTest
         let origin = Date(timeIntervalSince1970: 1_000_000)
         let fixture = try BufferedAudioTestFixture.make(in: path)
         var start = origin
-        let files = fixture.segments.enumerated().map { index, url in
-            let end = start.addingTimeInterval(fixture.segmentDurations[index])
+        let files: [AudioSegment] = fixture.segments.enumerated().map { index, url -> AudioSegment in
+            let end: Date = start.addingTimeInterval(fixture.segmentDurations[index])
             defer { start = end }
             return AudioSegment(url: url, start: start, end: end, byteCount: 100)
         }
@@ -145,8 +150,8 @@ import XCTest
         let origin = Date(timeIntervalSince1970: 1_000_000)
         func files(start: Date, urls: [URL]) -> [AudioSegment] {
             var cursor = start
-            return urls.enumerated().map { index, url in
-                let end = cursor.addingTimeInterval(fixture.segmentDurations[index])
+            return urls.enumerated().map { index, url -> AudioSegment in
+                let end: Date = cursor.addingTimeInterval(fixture.segmentDurations[index])
                 defer { cursor = end }
                 return AudioSegment(url: url, start: cursor, end: end, byteCount: 100)
             }
@@ -174,8 +179,8 @@ import XCTest
         }
         engine.goLive()
         await fulfillment(of: [readStarted], timeout: 3)
-        let freshURLs = try fixture.segments.enumerated().map { index, url in
-            let copy = path.appendingPathComponent("fresh-\(index).aac")
+        let freshURLs: [URL] = try fixture.segments.enumerated().map { index, url -> URL in
+            let copy: URL = path.appendingPathComponent("fresh-\(index).aac")
             try FileManager.default.copyItem(at: url, to: copy)
             return copy
         }

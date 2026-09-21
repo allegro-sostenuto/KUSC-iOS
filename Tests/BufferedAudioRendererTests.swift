@@ -13,8 +13,8 @@ import XCTest
 
     private func segments(_ files: BufferedAudioTestFixture.Files) -> [AudioSegment] {
         var start = origin
-        return files.segments.enumerated().map { index, url in
-            let end = start.addingTimeInterval(files.segmentDurations[index])
+        return files.segments.enumerated().map { index, url -> AudioSegment in
+            let end: Date = start.addingTimeInterval(files.segmentDurations[index])
             defer { start = end }
             return AudioSegment(url: url, start: start, end: end, byteCount: 1_000)
         }
