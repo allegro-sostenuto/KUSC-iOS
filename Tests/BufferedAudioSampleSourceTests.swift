@@ -143,6 +143,41 @@ enum BufferedAudioTestFixture {
         }
     }
 
+    func testRetimingPacketDescriptionsDoesNotRequireAnAssetReader() throws {
+        var asbd = AudioStreamBasicDescription(mSampleRate: 44_100, mFormatID: kAudioFormatMPEG4AAC,
+            mFormatFlags: 0, mBytesPerPacket: 0, mFramesPerPacket: 1024, mBytesPerFrame: 0,
+            mChannelsPerFrame: 2, mBitsPerChannel: 0, mReserved: 0)
+        var format: CMAudioFormatDescription?
+        XCTAssertEqual(CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd,
+            layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
+            formatDescriptionOut: &format), noErr)
+        let description = try XCTUnwrap(format)
+        let bytes = Data([1, 2, 3, 4, 5, 6]) // Packet contents aren't decoded in this Core Media timing test.
+        var block: CMBlockBuffer?
+        XCTAssertEqual(CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil,
+            blockLength: bytes.count, blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
+            offsetToData: 0, dataLength: bytes.count, flags: 0, blockBufferOut: &block), noErr)
+        let dataBlock = try XCTUnwrap(block)
+        XCTAssertEqual(bytes.withUnsafeBytes { memory in
+            CMBlockBufferReplaceDataBytes(with: memory.baseAddress!, blockBuffer: dataBlock,
+                                          offsetIntoDestination: 0, dataLength: memory.count)
+        }, noErr)
+        var packets = [AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 1024, mDataByteSize: 3),
+                       AudioStreamPacketDescription(mStartOffset: 3, mVariableFramesInPacket: 1024, mDataByteSize: 3)]
+        var original: CMSampleBuffer?
+        XCTAssertEqual(CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: kCFAllocatorDefault,
+            dataBuffer: dataBlock, formatDescription: description, sampleCount: packets.count,
+            presentationTimeStamp: .zero, packetDescriptions: &packets, sampleBufferOut: &original), noErr)
+        let buffer = try XCTUnwrap(original)
+        let offset = CMTime(value: 44_100, timescale: 44_100)
+        let copy = try BufferedAudioSampleSource.retimed(buffer, by: offset)
+        XCTAssertEqual(CMSampleBufferGetNumSamples(copy), 2)
+        XCTAssertEqual(CMSampleBufferGetDuration(copy).seconds, 2048.0 / 44_100, accuracy: 0.000_001)
+        XCTAssertEqual(CMSampleBufferGetPresentationTimeStamp(copy).seconds, 1, accuracy: 0.000_001)
+        XCTAssertEqual(try BufferedAudioTestFixture.payload([copy]), bytes)
+        XCTAssertTrue(CMFormatDescriptionEqual(description, otherFormatDescription: CMSampleBufferGetFormatDescription(copy)!))
+    }
+
     func testSourceRejectsRemoteEmptyMalformedAndOversizedSegments() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

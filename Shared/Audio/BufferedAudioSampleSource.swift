@@ -42,14 +42,18 @@ enum BufferedAudioSampleSource {
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         try Task.checkCancellation()
-        guard tracks.count == 1, let track = tracks.first else { throw AudioStreamError.invalidAAC }
+        guard tracks.count == 1, let track = tracks.first else {
+            throw failure("audio tracks", detail: "count=\(tracks.count)")
+        }
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
         output.alwaysCopiesSampleData = true
-        guard reader.canAdd(output) else { throw AudioStreamError.invalidAAC }
+        guard reader.canAdd(output) else { throw failure("add compressed reader output") }
         reader.add(output)
         defer { reader.cancelReading() }
-        guard reader.startReading() else { throw reader.error ?? AudioStreamError.invalidAAC }
+        guard reader.startReading() else {
+            throw reader.error ?? failure("start reader", detail: "status=\(reader.status.rawValue)")
+        }
 
         var buffers: [CMSampleBuffer] = []
         var firstPTS: CMTime?
@@ -58,12 +62,28 @@ enum BufferedAudioSampleSource {
         var format: CMFormatDescription?
         while let buffer = output.copyNextSampleBuffer() {
             try Task.checkCancellation()
-            guard CMSampleBufferDataIsReady(buffer), CMSampleBufferGetNumSamples(buffer) > 0,
-                  let block = CMSampleBufferGetDataBuffer(buffer),
-                  let description = CMSampleBufferGetFormatDescription(buffer),
-                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee,
-                  [kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2].contains(asbd.mFormatID),
-                  asbd.mSampleRate.isFinite, asbd.mSampleRate > 0 else { throw AudioStreamError.invalidAAC }
+            let sampleCount = CMSampleBufferGetNumSamples(buffer)
+            #if DEBUG
+            if buffers.isEmpty {
+                let description = CMSampleBufferGetFormatDescription(buffer)
+                let asbd = description.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
+                let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
+                let duration = CMSampleBufferGetDuration(buffer)
+                print("BufferedAAC first buffer: samples=\(sampleCount) ready=\(CMSampleBufferDataIsReady(buffer)) bytes=\(CMSampleBufferGetTotalSampleSize(buffer)) format=\(asbd?.mFormatID ?? 0) rate=\(asbd?.mSampleRate ?? 0) framesPerPacket=\(asbd?.mFramesPerPacket ?? 0) pts=\(pts.value)/\(pts.timescale)/\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale)/\(duration.flags.rawValue)")
+            }
+            #endif
+            guard CMSampleBufferDataIsReady(buffer), sampleCount > 0 else {
+                throw failure("sample readiness", detail: "ready=\(CMSampleBufferDataIsReady(buffer)) samples=\(sampleCount) buffer=\(buffers.count)")
+            }
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { throw failure("sample data block") }
+            guard let description = CMSampleBufferGetFormatDescription(buffer),
+                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+                throw failure("audio format description")
+            }
+            guard [kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2].contains(asbd.mFormatID),
+                  asbd.mSampleRate.isFinite, asbd.mSampleRate > 0 else {
+                throw failure("AAC stream format", detail: "id=\(asbd.mFormatID) rate=\(asbd.mSampleRate)")
+            }
             if let format, !CMFormatDescriptionEqual(format, otherFormatDescription: description) {
                 throw AudioStreamError.unsupportedFormat("AAC format changed within a segment")
             }
@@ -75,7 +95,9 @@ enum BufferedAudioSampleSource {
             byteCount += bytes
             let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
             let duration = CMSampleBufferGetDuration(buffer)
-            guard finite(pts), finite(duration), duration.seconds > 0 else { throw AudioStreamError.invalidAAC }
+            guard finite(pts), finite(duration), duration.seconds > 0 else {
+                throw failure("sample timing", detail: "buffer=\(buffers.count) samples=\(sampleCount) pts=\(pts.value)/\(pts.timescale) flags=\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale) flags=\(duration.flags.rawValue) framesPerPacket=\(asbd.mFramesPerPacket)")
+            }
             if let previousEnd, abs(CMTimeSubtract(pts, previousEnd).seconds) > 0.000_001 {
                 throw AudioStreamError.unsupportedFormat("noncontiguous AAC packet timing")
             }
@@ -97,43 +119,59 @@ enum BufferedAudioSampleSource {
             previousEnd = end
         }
         try Task.checkCancellation()
-        guard reader.status == .completed else { throw reader.error ?? AudioStreamError.invalidAAC }
-        guard let firstPTS, let previousEnd, !buffers.isEmpty else { throw AudioStreamError.invalidAAC }
+        guard reader.status == .completed else {
+            throw reader.error ?? failure("finish reader", detail: "status=\(reader.status.rawValue) buffers=\(buffers.count)")
+        }
+        guard let firstPTS, let previousEnd, !buffers.isEmpty else { throw failure("empty compressed reader output") }
         return BufferedAudioSamples(buffers: buffers, duration: CMTimeSubtract(previousEnd, firstPTS))
     }
 
     /// Core Media copies timing while retaining the original compressed data,
     /// format (including HE-AAC configuration), packet sizes and attachments.
     static func retimed(_ buffer: CMSampleBuffer, by offset: CMTime) throws -> CMSampleBuffer {
-        guard finite(offset) else { throw AudioStreamError.invalidAAC }
+        guard finite(offset) else { throw failure("retime offset") }
         var count = 0
-        guard CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: 0, arrayToFill: nil,
-                                                    entriesNeededOut: &count) == noErr,
-              count > 0, count <= maximumBuffers else { throw AudioStreamError.invalidAAC }
+        let queryStatus = CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: 0, arrayToFill: nil,
+                                                                entriesNeededOut: &count)
+        guard queryStatus == noErr, count > 0, count <= maximumBuffers else {
+            throw failure("retime timing count", status: queryStatus,
+                          detail: "entries=\(count) samples=\(CMSampleBufferGetNumSamples(buffer))")
+        }
         var timings = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(duration: .invalid,
             presentationTimeStamp: .invalid, decodeTimeStamp: .invalid), count: count)
-        guard CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: count, arrayToFill: &timings,
-                                                    entriesNeededOut: nil) == noErr else { throw AudioStreamError.invalidAAC }
+        let timingStatus = CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: count, arrayToFill: &timings,
+                                                                 entriesNeededOut: nil)
+        guard timingStatus == noErr else { throw failure("retime timing array", status: timingStatus) }
         for index in timings.indices {
-            guard finite(timings[index].presentationTimeStamp) else { throw AudioStreamError.invalidAAC }
+            guard finite(timings[index].presentationTimeStamp) else { throw failure("retime PTS", detail: "index=\(index)") }
             timings[index].presentationTimeStamp = CMTimeAdd(timings[index].presentationTimeStamp, offset)
             if timings[index].decodeTimeStamp.isValid {
-                guard finite(timings[index].decodeTimeStamp) else { throw AudioStreamError.invalidAAC }
+                guard finite(timings[index].decodeTimeStamp) else { throw failure("retime DTS", detail: "index=\(index)") }
                 timings[index].decodeTimeStamp = CMTimeAdd(timings[index].decodeTimeStamp, offset)
             }
             guard finite(timings[index].presentationTimeStamp),
                   !timings[index].decodeTimeStamp.isValid || finite(timings[index].decodeTimeStamp) else {
-                throw AudioStreamError.invalidAAC
+                throw failure("retimed timestamp overflow", detail: "index=\(index)")
             }
         }
         var copy: CMSampleBuffer?
         let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: buffer,
             sampleTimingEntryCount: timings.count, sampleTimingArray: &timings, sampleBufferOut: &copy)
-        guard status == noErr, let copy else { throw AudioStreamError.invalidAAC }
+        guard status == noErr, let copy else {
+            throw failure("copy with new timing", status: status,
+                          detail: "entries=\(timings.count) samples=\(CMSampleBufferGetNumSamples(buffer))")
+        }
         return copy
     }
 
     private static func finite(_ time: CMTime) -> Bool {
         time.isValid && !time.isIndefinite && time.seconds.isFinite
+    }
+
+    private static func failure(_ stage: String, status: OSStatus? = nil, detail: String = "") -> NSError {
+        // Numeric media properties and operation names only: no file paths,
+        // request URLs, sample bytes, or arbitrary AVFoundation userInfo.
+        NSError(domain: "KUSC.BufferedAudioSampleSource", code: Int(status ?? -1),
+                userInfo: [NSLocalizedDescriptionKey: "Buffered AAC \(stage) failed. \(detail)"])
     }
 }
