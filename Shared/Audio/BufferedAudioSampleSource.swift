@@ -179,6 +179,49 @@ enum BufferedAudioSampleSource {
         return copy
     }
 
+    /// Keeps complete compressed packets which overlap or follow the cutoff.
+    /// A seek can provide a bounded amount of decoder preroll without filling
+    /// the renderer with an entire earlier file while its timebase is paused.
+    /// Retained packets keep their original timestamps and compressed format.
+    static func packets(_ buffers: [CMSampleBuffer], endingAfter cutoff: CMTime) throws -> [CMSampleBuffer] {
+        guard finite(cutoff) else { throw failure("packet cutoff") }
+        var result: [CMSampleBuffer] = []
+        var inspectedPackets = 0
+        var previousEnd: CMTime?
+        for buffer in buffers {
+            try Task.checkCancellation()
+            let count = CMSampleBufferGetNumSamples(buffer)
+            guard count > 0, count <= maximumBuffers - inspectedPackets else { throw failure("packet suffix count") }
+            inspectedPackets += count
+            var firstKept: Int?
+            for index in 0..<count {
+                var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+                let status = CMSampleBufferGetSampleTimingInfo(buffer, at: index, timingInfoOut: &timing)
+                guard status == noErr else { throw failure("packet suffix timing", status: status) }
+                guard finite(timing.presentationTimeStamp), finite(timing.duration), timing.duration.seconds > 0 else {
+                    throw failure("packet suffix timestamp", detail: "index=\(index)")
+                }
+                let end = CMTimeAdd(timing.presentationTimeStamp, timing.duration)
+                guard finite(end) else { throw failure("packet suffix end", detail: "index=\(index)") }
+                if let previousEnd, abs(CMTimeSubtract(timing.presentationTimeStamp, previousEnd).seconds) > 0.000_001 {
+                    throw failure("packet suffix continuity", detail: "index=\(index)")
+                }
+                previousEnd = end
+                if firstKept == nil, CMTimeCompare(end, cutoff) > 0 { firstKept = index }
+            }
+            guard let firstKept else { continue }
+            if firstKept == 0 { result.append(buffer) }
+            else {
+                var copy: CMSampleBuffer?
+                let status = CMSampleBufferCopySampleBufferForRange(allocator: kCFAllocatorDefault, sampleBuffer: buffer,
+                    sampleRange: CFRange(location: firstKept, length: count - firstKept), sampleBufferOut: &copy)
+                guard status == noErr, let copy else { throw failure("copy packet suffix", status: status) }
+                result.append(copy)
+            }
+        }
+        return result
+    }
+
     private static func finite(_ time: CMTime) -> Bool {
         time.isValid && !time.isIndefinite && time.seconds.isFinite
     }

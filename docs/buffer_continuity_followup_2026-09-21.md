@@ -20,6 +20,8 @@ Native regression tests generate a continuous AAC-LC stream, split its existing 
 
 Build 11 compiled both unsigned device apps and passed the 103 portable tests, but native testing rejected the candidate: the AAC source raised a generic format error before enqueuing media, and a normalized slider adjustment retained its preview. Ordinary touch scrubs and subsequent history growth passed. Build 12's focused native test identified an empty control buffer after the valid AAC packets; the reader incorrectly rejected its zero sample count. The independent compressed-packet retiming test passed. Device-build success alone is not acceptance; final native and artifact verification remains pending.
 
+Build 13 passed all six iPhone 17 native UI tests, including the growing-history adjustment, and ordinary compressed playback crossed three files with one decoder reset. The remaining native media failures exposed deep paused-seek backpressure and an unresolved whole-versus-split byte comparison. Seek preparation now limits decoder preroll to one second of complete packets, and payload validation compares packet-description byte ranges with the original ADTS payloads. The refill fixture explicitly activates its output session, as AppModel does in production, and the pause/resume fixture leaves sufficient retained audio after both starts. These corrections require another native run before delivery.
+
 ## Physical acceptance procedure
 
 1. Set retention to five minutes, start a diagnostic capture and listen at Live for at least two minutes. Count any brief dips and save the report.

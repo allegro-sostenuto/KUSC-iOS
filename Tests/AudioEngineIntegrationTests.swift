@@ -89,6 +89,10 @@ import XCTest
     }
 
     func testEmptyRendererRefillsAlreadyDownloadedAudioWithoutAnotherArrival() async throws {
+        // This fixture bypasses AppModel, which normally activates the output
+        // session before preparing a renderer (including a paused seek).
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        try AVAudioSession.sharedInstance().setActive(true)
         let engine = RollingAudioEngine()
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-refill-\(UUID().uuidString)")
         defer { engine.stop(); try? FileManager.default.removeItem(at: path) }
@@ -107,6 +111,11 @@ import XCTest
         XCTAssertEqual(latest?.hasAudio, false)
         let ready = expectation(description: "Retained successor packets prepare without another download")
         var fulfilled = false
+        var failure: Error?
+        engine.onFailure = { error in
+            failure = error
+            if !fulfilled { fulfilled = true; ready.fulfill() }
+        }
         engine.onUpdate = { snapshot in
             latest = snapshot
             if snapshot.isReady && !snapshot.isSeeking && !fulfilled {
@@ -117,6 +126,8 @@ import XCTest
         engine.refillBufferedQueueForTesting()
         XCTAssertEqual(latest?.pendingSeekAt, consumedEnd)
         await fulfillment(of: [ready], timeout: 8)
+        if let failure { throw failure }
+        XCTAssertEqual(latest?.isReady, true)
         XCTAssertEqual(latest?.hasAudio, true)
         XCTAssertEqual(latest?.heardAt, consumedEnd)
     }

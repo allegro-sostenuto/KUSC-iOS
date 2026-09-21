@@ -5,6 +5,10 @@ import Foundation
 /// Download boundaries append packets; only explicit seeks, real discontinuities,
 /// or output-route flushes reset the decoder. All mutable state is serialized on main.
 @MainActor final class BufferedAudioRenderer {
+    // AAC needs decoder context around a seek, not every packet since the
+    // previous storage boundary. A short packet-aligned preroll prevents old
+    // audio filling the paused renderer before it reaches the requested time.
+    private static let seekPrerollSeconds: TimeInterval = 1
     var onStateChange: (() -> Void)?
     var onClock: (() -> Void)?
     var onFailure: ((Error) -> Void)?
@@ -28,6 +32,7 @@ import Foundation
     private var requestingData = false
     private var scheduledEnd = CMTime.zero
     private var requestedStart = CMTime.zero
+    private var firstEnqueuedTime: CMTime?
     private var seekCompletion: ((Date) -> Void)?
     private var lastConfirmedPosition: Date?
     private var nextSegment: AudioSegment?
@@ -133,10 +138,11 @@ import Foundation
     func seek(to date: Date, playing: Bool, completion: @escaping (Date) -> Void) {
         guard let index = retained.firstIndex(where: { date >= $0.start && date < $0.end }) else { return }
         let target = retained[index]
-        // Decode the preceding segment as preroll where available. This supplies
-        // AAC's overlapping transform context for a seek to a segment boundary.
+        // Read the preceding storage file only when the bounded AAC preroll
+        // actually reaches across its boundary. append() selects whole packets.
         var first = target
-        if index > 0, !target.discontinuity {
+        if index > 0, !target.discontinuity,
+           date.timeIntervalSince(target.start) < Self.seekPrerollSeconds {
             let previous = retained[index - 1]
             if abs(target.start.timeIntervalSince(previous.end)) <= 0.25 { first = previous }
         }
@@ -213,6 +219,7 @@ import Foundation
         pendingBuffers.removeAll()
         pendingIndex = 0
         scheduledEnd = .zero
+        firstEnqueuedTime = nil
         nextSegment = nil
         lastLoadedSegment = nil
         waitingBoundary = nil
@@ -273,11 +280,19 @@ import Foundation
         let start = entries.last?.end ?? .zero
         let end = CMTimeAdd(start, samples.duration)
         entries.append(Entry(segment: segment, start: start, end: end))
-        pendingBuffers = try samples.buffers.map { try BufferedAudioSampleSource.retimed($0, by: start) }
+        let packets: [CMSampleBuffer]
+        if isSeeking {
+            let preroll = CMTime(seconds: Self.seekPrerollSeconds, preferredTimescale: 44_100)
+            let cutoff = CMTimeSubtract(CMTimeSubtract(requestedStart, start), preroll)
+            packets = try BufferedAudioSampleSource.packets(samples.buffers, endingAfter: cutoff)
+        } else {
+            packets = samples.buffers
+        }
+        pendingBuffers = try packets.map { try BufferedAudioSampleSource.retimed($0, by: start) }
         pendingIndex = 0
         lastLoadedSegment = segment
         appendedSegmentCount += 1
-        onDiagnostic?("renderer appended start=\(segment.start.timeIntervalSince1970) timeline=\(start.seconds)...\(end.seconds) packets=\(samples.buffers.count) resets=\(decoderResetCount)")
+        onDiagnostic?("renderer appended start=\(segment.start.timeIntervalSince1970) timeline=\(start.seconds)...\(end.seconds) batches=\(packets.count)/\(samples.buffers.count) resets=\(decoderResetCount)")
         requestMoreData()
     }
 
@@ -293,6 +308,7 @@ import Foundation
         guard !failed, !stopped else { return }
         while renderer.isReadyForMoreMediaData, pendingIndex < pendingBuffers.count {
             let sample = pendingBuffers[pendingIndex]
+            if firstEnqueuedTime == nil { firstEnqueuedTime = CMSampleBufferGetPresentationTimeStamp(sample) }
             renderer.enqueue(sample)
             scheduledEnd = CMTimeAdd(CMSampleBufferGetPresentationTimeStamp(sample), CMSampleBufferGetDuration(sample))
             pendingIndex += 1
@@ -413,6 +429,10 @@ import Foundation
     #if DEBUG
     var statisticsForTesting: (resets: Int, segments: Int, requested: Bool, gain: Float) {
         (decoderResetCount, appendedSegmentCount, playbackRequested, renderer.volume)
+    }
+    var preparedMediaForTesting: (first: Double?, end: Double, pendingBatches: Int, ready: Bool) {
+        (firstEnqueuedTime?.seconds, scheduledEnd.seconds,
+         pendingBuffers.count - pendingIndex, renderer.hasSufficientMediaDataForReliablePlaybackStart)
     }
     func simulateOutputFlushForTesting() { recoverOutputFlush(reason: "test output flush") }
     #endif

@@ -47,7 +47,7 @@ import XCTest
             let state = observedRenderer.map {
                 "seeking=\($0.isSeeking) playing=\($0.isPlaying) hasAudio=\($0.hasAudio) " +
                     "segments=\($0.statisticsForTesting.segments) resets=\($0.statisticsForTesting.resets) " +
-                    "time=\($0.currentSeconds)"
+                    "time=\($0.currentSeconds) prepared=\($0.preparedMediaForTesting)"
             } ?? "renderer unavailable"
             XCTFail("\(description): \(state)")
             throw AudioStreamError.stalled
@@ -81,11 +81,14 @@ import XCTest
     func testPausedSeekAcceptsPlayBeforePacketsFinishPreparing() async throws {
         try activateAudio()
         let path = directory()
-        let files = try BufferedAudioTestFixture.make(in: path)
+        // Leave real media after both native audio starts. A four-second finite
+        // fixture can be exhausted by the simulator's output/preroll latency.
+        let files = try BufferedAudioTestFixture.make(in: path, duration: 12)
+        let media = segments(files)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
         observeFailures(from: renderer)
-        renderer.updateSegments(segments(files))
+        renderer.updateSegments(media)
         let target = origin.addingTimeInterval(0.2)
         renderer.seek(to: target, playing: false) { _ in }
         XCTAssertTrue(renderer.isSeeking)
@@ -94,13 +97,19 @@ import XCTest
             renderer.isPlaying && (renderer.position ?? self.origin) > target
         }
         renderer.pause()
-        let paused = renderer.position
+        let paused = try XCTUnwrap(renderer.position)
+        let last = try XCTUnwrap(media.last)
+        XCTAssertGreaterThan(last.end.timeIntervalSince(paused), 4,
+                             "Resume must be tested with audio remaining, not at the finite fixture's end")
+        print("Renderer pause/resume cursor=\(paused.timeIntervalSince(origin)) prepared=\(renderer.preparedMediaForTesting)")
         let resets = renderer.statisticsForTesting.resets
         try await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertEqual(renderer.position, paused)
         XCTAssertFalse(renderer.statisticsForTesting.requested)
         renderer.play()
-        try await waitUntil("Ordinary resume keeps the prepared decoder") { renderer.isPlaying }
+        try await waitUntil("Ordinary resume keeps the prepared decoder and advances its cursor") {
+            renderer.isPlaying && (renderer.position ?? paused) > paused.addingTimeInterval(0.05)
+        }
         XCTAssertEqual(renderer.statisticsForTesting.resets, resets)
     }
 
@@ -116,13 +125,43 @@ import XCTest
         let target = media[1].start.addingTimeInterval(10)
         var confirmed: Date?
         renderer.seek(to: target, playing: false) { confirmed = $0 }
-        try await waitUntil("A paused seek can decode through more than 25 seconds of preroll", timeout: 12) {
+        try await waitUntil("A deep paused seek prepares with bounded packet preroll", timeout: 12) {
             confirmed != nil
         }
         XCTAssertEqual(confirmed, target)
         XCTAssertFalse(renderer.isPlaying)
         XCTAssertFalse(renderer.statisticsForTesting.requested)
         XCTAssertEqual(renderer.position?.timeIntervalSince(target) ?? -1, 0, accuracy: 0.001)
+        let firstPacket = try XCTUnwrap(renderer.preparedMediaForTesting.first)
+        XCTAssertGreaterThanOrEqual(firstPacket, renderer.currentSeconds - 1 - 1024.0 / 44_100)
+        XCTAssertLessThan(firstPacket, renderer.currentSeconds - 0.9)
+        XCTAssertEqual(renderer.statisticsForTesting.segments, 1,
+                       "A deep seek should not read an entire preceding storage file")
+    }
+
+    func testPausedSeekNearLongSegmentBoundaryKeepsOnlyBoundedPreviousPackets() async throws {
+        try activateAudio()
+        let path = directory()
+        let files = try BufferedAudioTestFixture.make(in: path, segmentCount: 2, duration: 30)
+        let media = segments(files)
+        let renderer = BufferedAudioRenderer()
+        defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
+        renderer.updateSegments(media)
+        let target = media[1].start.addingTimeInterval(0.1)
+        var confirmed: Date?
+        renderer.seek(to: target, playing: false) { confirmed = $0 }
+        try await waitUntil("A boundary seek prepares using only the preceding file's last packets", timeout: 12) {
+            confirmed != nil
+        }
+        XCTAssertEqual(confirmed, target)
+        XCTAssertFalse(renderer.isPlaying)
+        XCTAssertEqual(renderer.position?.timeIntervalSince(target) ?? -1, 0, accuracy: 0.001)
+        let firstPacket = try XCTUnwrap(renderer.preparedMediaForTesting.first)
+        XCTAssertGreaterThanOrEqual(firstPacket, renderer.currentSeconds - 1 - 1024.0 / 44_100)
+        XCTAssertLessThan(firstPacket, renderer.currentSeconds - 0.9)
+        XCTAssertEqual(renderer.statisticsForTesting.segments, 2)
+        XCTAssertEqual(renderer.statisticsForTesting.resets, 1)
     }
 
     func testAutomaticOutputFlushPreservesPausedIntentAndComposedGain() async throws {
