@@ -16,7 +16,16 @@ RFC 8216 describes checking that overlapping media sequences retain their URIs o
 
 ## Verification and device retest
 
-Regression fixtures cover the reported fractional durations and repeated rolling windows, date-tag/discontinuity ordering, and refusal to invent a clock for unproven continuity. CI and the rebuilt device IPA remain pending for this correction.
+Regression fixtures cover the reported fractional durations and 39 successive rolling-window refreshes, date-tag/discontinuity ordering, and refusal to invent a clock for unproven continuity. The source correction is `094e965bbe08760f19edec1745c84c144e536220`; [build 9, run 35525953711](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35525953711) passed both ordinary Release device builds and both native simulator jobs. Both Release logs confirm all 98 portable tests passed, including 17 HLS manifest tests (11 new regressions). Both native logs confirm 111 hosted tests and five UI tests passed, with all 29 screenshot hashes verified per profile. Both simulator profiles use iOS 26.5; this does not establish an iOS 16 runtime result.
+
+Both downloaded artifact ZIP hashes match GitHub's digests, each extracted IPA matches its packaged checksum, and both pass local `validate_ipa.py` checks. Build records confirm version 1.0 (9), the source commit above, Xcode 26.6 (17F113) and iPhoneOS SDK 26.5. The iPhone 17 app includes its matching Live Activity extension; the SE app has none. Both remain unsigned for the owner’s AltStore flow.
+
+| Build 9 IPA | SHA-256 |
+|---|---|
+| KUSC-17-unsigned.ipa | `1efb18c82509a1270e6cf1c41e8510bf769a585382fc31570acb31e44fb33f46` |
+| KUSC-SE-unsigned.ipa | `70bca4a0a24de952f407c16b43ceb545926ab4a3e9ee90d7d1b3676664538698` |
+
+Local packages are saved under `artifacts/ci-35525953711/KUSC-17/` and `artifacts/ci-35525953711/KUSC-SE/`. The owner tested the verified iPhone 17 package and confirmed buffered playback can now keep playing. They also reported a remaining brief volume dip roughly every 15 seconds and a left history label that stops updating after scrubbing before five minutes of history has accumulated. Direct playback remains unaffected. Those are separate follow-up defects; build 9 is not accepted as an uninterrupted-audio fix.
 
 After installing the corrected build, repeat the diagnostic procedure from [the diagnostic build note](diagnostics_2026-09-21.md). First play at the live edge for at least two minutes with five-minute retention and confirm history grows past 14 seconds and one minute without reconnecting. Save the report, then start another capture, pause after audible playback has begun, and keep the app open/unlocked for at least one minute. Confirm history continues growing while paused. Resume, rewind and return to Live; report any audible interruptions separately. Copy each report before replacing it or force-quitting.
 

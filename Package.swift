@@ -9,7 +9,8 @@ let package = Package(
     targets: [
         .target(name: "KUSCCore", path: "Shared",
                 exclude: ["AppSettings.swift", "AppModel.swift", "KUSCApp.swift", "StationConfiguration.swift", "Metadata/MetadataService.swift",
-                          "System", "Timers", "UI", "Audio/RollingAudioEngine.swift", "Audio/HLSIngestor.swift", "Audio/PlaybackDiagnostics.swift"],
+                          "System", "Timers", "UI", "Audio/RollingAudioEngine.swift", "Audio/HLSIngestor.swift", "Audio/PlaybackDiagnostics.swift",
+                          "Audio/BufferedAudioSampleSource.swift", "Audio/BufferedAudioRenderer.swift"],
                 sources: ["Core", "Audio/ADTSParser.swift", "Audio/HLSManifest.swift",
                           "Metadata/StationMetadataParser.swift"]),
         .testTarget(name: "KUSCCoreTests", dependencies: ["KUSCCore"], path: "Tests",

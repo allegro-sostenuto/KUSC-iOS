@@ -1,6 +1,7 @@
 // These exercise AVFoundation ownership, so they run in the native KUSCTests
 // target rather than the portable policy package. No station request is used.
 #if DEBUG && canImport(AVFoundation) && !canImport(KUSCCore)
+import AVFoundation
 import Foundation
 import XCTest
 @testable import KUSC_SE
@@ -82,23 +83,36 @@ import XCTest
         XCTAssertEqual(latest?.hasConfirmedPosition, false)
     }
 
-    func testEmptyQueueRefillsAlreadyDownloadedAudioWithoutAnotherArrival() {
+    func testEmptyRendererRefillsAlreadyDownloadedAudioWithoutAnotherArrival() async throws {
         let engine = RollingAudioEngine()
-        defer { engine.stop() }
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-refill-\(UUID().uuidString)")
+        defer { engine.stop(); try? FileManager.default.removeItem(at: path) }
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
         let origin = Date(timeIntervalSince1970: 1_000_000)
-        let files = (0..<3).map { index in
-            AudioSegment(url: URL(fileURLWithPath: "/nonexistent/kusc-refill-\(index).aac"),
-                         start: origin.addingTimeInterval(Double(index * 10)),
-                         end: origin.addingTimeInterval(Double((index + 1) * 10)), byteCount: 100)
+        let fixture = try BufferedAudioTestFixture.make(in: path)
+        var start = origin
+        let files = fixture.segments.enumerated().map { index, url in
+            let end = start.addingTimeInterval(fixture.segmentDurations[index])
+            defer { start = end }
+            return AudioSegment(url: url, start: start, end: end, byteCount: 100)
         }
-        let consumedEnd = origin.addingTimeInterval(20)
+        let consumedEnd = files[2].start
         engine.configureBufferedTransportForTesting(segments: files, pausedAt: consumedEnd)
         XCTAssertEqual(latest?.hasAudio, false)
+        let ready = expectation(description: "Retained successor packets prepare without another download")
+        var fulfilled = false
+        engine.onUpdate = { snapshot in
+            latest = snapshot
+            if snapshot.isReady && !snapshot.isSeeking && !fulfilled {
+                fulfilled = true
+                ready.fulfill()
+            }
+        }
         engine.refillBufferedQueueForTesting()
-        XCTAssertEqual(latest?.hasAudio, true)
         XCTAssertEqual(latest?.pendingSeekAt, consumedEnd)
+        await fulfillment(of: [ready], timeout: 8)
+        XCTAssertEqual(latest?.hasAudio, true)
         XCTAssertEqual(latest?.heardAt, consumedEnd)
     }
 
@@ -121,6 +135,71 @@ import XCTest
         await fulfillment(of: [replacement], timeout: 2)
         XCTAssertFalse(requests.isEmpty)
         XCTAssertTrue(requests.allSatisfy { !$0 }, "A queued retention change must not override Pause")
+    }
+
+    func testPausedPendingSeekExpiryCanResumeAtRetainedAudioAndRejectLateRead() async throws {
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        try AVAudioSession.sharedInstance().setActive(true)
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-seek-expiry-\(UUID().uuidString)")
+        let fixture = try BufferedAudioTestFixture.make(in: path, segmentCount: 2)
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        func files(start: Date, urls: [URL]) -> [AudioSegment] {
+            var cursor = start
+            return urls.enumerated().map { index, url in
+                let end = cursor.addingTimeInterval(fixture.segmentDurations[index])
+                defer { cursor = end }
+                return AudioSegment(url: url, start: cursor, end: end, byteCount: 100)
+            }
+        }
+        let old = files(start: origin, urls: fixture.segments)
+        let packets = try await BufferedAudioSampleSource.load(url: old[0].url)
+        let engine = RollingAudioEngine()
+        var release: CheckedContinuation<BufferedAudioSamples, Never>?
+        defer {
+            engine.stop()
+            release?.resume(returning: packets)
+            try? FileManager.default.removeItem(at: path)
+        }
+        var firstRead = true
+        let readStarted = expectation(description: "Paused seek starts reading")
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        engine.volume = 0.2
+        engine.configureBufferedTransportForTesting(segments: old, pausedAt: origin.addingTimeInterval(0.1)) { url in
+            if firstRead {
+                firstRead = false
+                return await withCheckedContinuation { release = $0; readStarted.fulfill() }
+            }
+            return try await BufferedAudioSampleSource.load(url: url)
+        }
+        engine.goLive()
+        await fulfillment(of: [readStarted], timeout: 3)
+        let freshURLs = try fixture.segments.enumerated().map { index, url in
+            let copy = path.appendingPathComponent("fresh-\(index).aac")
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        }
+        let fresh = files(start: origin.addingTimeInterval(1_000), urls: freshURLs)
+        for segment in fresh { engine.acceptBufferedSegmentForTesting(segment) }
+        if let pending = latest?.pendingSeekAt {
+            XCTAssertGreaterThanOrEqual(pending, fresh[0].start,
+                                       "A replacement seek may prepare retained media, but the expired target is revoked")
+        }
+        let playing = expectation(description: "Play resolves to the surviving retention window")
+        var fulfilled = false
+        engine.onUpdate = { snapshot in
+            latest = snapshot
+            if snapshot.isPlaying && !fulfilled { fulfilled = true; playing.fulfill() }
+        }
+        engine.play()
+        // The obsolete task deliberately returns despite cancellation.
+        let oldRead = release
+        release = nil
+        oldRead?.resume(returning: packets)
+        await fulfillment(of: [playing], timeout: 8)
+        XCTAssertEqual(latest?.isSeeking, false)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(latest?.heardAt), fresh[0].start)
+        XCTAssertEqual(engine.bufferedTransportForTesting?.volume, 0.2)
     }
 
     func testRapidRetentionReversalWhilePausedDoesNotRestartPlayback() async throws {

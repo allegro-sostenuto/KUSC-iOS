@@ -91,6 +91,7 @@ import UIKit
     private var lastDiagnosticGain: Float = -1
     private var isUIFixture = ProcessInfo.processInfo.environment["KUSC_UI_STATE"] != nil
     private var boundaryGainTrace: [Float]?
+    private var audioRecoveryTestConnections: Int?
     #endif
     private var unpluggedAt: Date?
     private var notificationOnly = false
@@ -165,7 +166,7 @@ import UIKit
 
     func play() {
         #if DEBUG
-        guard !isUIFixture else { return }
+        guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
         scheduleGeneration.invalidate()
         ensureTicker()
@@ -355,6 +356,54 @@ import UIKit
         startPlaybackDiagnostics()
         engine.failForDiagnosticsTesting(AudioStreamError.unsupportedFormat("diagnostic fixture failure"))
     }
+
+    /// Exercise coordinator recovery without contacting the station or activating
+    /// the system audio session. The real engine is still invalidated on reset.
+    func configureAudioRecoveryForTesting(playing: Bool, interrupted: Bool = false,
+                                          scheduled: Bool = false) {
+        precondition(isUIFixture)
+        cancelSchedule(); cancelSleep()
+        stopEverything(reason: .idle)
+        ticker?.invalidate(); ticker = nil
+        gainTimer?.invalidate(); gainTimer = nil
+        audioRecoveryTestConnections = 0
+        wantsPlayback = playing
+        hasStartedEngine = true
+        interruptionActive = interrupted
+        wasPlayingBeforeInterruption = interrupted && playing
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        heardAt = anchor
+        pausedAt = playing ? nil : anchor
+        bufferWindow = BufferWindow(oldest: anchor.addingTimeInterval(-60), live: anchor.addingTimeInterval(20))
+        transportClock.configureUIFixture(.init(heardAt: anchor, window: bufferWindow))
+        state = interrupted ? .interrupted : (playing ? .playingDelayed : .pausedDelayed)
+        if scheduled {
+            scheduleRequest = ScheduledStartRequest(date: Date().addingTimeInterval(60))
+            scheduleOwnsPlayback = playing
+            scheduleGain = playing ? 0.4 : 1
+        }
+        boundaryGainTrace = []
+        applyGain()
+    }
+
+    var audioRecoveryStateForTesting: (started: Bool, connections: Int, engineGeneration: UUID,
+                                       connectionGeneration: UUID, pausedAt: Date?, interrupted: Bool) {
+        (hasStartedEngine, audioRecoveryTestConnections ?? 0, engine.transportSessionForTesting,
+         connectionGeneration, pausedAt, interruptionActive)
+    }
+
+    func resetMediaServicesForTesting() { handleMediaServicesReset() }
+    func endAudioInterruptionForTesting(shouldResume: Bool) { endInterruption(shouldResume: shouldResume) }
+
+    func finishAudioRecoveryForTesting() {
+        interruptionActive = false
+        wasPlayingBeforeInterruption = false
+        cancelSchedule(); cancelSleep()
+        stopEverything(reason: .idle)
+        ticker?.invalidate(); ticker = nil
+        audioRecoveryTestConnections = nil
+        boundaryGainTrace = nil
+    }
     #endif
 
     private func startConnection() {
@@ -364,6 +413,12 @@ import UIKit
         if scheduleOwnsPlayback { scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         if reconnectStarted == nil { state = .connecting }
         hasStartedEngine = true
+        #if DEBUG
+        if let connections = audioRecoveryTestConnections {
+            audioRecoveryTestConnections = connections + 1
+            return
+        }
+        #endif
         connectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             do {
@@ -788,10 +843,54 @@ import UIKit
     }
 
     private func activateSession() throws {
+        #if DEBUG
+        if audioRecoveryTestConnections != nil { return }
+        #endif
         let audio = AVAudioSession.sharedInstance()
         try audio.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
         try audio.setActive(true)
     }
+
+    private func handleMediaServicesReset() {
+        // A reset invalidates the media objects even while paused. Do not leave
+        // an obsolete renderer available for the next Play or interruption end.
+        connectionGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        hasStartedEngine = false
+        reconnectStarted = nil
+        audioIsAdvancing = false
+        if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil }
+        applyGain()
+        engine.stop(); standby.stop()
+        pausedAt = nil
+        bufferWindow = nil
+        acquisitionIsStale = false
+        if wantsPlayback && !interruptionActive {
+            do { try activateSession(); startConnection() }
+            catch { connectionFailed(error) }
+        } else if interruptionActive && wantsPlayback {
+            state = .interrupted
+        } else if state == .pausedDelayed {
+            state = .pausedLive
+        }
+        refreshSystemSurfaces()
+    }
+
+    private func endInterruption(shouldResume: Bool) {
+        interruptionActive = false
+        if wasPlayingBeforeInterruption && wantsPlayback && shouldResume {
+            do {
+                try activateSession(); applyGain()
+                if hasStartedEngine, reconnectStarted == nil { engine.play() }
+                else { reconnectStarted = nil; startConnection() }
+                invalidateSleepEndpoint()
+            } catch { connectionFailed(error) }
+        } else if wasPlayingBeforeInterruption {
+            pauseRemote()
+        }
+        wasPlayingBeforeInterruption = false
+    }
+
     private func installAudioObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
@@ -809,15 +908,7 @@ import UIKit
                         self.wasPlayingBeforeInterruption = false
                     }
                 } else {
-                    self.interruptionActive = false
-                    if self.wasPlayingBeforeInterruption && self.wantsPlayback && AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
-                        do {
-                            try self.activateSession(); self.applyGain(); self.engine.play(); self.invalidateSleepEndpoint()
-                        } catch { self.connectionFailed(error) }
-                    } else if self.wasPlayingBeforeInterruption {
-                        self.pauseRemote()
-                    }
-                    self.wasPlayingBeforeInterruption = false
+                    self.endInterruption(shouldResume: AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume))
                 }
             }
         })
@@ -838,10 +929,7 @@ import UIKit
         })
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.wantsPlayback, !self.interruptionActive else { return }
-                if self.scheduleOwnsPlayback { self.scheduleGain = 0; self.scheduleEnvelope = nil; self.applyGain() }
-                do { try self.activateSession(); self.startConnection() }
-                catch { self.connectionFailed(error) }
+                self?.handleMediaServicesReset()
             }
         })
         for name in [UIDevice.batteryStateDidChangeNotification, UIDevice.batteryLevelDidChangeNotification] {

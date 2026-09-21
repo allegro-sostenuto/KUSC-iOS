@@ -123,6 +123,34 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testHistoryKeepsGrowingAfterEarlyScrub() {
+        let app = launchFixture("growing-buffer")
+        let slider = app.sliders["Listening position in retained audio"]
+        let history = app.staticTexts.matching(identifier: "retained-audio-history").firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 10))
+        XCTAssertTrue(history.waitForExistence(timeout: 5))
+        let left = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        let right = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+        right.press(forDuration: 0.1, thenDragTo: left)
+        XCTAssertFalse(((slider.value as? String) ?? "").contains("Preview"))
+        assertHistoryAdvances(history)
+        assertHistoryAdvances(history)
+        slider.adjust(toNormalizedSliderPosition: 0.55)
+        XCTAssertFalse(((slider.value as? String) ?? "").contains("Preview"))
+        assertHistoryAdvances(history)
+    }
+
+    @MainActor
+    private func assertHistoryAdvances(_ history: XCUIElement) {
+        let previous = history.label
+        let update = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            history.label != previous
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [update], timeout: 5), .completed,
+                       "Acquired history must continue growing after a scrub before retention fills.")
+    }
+
+    @MainActor
     func testLandscapeSliderDoesNotNavigateProgramme() {
         let app = launchFixture("partial-buffer", landscape: true)
         let orientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in

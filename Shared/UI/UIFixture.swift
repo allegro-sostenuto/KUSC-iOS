@@ -59,7 +59,7 @@ import UIKit
         if state == "reconnecting" {
             model.state = .reconnecting(since: Date().addingTimeInterval(-14))
         }
-        if state == "partial-buffer" || state == "paused-buffer" {
+        if ["partial-buffer", "paused-buffer", "growing-buffer"].contains(state) {
             let window = BufferWindow(oldest: anchor.addingTimeInterval(-135), live: anchor)
             let heard = anchor.addingTimeInterval(-90)
             model.settings.retentionMinutes = 5
@@ -73,6 +73,26 @@ import UIKit
             sample.playableRanges = [window.oldest...window.live]
             sample.maximumExtrapolation = 0
             model.transportClock.configureUIFixture(sample)
+            if state == "growing-buffer" {
+                let initialSample = sample
+                // Exercise the real view with an independently advancing
+                // acquisition window; this does not run the audio engine.
+                Task { @MainActor in
+                    for second in 1...90 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        let live = anchor.addingTimeInterval(TimeInterval(second))
+                        let nextWindow = BufferWindow(oldest: window.oldest, live: live)
+                        var next = initialSample
+                        next.window = nextWindow
+                        next.heardAt = heard.addingTimeInterval(TimeInterval(second))
+                        next.sampledAt = ProcessInfo.processInfo.systemUptime
+                        next.isAdvancing = true
+                        next.playableRanges = [nextWindow.oldest...nextWindow.live]
+                        model.transportClock.configureUIFixture(next)
+                    }
+                }
+            }
         }
         if state == "scheduled-silent" {
             model.state = .scheduledSilent

@@ -63,14 +63,14 @@ These limits affect the requested acceptance criteria and are not hidden behind 
 - **CarPlay:** full custom app UI requires an Apple-approved audio entitlement and matching profile. Adding the entitlement file alone does not grant access. [Apple CarPlay entitlements](https://developer.apple.com/documentation/carplay/requesting-carplay-entitlements).
 - **Background execution:** silent standby is best effort, not an alarm guarantee. A paused capture can be suspended. Force-quit, system termination, or reboot may defeat automatic playback; an already-scheduled notification remains the fallback when the system can deliver it. Opening a delivered scheduled-start notification explicitly starts live, regardless of Auto-play preference.
 - **Interrupted audio:** automatic resumption respects the system's `shouldResume` interruption flag. A denied audio session cannot be forced to resume safely.
-- **Buffered segment joins:** actual local HLS AAC segments are queued through AVQueuePlayer. Gapless behavior, decoder continuity, exact seek precision, AirPlay and multi-hour operation still require device testing. The app's source implements this path; the package does not claim measured seamless playback. See [audio_engine.md](docs/audio_engine.md).
+- **Buffered segment joins:** local HLS AAC packets feed one continuous audio renderer, preserving decoder state across ordinary downloaded-file boundaries. The owner's build 9 test exposed regular dips with the former per-file player queue; physical acceptance of this replacement, exact seek precision, AirPlay and multi-hour operation remain required. See [audio_engine.md](docs/audio_engine.md).
 
 The original requested specification is retained in [build_specification.md](docs/build_specification.md). [platform_limits.md](docs/platform_limits.md) explains the Apple restrictions and required device checks.
 
 ## Code layout
 
 - `Shared/AppModel.swift`: playback intent, lifecycle, timers, schedule and integration coordinator.
-- `Shared/Audio`: HLS/ADTS parsing, acquisition, strict local retention and playback queue.
+- `Shared/Audio`: HLS/ADTS parsing, acquisition, strict local retention and continuous buffered playback.
 - `Shared/Core`: Foundation-only tested policy definitions and timeline models.
 - `Shared/Metadata`: station response parsing, refresh cache and inline artwork handling.
 - `Shared/UI`: responsive native views, wheels, output picker and programme gesture.

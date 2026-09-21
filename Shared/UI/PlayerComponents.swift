@@ -224,44 +224,39 @@ struct PlayerControls: View {
 /// Only this small view follows the media observer; metadata/artwork stay at their own cadence.
 private struct BufferPositionView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var clock: PlaybackTransportClock
-    @State private var scrubTimestamp: Double?
-    @State private var frozenWindow: BufferWindow?
+    @State private var scrub = BufferScrubState()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !clock.sample.isAdvancing || scrubTimestamp != nil)) { _ in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !clock.sample.isAdvancing || scrub.isEditing)) { _ in
             let sample = clock.sample
-            if let window = frozenWindow ?? sample.window, let confirmed = sample.heardAt,
-               window.live.timeIntervalSince(window.oldest) > 0.5 {
+            if let currentWindow = sample.window, let confirmed = sample.heardAt,
+               currentWindow.duration > 0.5 {
+                let window = scrub.frozenWindow ?? currentWindow
                 let lower = window.oldest.timeIntervalSince1970
                 let upper = window.live.timeIntervalSince1970
                 let elapsed = sample.isAdvancing ? min(sample.maximumExtrapolation, max(0, ProcessInfo.processInfo.systemUptime - sample.sampledAt)) : 0
                 let heard = confirmed.addingTimeInterval(elapsed)
-                let position = scrubTimestamp ?? (sample.isAtLiveEdge && sample.isAdvancing ? upper : heard.timeIntervalSince1970)
+                let position = scrub.preview?.timeIntervalSince1970 ?? (sample.isAtLiveEdge && sample.isAdvancing ? upper : heard.timeIntervalSince1970)
                 VStack(spacing: 0) {
                     Slider(value: Binding(
                         get: { min(upper, max(lower, position)) },
                         set: { value in
-                            if frozenWindow == nil { frozenWindow = window }
-                            scrubTimestamp = value
+                            guard scenePhase == .active else { return }
+                            commit(scrub.update(Date(timeIntervalSince1970: value), currentWindow: currentWindow))
                         }
                     ), in: lower...upper) { editing in
                         if editing {
-                            if frozenWindow == nil { frozenWindow = window }
+                            scrub.begin(in: currentWindow)
                         } else {
-                            if let timestamp = scrubTimestamp {
-                                // A right-edge drag and Live always share the engine's live join policy.
-                                if timestamp >= upper - 0.5 { model.goLive() }
-                                else { model.seek(to: Date(timeIntervalSince1970: timestamp)) }
-                            }
-                            scrubTimestamp = nil
-                            frozenWindow = nil
+                            commit(scrub.end())
                         }
                     }
                     .frame(minHeight: 44)
                     .tint(.kuscRed)
                     .accessibilityLabel("Listening position in retained audio")
-                    .accessibilityValue(positionLabel(live: window.live, heard: heard))
+                    .accessibilityValue(positionLabel(live: currentWindow.live, heard: heard))
                     .overlay {
                         GeometryReader { geometry in
                             ForEach(Array(gaps(in: window).enumerated()), id: \.offset) { _, gap in
@@ -274,7 +269,9 @@ private struct BufferPositionView: View {
                             }
                         }.allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    labels(window: window, heard: heard)
+                    // History is acquisition state, independent of a drag's
+                    // frozen coordinates or the requested listening position.
+                    labels(window: currentWindow, heard: heard)
                     if !gaps(in: window).isEmpty {
                         Text("Gaps skip to the next available audio").font(.caption2)
                             .foregroundStyle(.secondary).padding(.top, 5)
@@ -291,40 +288,56 @@ private struct BufferPositionView: View {
             }
         }
         .onChange(of: model.settings.retentionMinutes) { _ in
-            scrubTimestamp = nil; frozenWindow = nil
+            scrub.cancel()
         }
         .onChange(of: clock.sample.window == nil) { unavailable in
-            if unavailable { scrubTimestamp = nil; frozenWindow = nil }
+            if unavailable { scrub.cancel() }
         }
-        .onDisappear { scrubTimestamp = nil; frozenWindow = nil }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { scrub.cancel() }
+        }
+        .onDisappear { scrub.cancel() }
     }
 
     private func labels(window: BufferWindow, heard: Date) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                Text("−" + duration(window.live.timeIntervalSince(window.oldest)))
+                historyLabel(window)
                 Spacer(minLength: 0)
                 Text(positionLabel(live: window.live, heard: heard))
                 Spacer(minLength: 0)
                 Text("Live")
             }
             VStack(spacing: 4) {
-                HStack { Text("−" + duration(window.live.timeIntervalSince(window.oldest))); Spacer(); Text("Live") }
+                HStack { historyLabel(window); Spacer(); Text("Live") }
                 Text(positionLabel(live: window.live, heard: heard))
             }
         }
         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
     }
 
+    private func historyLabel(_ window: BufferWindow) -> some View {
+        Text("−" + duration(window.duration))
+            .accessibilityIdentifier("retained-audio-history")
+    }
+
     private func positionLabel(live: Date, heard: Date) -> String {
-        if let scrubTimestamp {
-            return "Preview · −\(duration(live.timeIntervalSince1970 - scrubTimestamp))"
+        if let preview = scrub.preview {
+            return "Preview · −\(duration(live.timeIntervalSince(preview)))"
         }
         if clock.sample.isSeeking { return "Seeking…" }
         switch model.state {
         case .playingLive: return "At live edge"
         case .playingDelayed: return "−\(duration(live.timeIntervalSince(heard))) from live"
         default: return model.statusText
+        }
+    }
+
+    private func commit(_ target: BufferScrubCommit?) {
+        switch target {
+        case .live: model.goLive()
+        case .seek(let date): model.seek(to: date)
+        case nil: break
         }
     }
 

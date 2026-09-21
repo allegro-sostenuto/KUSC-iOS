@@ -63,21 +63,20 @@ final class RollingAudioEngine {
         set {
             outputVolume = min(1, max(0, newValue))
             player?.volume = outputVolume
+            bufferedPlayer?.volume = outputVolume
         }
     }
 
     private var player: AVPlayer?
+    private var bufferedPlayer: BufferedAudioRenderer?
     private var sourceURL: URL?
     private var retentionMinutes = 0
     private var segments: [AudioSegment] = []
     private var retention = RetentionResult(retained: [], expired: [], window: nil)
-    private var queued: [ObjectIdentifier: AudioSegment] = [:]
     private var observations: [NSKeyValueObservation] = []
     private var timeObserver: Any?
     private var itemObservation: NSKeyValueObservation?
-    private var lastCurrentItem: AVPlayerItem?
     private var failedToEndObserver: NSObjectProtocol?
-    private var endObserver: NSObjectProtocol?
     private var ingestTask: Task<Void, Never>?
     private var monitorTask: Task<Void, Never>?
     private var switchTask: Task<Void, Never>?
@@ -98,7 +97,6 @@ final class RollingAudioEngine {
     private var lastAcquisitionUptime: TimeInterval?
     private var targetDuration: TimeInterval = 10
     private var lastSlowPublishUptime: TimeInterval = 0
-    private var lastEndedPosition: Date?
     #if DEBUG
     private(set) var diagnosticEvents: [String] = []
     #endif
@@ -118,10 +116,12 @@ final class RollingAudioEngine {
 
     #if DEBUG
     var transportSessionForTesting: UUID { generation }
+    var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
     /// Native XCTest fixture: exercise pending-seek ownership without fetching
     /// the station or requiring an AAC decoder to finish an asynchronous seek.
     func configureBufferedTransportForTesting(segments fixtures: [AudioSegment], pausedAt date: Date?,
-                                              initialJoinPending: Bool = false) {
+                                              initialJoinPending: Bool = false,
+                                              loadSamples: @escaping (URL) async throws -> BufferedAudioSamples = BufferedAudioSampleSource.load) {
         stopInternal(publish: false)
         retentionMinutes = 15
         segments = fixtures
@@ -132,11 +132,12 @@ final class RollingAudioEngine {
         pausedAt = date
         wantsInitialLivePosition = initialJoinPending
         hasStartedPlayback = !initialJoinPending
-        install(AVQueuePlayer())
+        installBufferedPlayer(loadSamples: loadSamples)
+        bufferedPlayer?.updateSegments(segments)
         publish()
     }
     func acceptBufferedSegmentForTesting(_ segment: AudioSegment) { accept(segment) }
-    func refillBufferedQueueForTesting() { fillQueue(); publish() }
+    func refillBufferedQueueForTesting() { fillBufferedAudio(); publish() }
     func failForDiagnosticsTesting(_ error: Error) { reportFailure(error, origin: "test.injected") }
     #endif
 
@@ -174,10 +175,7 @@ final class RollingAudioEngine {
             var writableDirectory = directory
             try writableDirectory.setResourceValues(excluded)
             runDirectory = directory
-            let queue = AVQueuePlayer()
-            queue.actionAtItemEnd = .advance
-            queue.automaticallyWaitsToMinimizeStalling = false
-            install(queue)
+            installBufferedPlayer()
             ingestTask = Task { [weak self] in
                 do {
                     try await HLSIngestor().run(url: url, directory: directory, status: { [weak self] status in
@@ -219,11 +217,11 @@ final class RollingAudioEngine {
     }
 
     func play() {
-        guard let player, !failed else { return }
+        guard player != nil || bufferedPlayer != nil, !failed else { return }
         recordDiagnostic("engine.play")
         if !hasStartedPlayback { connectionBegan = Date() }
         shouldPlay = true
-        if retentionMinutes == 0, directNeedsLiveReload, let url = sourceURL {
+        if retentionMinutes == 0, directNeedsLiveReload, let url = sourceURL, let player {
             // At zero retention resume must not expose AVPlayer's old live buffer.
             let item = AVPlayerItem(url: url)
             item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
@@ -236,14 +234,20 @@ final class RollingAudioEngine {
             // A Live/seek action may already have installed its pending target
             // while paused. Resuming must not replace it with the old cursor.
             let cursor = pausedAt ?? heardDate()
-            if let cursor, let target = BufferRetention.seekTarget(cursor, result: retention) {
-                if pausedAt != nil || cursor < (retention.window?.oldest ?? cursor) || player.currentItem == nil {
+            if wantsInitialLivePosition, let live = safeLiveTarget() {
+                wantsInitialLivePosition = false
+                reposition(to: live)
+            } else if let cursor, let target = BufferRetention.seekTarget(cursor, result: retention) {
+                if cursor < (retention.window?.oldest ?? cursor) || bufferedPlayer?.hasTimeline != true {
                     reposition(to: target)
                 }
             }
         }
         pausedAt = nil
-        if !isSeeking { player.play() }
+        if !isSeeking { player?.play() }
+        // A pending paused seek still needs the latest intent; the renderer
+        // defers its rate change until that seek has actually become ready.
+        bufferedPlayer?.play()
         publish()
     }
 
@@ -251,9 +255,11 @@ final class RollingAudioEngine {
         recordDiagnostic("engine.pause")
         pausedAt = heardDate()
         shouldPlay = false
+        if transportIsSeeking, cursor.position == nil { wantsInitialLivePosition = true }
         invalidatePendingSeek()
         if retentionMinutes == 0 { directNeedsLiveReload = true }
         player?.pause()
+        bufferedPlayer?.pause()
         waitingSince = nil
         publish()
     }
@@ -279,7 +285,7 @@ final class RollingAudioEngine {
     }
 
     func goLive() {
-        guard let player else { return }
+        guard player != nil || bufferedPlayer != nil else { return }
         if switchTask != nil {
             // The replacement already joins live. Until it runs, retentionMinutes
             // may describe the new mode while player still owns the old mode.
@@ -300,7 +306,7 @@ final class RollingAudioEngine {
             }
             wantsInitialLivePosition = false
             reposition(to: live)
-        } else if let url = sourceURL {
+        } else if let url = sourceURL, let player {
             wantsInitialLivePosition = false
             let item = AVPlayerItem(url: url)
             item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
@@ -318,7 +324,7 @@ final class RollingAudioEngine {
     func setRetention(minutes: Int) {
         let next = min(15, max(0, minutes))
         guard next != retentionMinutes else { return }
-        let requiresRestart = ((player is AVQueuePlayer) != (next > 0)) || switchTask != nil
+        let requiresRestart = ((bufferedPlayer != nil) != (next > 0)) || switchTask != nil
         retentionMinutes = next
         guard let url = sourceURL else { return }
         if requiresRestart {
@@ -359,8 +365,6 @@ final class RollingAudioEngine {
                 Task { @MainActor in
                     guard let self, self.generation == activeGeneration else { return }
                     self.observeCurrentItem()
-                    self.pruneQueueMappings()
-                    self.fillQueue()
                     self.publish()
                 }
             },
@@ -381,41 +385,42 @@ final class RollingAudioEngine {
                     self.reportFailure(error ?? AudioStreamError.disconnected, origin: "player.failedToEnd")
                 }
             }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] note in
-                let item = note.object as? AVPlayerItem
-                Task { @MainActor in
-                    guard let self, self.generation == activeGeneration else { return }
-                    if let item, let segment = self.queued[ObjectIdentifier(item)], !self.isSeeking {
-                        self.cursor.record(segment.end)
-                        self.lastEndedPosition = segment.end
-                        self.recordDiagnostic("item ended P=\(segment.end.timeIntervalSince1970)")
-                    }
-                    self.pruneQueueMappings()
-                    self.fillQueue()
-                    self.publish()
-                }
-            }
         observeCurrentItem()
+    }
+
+    private func installBufferedPlayer(loadSamples: @escaping (URL) async throws -> BufferedAudioSamples = BufferedAudioSampleSource.load) {
+        let buffered = BufferedAudioRenderer(loadSamples: loadSamples)
+        bufferedPlayer = buffered
+        buffered.volume = outputVolume
+        let activeGeneration = generation
+        buffered.onClock = { [weak self] in
+            guard let self, self.generation == activeGeneration else { return }
+            self.publishClock()
+        }
+        buffered.onStateChange = { [weak self, weak buffered] in
+            guard let self, self.generation == activeGeneration else { return }
+            if self.isSeeking, buffered?.isSeeking == false {
+                // Retention/output cancellation can revoke a read before the
+                // renderer has a confirmed seek completion to deliver.
+                self.seekGeneration.invalidate()
+                self.isSeeking = false
+                self.seekTargetDate = nil
+                if self.cursor.position == nil { self.wantsInitialLivePosition = true }
+            }
+            self.publish()
+        }
+        buffered.onDiagnostic = { [weak self] event in
+            guard let self, self.generation == activeGeneration else { return }
+            self.recordDiagnostic(event)
+        }
+        buffered.onFailure = { [weak self] error in
+            guard let self, self.generation == activeGeneration else { return }
+            self.reportFailure(error, origin: "renderer.compressedAudio")
+        }
     }
 
     private func observeCurrentItem() {
         itemObservation = nil
-        if !isSeeking, retentionMinutes > 0, let previous = lastCurrentItem, previous !== player?.currentItem,
-           let segment = queued[ObjectIdentifier(previous)] {
-            if previous.status == .failed {
-                lastCurrentItem = player?.currentItem
-                reportFailure(previous.error ?? AudioStreamError.disconnected, origin: "player.previousItemFailed")
-                return
-            }
-            // Our only non-seek queue transition is automatic advance-at-end.
-            // Capture the consumed endpoint before mappings disappear; an end
-            // notification can be delivered after the currentItem notification.
-            lastEndedPosition = segment.end
-            cursor.record(segment.end)
-            recordDiagnostic("queue advanced P=\(segment.end.timeIntervalSince1970)")
-        }
-        lastCurrentItem = player?.currentItem
         guard let item = player?.currentItem else { return }
         let activeGeneration = generation
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
@@ -446,15 +451,8 @@ final class RollingAudioEngine {
                 wantsInitialLivePosition = false
                 reposition(to: live)
             }
-        } else if player?.currentItem == nil {
-            // Resume exactly where the consumed queue ended, including a next
-            // valid point after a real source gap; never replay the newest start.
-            let requested = pausedAt ?? lastEndedPosition ?? cursor.position ?? segment.start
-            if let target = BufferRetention.seekTarget(requested, result: retention), target < segment.end {
-                reposition(to: target)
-            }
         } else {
-            fillQueue()
+            fillBufferedAudio()
         }
         publish()
     }
@@ -464,6 +462,10 @@ final class RollingAudioEngine {
         let cursor = heardDate()
         retention = BufferRetention.trim(segments, live: newest.end, minutes: retentionMinutes)
         segments = retention.retained
+        if let pending = seekTargetDate, let oldest = retention.window?.oldest, pending < oldest {
+            invalidatePendingSeek()
+        }
+        bufferedPlayer?.updateSegments(segments)
         if shouldPlay, let cursor, let oldest = retention.window?.oldest, cursor < oldest {
             reposition(to: oldest)
         }
@@ -471,108 +473,54 @@ final class RollingAudioEngine {
     }
 
     private func reposition(to requested: Date) {
-        guard let queue = player as? AVQueuePlayer,
+        guard let buffered = bufferedPlayer,
               let window = retention.window,
               let target = BufferRetention.seekTarget(requested, result: retention),
               let segment = segments.first(where: { target >= $0.start && target < $0.end }) else { return }
         let targetDate = min(target, segment.end.addingTimeInterval(-0.05))
-        let offset = max(0, targetDate.timeIntervalSince(segment.start))
         let token = seekGeneration.begin()
         isSeeking = true
         seekTargetDate = window.clamped(targetDate)
         recordDiagnostic("seek requested=\(requested.timeIntervalSince1970) resolved=\(targetDate.timeIntervalSince1970) seekGeneration=\(token)")
-        queue.pause()
-        queue.removeAllItems()
-        queued.removeAll()
-        let item = AVPlayerItem(url: segment.url)
-        queued[ObjectIdentifier(item)] = segment
-        queue.insert(item, after: nil)
-        fillQueue()
-        queue.seek(to: CMTime(seconds: offset, preferredTimescale: 44_100),
-                   toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            Task { @MainActor in
-                guard let self, self.seekGeneration.accepts(token), self.player?.currentItem === item else { return }
-                self.seekGeneration.invalidate()
-                if finished {
-                    let seconds = item.currentTime().seconds
-                    if seconds.isFinite {
-                        let confirmed = min(segment.end, segment.start.addingTimeInterval(max(0, seconds)))
-                        self.cursor.record(confirmed, confirmingSeek: true)
-                        self.lastEndedPosition = nil
-                        if !self.shouldPlay { self.pausedAt = confirmed }
-                        self.recordDiagnostic("seek confirmed P=\(confirmed.timeIntervalSince1970) seekGeneration=\(token)")
-                    }
-                }
-                self.isSeeking = false
-                self.seekTargetDate = nil
-                if finished, self.shouldPlay { self.player?.play() }
-                self.publish()
-            }
+        buffered.updateSegments(segments)
+        buffered.seek(to: targetDate, playing: shouldPlay) { [weak self] confirmed in
+            guard let self, self.seekGeneration.accepts(token), self.bufferedPlayer === buffered else { return }
+            self.seekGeneration.invalidate()
+            self.cursor.record(confirmed, confirmingSeek: true)
+            if !self.shouldPlay { self.pausedAt = confirmed }
+            self.recordDiagnostic("seek confirmed P=\(confirmed.timeIntervalSince1970) seekGeneration=\(token)")
+            self.isSeeking = false
+            self.seekTargetDate = nil
+            self.publish()
         }
         publish()
     }
 
-    private func fillQueue() {
-        guard !failed, let queue = player as? AVQueuePlayer else { return }
-        guard let tail = queue.items().last else {
-            guard !isSeeking, !wantsInitialLivePosition else { return }
-            // Auto-advance can empty the queue between an ingest callback's
-            // currentItem check and canInsert. Existing downloaded files must
-            // refill it now, not wait up to another whole segment's arrival.
-            observeCurrentItem()
-            pruneQueueMappings()
-            guard !failed, let requested = pausedAt ?? lastEndedPosition ?? cursor.position,
-                  let target = BufferRetention.seekTarget(requested, result: retention),
-                  segments.contains(where: { target >= $0.start && target < $0.end }) else { return }
-            recordDiagnostic("refill empty queue P=\(requested.timeIntervalSince1970) target=\(target.timeIntervalSince1970)")
-            reposition(to: target)
-            return
-        }
-        guard let lastSegment = queued[ObjectIdentifier(tail)] else { return }
-        var previous = tail
-        let availableSlots = max(0, 4 - queue.items().count)
-        let followers = BufferQueuePolicy.followers(after: lastSegment, retained: segments,
-            alreadyQueued: Set(queued.values.map(\.id)), limit: availableSlots)
-        for segment in followers {
-            let item = AVPlayerItem(url: segment.url)
-            guard queue.canInsert(item, after: previous) else {
-                // If the referenced tail was consumed meanwhile, the empty
-                // branch can seed the already retained successor immediately.
-                if queue.items().isEmpty { fillQueue() }
-                return
-            }
-            queued[ObjectIdentifier(item)] = segment
-            queue.insert(item, after: previous)
-            previous = item
-        }
-        if shouldPlay, !isSeeking { queue.play() }
-    }
-
-    private func pruneQueueMappings() {
-        guard let queue = player as? AVQueuePlayer else { return }
-        let identifiers = Set(queue.items().map(ObjectIdentifier.init))
-        queued = queued.filter { identifiers.contains($0.key) }
+    private func fillBufferedAudio() {
+        guard !failed, let buffered = bufferedPlayer else { return }
+        buffered.updateSegments(segments)
+        guard !buffered.hasTimeline, !isSeeking, !wantsInitialLivePosition,
+              let requested = pausedAt ?? cursor.position,
+              let target = BufferRetention.seekTarget(requested, result: retention),
+              segments.contains(where: { target >= $0.start && target < $0.end }) else { return }
+        reposition(to: target)
     }
 
     private func heardDate() -> Date? {
-        guard let player else { return cursor.position }
-        if isSeeking { return cursor.position }
+        if transportIsSeeking { return cursor.position }
         if !shouldPlay { return pausedAt ?? cursor.position }
-        guard let item = player.currentItem, item.status == .readyToPlay else { return cursor.position }
-        if retentionMinutes == 0 {
+        if let bufferedPlayer {
+            cursor.record(bufferedPlayer.position)
+        } else if let item = player?.currentItem, item.status == .readyToPlay {
             cursor.record(item.currentDate())
-            return cursor.position
         }
-        guard let segment = queued[ObjectIdentifier(item)] else { return cursor.position }
-        let seconds = item.currentTime().seconds
-        guard seconds.isFinite else { return cursor.position }
-        cursor.record(min(segment.end, segment.start.addingTimeInterval(max(0, seconds))))
         return cursor.position
     }
 
     private func invalidatePendingSeek() {
         seekGeneration.invalidate()
         player?.currentItem?.cancelPendingSeeks()
+        bufferedPlayer?.cancelPendingSeek()
         isSeeking = false
         seekTargetDate = nil
     }
@@ -596,10 +544,21 @@ final class RollingAudioEngine {
         return BufferWindow(oldest: raw.oldest, live: max(raw.oldest, live))
     }
 
+    private var transportIsPlaying: Bool {
+        bufferedPlayer?.isPlaying ?? (player?.timeControlStatus == .playing)
+    }
+    private var transportIsSeeking: Bool { isSeeking || bufferedPlayer?.isSeeking == true }
+    private var transportIsReady: Bool {
+        bufferedPlayer?.isReady ?? (player?.currentItem?.status == .readyToPlay)
+    }
+    private var transportHasAudio: Bool {
+        bufferedPlayer?.hasAudio ?? (player?.currentItem != nil)
+    }
+
     private func publishClock() {
         let heard = heardDate()
         let live = safeLiveTarget()
-        let advancing = shouldPlay && !isSeeking && player?.timeControlStatus == .playing && heard != nil
+        let advancing = shouldPlay && !transportIsSeeking && transportIsPlaying && heard != nil
         let atLive = !acquisitionIsStale && (retentionMinutes == 0 ||
             (heard.flatMap { position in live.map { LivePlaybackClock.isAtLive(heardAt: position, liveTarget: $0, acquisitionIsStale: false) } } ?? false))
         let window = playableWindow(live: live)
@@ -612,18 +571,18 @@ final class RollingAudioEngine {
         transportClock.update(.init(heardAt: heard, window: window,
                                     sampledAt: ProcessInfo.processInfo.systemUptime,
                                     isAdvancing: advancing, isAtLiveEdge: atLive,
-                                    isSeeking: isSeeking, pendingSeekAt: seekTargetDate,
+                                    isSeeking: transportIsSeeking, pendingSeekAt: seekTargetDate ?? bufferedPlayer?.pendingSeekAt,
                                     playableRanges: ranges))
     }
 
     private func tick() {
         // Retention is computed against the newest acquired station timestamp;
         // a stalled connection does not invent audio or extend the seek range.
-        if player?.timeControlStatus == .playing { hasStartedPlayback = true }
+        if transportIsPlaying { hasStartedPlayback = true }
         if shouldPlay, !hasStartedPlayback, Date().timeIntervalSince(connectionBegan) >= 45 {
             reportFailure(AudioStreamError.stalled, origin: "monitor.startup45s")
         }
-        if shouldPlay, hasStartedPlayback, !isSeeking, player?.timeControlStatus != .playing {
+        if shouldPlay, hasStartedPlayback, !transportIsSeeking, !transportIsPlaying {
             if waitingSince == nil { waitingSince = Date() }
             if let waitingSince, Date().timeIntervalSince(waitingSince) >= 12 {
                 reportFailure(AudioStreamError.stalled, origin: "monitor.playbackStall12s")
@@ -638,20 +597,20 @@ final class RollingAudioEngine {
     }
 
     private func publish() {
-        if player?.timeControlStatus == .playing { hasStartedPlayback = true }
+        if transportIsPlaying { hasStartedPlayback = true }
         publishClock()
         let sample = transportClock.sample
         let live = sample.window?.live ?? sample.heardAt ?? Date()
-        let playing = shouldPlay && !isSeeking && player?.timeControlStatus == .playing
+        let playing = shouldPlay && !transportIsSeeking && transportIsPlaying
         let downloaded = segments.last?.end
         let lag = advertisedEdge.flatMap { advertised in downloaded.map { max(0, advertised.timeIntervalSince($0)) } }
         onUpdate?(EngineSnapshot(isPlaying: playing,
                                  heardAt: sample.heardAt ?? live, window: sample.window,
-                                 isReady: player?.currentItem?.status == .readyToPlay,
-                                 live: live, hasAudio: player?.currentItem != nil,
+                                 isReady: transportIsReady,
+                                 live: live, hasAudio: transportHasAudio,
                                  isAtLiveEdge: sample.isAtLiveEdge,
-                                 playbackRequested: shouldPlay, isWaiting: shouldPlay && !playing && !isSeeking,
-                                 isSeeking: isSeeking, pendingSeekAt: seekTargetDate,
+                                 playbackRequested: shouldPlay, isWaiting: shouldPlay && !playing && !transportIsSeeking,
+                                 isSeeking: transportIsSeeking, pendingSeekAt: sample.pendingSeekAt,
                                  hasConfirmedPosition: sample.heardAt != nil,
                                  downloadedEdge: downloaded, advertisedEdge: advertisedEdge,
                                  acquisitionLag: lag, acquisitionIsStale: acquisitionIsStale,
@@ -659,7 +618,7 @@ final class RollingAudioEngine {
         if sample.sampledAt - lastSlowPublishUptime >= 1 {
             lastSlowPublishUptime = sample.sampledAt
             recordDiagnosticSnapshot()
-            let count = (player as? AVQueuePlayer)?.items().count ?? (player?.currentItem == nil ? 0 : 1)
+            let count = bufferedPlayer?.queueCount ?? (player?.currentItem == nil ? 0 : 1)
             recordDiagnostic("sample A=\(advertisedEdge?.timeIntervalSince1970 ?? 0) D=\(downloaded?.timeIntervalSince1970 ?? 0) L=\(live.timeIntervalSince1970) O=\(sample.window?.oldest.timeIntervalSince1970 ?? 0) P=\(sample.heardAt?.timeIntervalSince1970 ?? 0) playing=\(playing) seek=\(isSeeking) stale=\(acquisitionIsStale) queue=\(count) gain=\(outputVolume)")
         }
     }
@@ -678,13 +637,13 @@ final class RollingAudioEngine {
     private func diagnosticSnapshot() -> String {
         let now = ProcessInfo.processInfo.systemUptime
         let item = player?.currentItem
-        let items = (player as? AVQueuePlayer)?.items() ?? item.map { [$0] } ?? []
+        let itemCount = bufferedPlayer?.queueCount ?? (item == nil ? 0 : 1)
         let last = segments.last?.end
         let live = transportClock.sample.window?.live
         let oldest = retention.window?.oldest
         let history = live.flatMap { target in oldest.map { target.timeIntervalSince($0) } }
-        let queue = items.prefix(3).map { queued[ObjectIdentifier($0)]?.start.timeIntervalSince1970.description ?? "unmapped" }.joined(separator: ",")
-        return "snapshot requested=\(shouldPlay) retention=\(retentionMinutes) player=\(player?.timeControlStatus.rawValue ?? -1) item=\(item?.status.rawValue ?? -1) waiting=\(player?.reasonForWaitingToPlay?.rawValue ?? "none") seek=\(isSeeking) retained=\(segments.count) queueCount=\(items.count) queueFirst3=[\(queue)] A=\(advertisedEdge?.timeIntervalSince1970 ?? -1) D=\(last?.timeIntervalSince1970 ?? -1) L=\(live?.timeIntervalSince1970 ?? -1) O=\(oldest?.timeIntervalSince1970 ?? -1) P=\(transportClock.sample.heardAt?.timeIntervalSince1970 ?? -1) itemSeconds=\(item?.currentTime().seconds ?? -1) history=\(history ?? -1) acquisitionAge=\(lastAcquisitionUptime.map { now - $0 } ?? -1) gain=\(outputVolume)"
+        let queue = bufferedPlayer?.queueStarts.map { $0.timeIntervalSince1970.description }.joined(separator: ",") ?? "direct"
+        return "snapshot requested=\(shouldPlay) retention=\(retentionMinutes) backend=\(bufferedPlayer == nil ? "direct" : "continuous") playing=\(transportIsPlaying) ready=\(transportIsReady) waiting=\(player?.reasonForWaitingToPlay?.rawValue ?? "none") seek=\(transportIsSeeking) retained=\(segments.count) queueCount=\(itemCount) queueFirst3=[\(queue)] A=\(advertisedEdge?.timeIntervalSince1970 ?? -1) D=\(last?.timeIntervalSince1970 ?? -1) L=\(live?.timeIntervalSince1970 ?? -1) O=\(oldest?.timeIntervalSince1970 ?? -1) P=\(transportClock.sample.heardAt?.timeIntervalSince1970 ?? -1) itemSeconds=\(bufferedPlayer?.currentSeconds ?? item?.currentTime().seconds ?? -1) history=\(history ?? -1) acquisitionAge=\(lastAcquisitionUptime.map { now - $0 } ?? -1) gain=\(outputVolume)"
     }
 
     private func reportFailure(_ error: Error, origin: String) {
@@ -699,6 +658,7 @@ final class RollingAudioEngine {
         ingestTask = nil
         invalidatePendingSeek()
         player?.pause()
+        bufferedPlayer?.pause()
         publish()
         onFailure?(error)
     }
@@ -712,19 +672,16 @@ final class RollingAudioEngine {
         monitorTask = nil
         observations.removeAll()
         itemObservation = nil
-        lastCurrentItem = nil
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         if let failedToEndObserver { NotificationCenter.default.removeObserver(failedToEndObserver) }
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         failedToEndObserver = nil
-        endObserver = nil
         player?.pause()
-        if let queue = player as? AVQueuePlayer { queue.removeAllItems() }
         player?.replaceCurrentItem(with: nil)
         player = nil
+        bufferedPlayer?.stop()
+        bufferedPlayer = nil
         sourceURL = nil
-        queued.removeAll()
         segments.removeAll()
         retention = RetentionResult(retained: [], expired: [], window: nil)
         pausedAt = nil
@@ -735,7 +692,6 @@ final class RollingAudioEngine {
         liveClock = LivePlaybackClock()
         advertisedEdge = nil
         lastAcquisitionUptime = nil
-        lastEndedPosition = nil
         directNeedsLiveReload = false
         waitingSince = nil
         failed = false
