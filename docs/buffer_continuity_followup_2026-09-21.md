@@ -24,7 +24,20 @@ Build 13 passed all six iPhone 17 native UI tests, including the growing-history
 
 Build 14 identified why packet extraction and bounded seeks could not work with the passthrough buffers: they lacked usable sample-size metadata (`CMSampleBufferCopySampleBufferForRange` returned `-12735`, and packet-description extraction also failed). The longer pause/resume fixture still stalled with audio remaining. The source now reads explicit packets using Audio File Services and constructs fully described compressed buffers; strict original-packet equality and native resume validation remain required.
 
-Build 15 passed all six compressed-source tests and all seven renderer tests, including exact equality between original ADTS payloads and whole/split file reads, continuous boundary playback, paused seeks and resume. The focused run's remaining failure was the cached-refill integration fixture seeking the final third of a four-second clip, leaving only about 1.4 seconds for native reliable-start readiness. That test now uses station-sized ten-second segments; a separate short-tail arrival test checks that more retained packets can complete preparation without resetting the decoder. Final native and artifact verification remains pending.
+Build 15 passed all six compressed-source tests and all seven renderer tests, including exact equality between original ADTS payloads and whole/split file reads, continuous boundary playback, paused seeks and resume. The focused run's remaining failure occurred when the cached-refill integration fixture sought the final third of a four-second clip. Build 16 separated clip length from refill by using station-sized ten-second segments and adding a short-tail arrival regression.
+
+## Build 16 verification
+
+Source `8b7732f3a01d293d75fd1643b88ee39342ee5dad` ran in [Actions run 35582385059](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35582385059). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. The larger refill fixture passed, but the new short-tail renderer regression failed. Build 16 is not an accepted installation candidate.
+
+The trace identified a real exact-boundary seek issue: the paused renderer reported sufficient decoded media while its last enqueued timestamp equalled the seek target and the successor's two batches remained pending. Preroll before the target filled the output queue. Clip length alone was not the cause. The follow-up marks seek-only preroll with Apple's [TrimDurationAtStart attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_trimdurationatstart), which permits decoding packets for context while discarding their output. Full buffers before the target produce no output; a buffer spanning the target discards only its earlier portion. Ordinary playback gets no trim. The original short engine fixture is restored, alongside the short-tail arrival regression. Native verification of this correction is pending.
+
+The downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 16, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35582385059`.
+
+| Package | IPA SHA-256 |
+|---|---|
+| KUSC-17-unsigned.ipa | `03e5c05e0ca0565ad892bda2b6306e6732b8dfe590f00975b3c7d44860e9d124` |
+| KUSC-SE-unsigned.ipa | `4105726710811c0991a70e44a3c642bb99a7dcac2badd879ab157f1ce26c4929` |
 
 ## Physical acceptance procedure
 

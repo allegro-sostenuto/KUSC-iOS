@@ -288,7 +288,14 @@ import Foundation
         } else {
             packets = samples.buffers
         }
-        pendingBuffers = try packets.map { try BufferedAudioSampleSource.retimed($0, by: start) }
+        pendingBuffers = try packets.map { packet in
+            let retimed = try BufferedAudioSampleSource.retimed(packet, by: start)
+            // Decode preroll for AAC context, but discard its output. Merely
+            // placing old packets before the paused timebase can fill the
+            // renderer before it accepts the packet at the requested boundary.
+            if isSeeking { return try BufferedAudioSampleSource.preparingForSeek(retimed, at: requestedStart) }
+            return retimed
+        }
         pendingIndex = 0
         lastLoadedSegment = segment
         appendedSegmentCount += 1

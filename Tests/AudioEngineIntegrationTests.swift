@@ -99,10 +99,9 @@ import XCTest
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
         let origin = Date(timeIntervalSince1970: 1_000_000)
-        // Match the station's roughly ten-second storage segments. Seeking the
-        // last third of a four-second finite clip leaves only 1.4 seconds for
-        // native reliable-start preroll, conflating refill with input starvation.
-        let fixture = try BufferedAudioTestFixture.make(in: path, duration: 30)
+        // Keep the short tail and exact file boundary that exposed paused
+        // preroll filling the output queue before the successor could enter.
+        let fixture = try BufferedAudioTestFixture.make(in: path)
         var start = origin
         let files: [AudioSegment] = fixture.segments.enumerated().map { index, url -> AudioSegment in
             let end: Date = start.addingTimeInterval(fixture.segmentDurations[index])

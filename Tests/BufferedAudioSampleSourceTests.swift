@@ -292,6 +292,64 @@ enum BufferedAudioTestFixture {
         XCTAssertThrowsError(try BufferedAudioSampleSource.packets(buffers, endingAfter: .positiveInfinity))
     }
 
+    func testSeekPrerollTrimsOnlyDecodedOutputAndLeavesOriginalPacketsUntouched() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try BufferedAudioTestFixture.make(in: directory)
+        let samples = try await BufferedAudioSampleSource.load(url: fixture.whole)
+        let first = try XCTUnwrap(samples.buffers.first)
+        let origin = CMTime(value: 7 * 44_100, timescale: 44_100)
+        let original = try BufferedAudioSampleSource.retimed(first, by: origin)
+        let duration = CMSampleBufferGetDuration(original)
+        let format = try XCTUnwrap(CMSampleBufferGetFormatDescription(original))
+        let packets = try BufferedAudioTestFixture.packetPayloads([original])
+        let partial = CMTimeMultiplyByRatio(duration, multiplier: 1, divisor: 2)
+        let oneSecond = CMTime(value: 1, timescale: 1)
+        let cases: [(offset: CMTime, trim: CMTime)] = [
+            (CMTimeMultiply(oneSecond, multiplier: -1), .zero),
+            (.zero, .zero),
+            (partial, partial),
+            (duration, duration),
+            (CMTimeAdd(duration, oneSecond), duration)
+        ]
+        for item in cases {
+            let prepared = try BufferedAudioSampleSource.preparingForSeek(original, at: CMTimeAdd(origin, item.offset))
+            XCTAssertEqual(try BufferedAudioTestFixture.packetPayloads([prepared]), packets)
+            XCTAssertTrue(CMFormatDescriptionEqual(format,
+                otherFormatDescription: try XCTUnwrap(CMSampleBufferGetFormatDescription(prepared))))
+            XCTAssertEqual(CMSampleBufferGetNumSamples(prepared), CMSampleBufferGetNumSamples(original))
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(prepared), origin), 0)
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetDuration(prepared), duration), 0)
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetOutputPresentationTimeStamp(prepared),
+                                         CMTimeAdd(origin, item.trim)), 0)
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetOutputDuration(prepared),
+                                         CMTimeSubtract(duration, item.trim)), 0)
+            for index in 0..<CMSampleBufferGetNumSamples(original) {
+                var before = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid,
+                                                decodeTimeStamp: .invalid)
+                var after = before
+                XCTAssertEqual(CMSampleBufferGetSampleTimingInfo(original, at: index, timingInfoOut: &before), noErr)
+                XCTAssertEqual(CMSampleBufferGetSampleTimingInfo(prepared, at: index, timingInfoOut: &after), noErr)
+                XCTAssertEqual(CMTimeCompare(before.presentationTimeStamp, after.presentationTimeStamp), 0)
+                XCTAssertEqual(CMTimeCompare(before.duration, after.duration), 0)
+                XCTAssertEqual(before.decodeTimeStamp.isValid, after.decodeTimeStamp.isValid)
+                if before.decodeTimeStamp.isValid {
+                    XCTAssertEqual(CMTimeCompare(before.decodeTimeStamp, after.decodeTimeStamp), 0)
+                }
+            }
+            XCTAssertNil(CMGetAttachment(original, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart, attachmentModeOut: nil))
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetOutputPresentationTimeStamp(original), origin), 0)
+            XCTAssertEqual(CMTimeCompare(CMSampleBufferGetOutputDuration(original), duration), 0)
+            for key in [kCMSampleBufferAttachmentKey_TrimDurationAtEnd,
+                        kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
+                        kCMSampleBufferAttachmentKey_DrainAfterDecoding] {
+                XCTAssertNil(CMGetAttachment(prepared, key: key, attachmentModeOut: nil))
+            }
+        }
+        XCTAssertThrowsError(try BufferedAudioSampleSource.preparingForSeek(original, at: .invalid))
+        XCTAssertThrowsError(try BufferedAudioSampleSource.preparingForSeek(original, at: .positiveInfinity))
+    }
+
     func testRetimingPacketDescriptionsDoesNotRequireAnAssetReader() throws {
         var asbd = AudioStreamBasicDescription(mSampleRate: 44_100, mFormatID: kAudioFormatMPEG4AAC,
             mFormatFlags: 0, mBytesPerPacket: 0, mFramesPerPacket: 1024, mBytesPerFrame: 0,

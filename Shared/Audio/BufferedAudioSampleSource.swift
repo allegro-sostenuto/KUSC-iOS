@@ -235,6 +235,38 @@ enum BufferedAudioSampleSource {
         return copy
     }
 
+    /// Keeps encoded preroll for the decoder while excluding its old output
+    /// from the paused presentation queue. Core Media permits a full-duration
+    /// start trim for buffers used only to prime the decoder during a seek.
+    /// The source buffer, packet data and encoded timestamps remain unchanged.
+    static func preparingForSeek(_ buffer: CMSampleBuffer, at target: CMTime) throws -> CMSampleBuffer {
+        let start = CMSampleBufferGetPresentationTimeStamp(buffer)
+        let duration = CMSampleBufferGetDuration(buffer)
+        guard finite(target), finite(start), finite(duration), duration.seconds > 0,
+              CMSampleBufferGetNumSamples(buffer) > 0 else { throw failure("seek trim timing") }
+        let offset = CMTimeSubtract(target, start)
+        guard finite(offset) else { throw failure("seek trim offset") }
+        let trim: CMTime
+        if CMTimeCompare(offset, .zero) <= 0 { trim = .zero }
+        else if CMTimeCompare(offset, duration) >= 0 { trim = duration }
+        else { trim = offset }
+
+        var copied: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopy(allocator: kCFAllocatorDefault, sampleBuffer: buffer,
+                                             sampleBufferOut: &copied)
+        guard status == noErr, let copied else { throw failure("copy seek preroll", status: status) }
+        if CMTimeCompare(trim, .zero) > 0 {
+            guard let value = CMTimeCopyAsDictionary(trim, allocator: kCFAllocatorDefault) else {
+                throw failure("seek trim attachment")
+            }
+            CMSetAttachment(copied, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                            value: value, attachmentMode: .shouldPropagate)
+        } else {
+            CMRemoveAttachment(copied, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
+        }
+        return copied
+    }
+
     /// Keeps complete compressed packets which overlap or follow the cutoff.
     /// A seek can provide a bounded amount of decoder preroll without filling
     /// the renderer with an entire earlier file while its timebase is paused.
