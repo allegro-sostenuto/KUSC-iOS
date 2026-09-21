@@ -24,6 +24,8 @@ Build 13 passed all six iPhone 17 native UI tests, including the growing-history
 
 Build 14 identified why packet extraction and bounded seeks could not work with the passthrough buffers: they lacked usable sample-size metadata (`CMSampleBufferCopySampleBufferForRange` returned `-12735`, and packet-description extraction also failed). The longer pause/resume fixture still stalled with audio remaining. The source now reads explicit packets using Audio File Services and constructs fully described compressed buffers; strict original-packet equality and native resume validation remain required.
 
+Build 15 passed all six compressed-source tests and all seven renderer tests, including exact equality between original ADTS payloads and whole/split file reads, continuous boundary playback, paused seeks and resume. The focused run's remaining failure was the cached-refill integration fixture seeking the final third of a four-second clip, leaving only about 1.4 seconds for native reliable-start readiness. That test now uses station-sized ten-second segments; a separate short-tail arrival test checks that more retained packets can complete preparation without resetting the decoder. Final native and artifact verification remains pending.
+
 ## Physical acceptance procedure
 
 1. Set retention to five minutes, start a diagnostic capture and listen at Live for at least two minutes. Count any brief dips and save the report.

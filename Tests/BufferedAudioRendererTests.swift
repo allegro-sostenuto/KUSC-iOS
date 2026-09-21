@@ -164,6 +164,42 @@ import XCTest
         XCTAssertEqual(renderer.statisticsForTesting.resets, 1)
     }
 
+    func testPausedSeekIntoShortTailCanPrepareWhenContiguousAudioArrives() async throws {
+        try activateAudio()
+        let path = directory()
+        // Expose only the first half initially. All later files remain cuts of
+        // the same encoder stream, so arrival does not justify a decoder reset.
+        let files = try BufferedAudioTestFixture.make(in: path, segmentCount: 6, duration: 8)
+        let media = segments(files)
+        let initial = Array(media.prefix(3))
+        let target = initial[2].start
+        XCTAssertLessThan(initial[2].end.timeIntervalSince(target), 1.5)
+        let renderer = BufferedAudioRenderer()
+        defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
+        renderer.updateSegments(initial)
+        var confirmed: Date?
+        renderer.seek(to: target, playing: false) { confirmed = $0 }
+        try await waitUntil("The short retained tail is fully enqueued while paused") {
+            renderer.statisticsForTesting.segments == 2 &&
+                renderer.preparedMediaForTesting.pendingBatches == 0 && renderer.hasAudio
+        }
+        // Reliable-start thresholds vary by output route. Either an already
+        // confirmed seek or one waiting for more packets is valid at this point.
+        let resets = renderer.statisticsForTesting.resets
+        XCTAssertFalse(renderer.isPlaying)
+        XCTAssertFalse(renderer.statisticsForTesting.requested)
+        renderer.updateSegments(media)
+        try await waitUntil("A contiguous successor completes preparation without a replacing seek") {
+            confirmed == target && renderer.statisticsForTesting.segments >= 3
+        }
+        XCTAssertFalse(renderer.isSeeking)
+        XCTAssertFalse(renderer.isPlaying)
+        XCTAssertFalse(renderer.statisticsForTesting.requested)
+        XCTAssertEqual(renderer.position?.timeIntervalSince(target) ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(renderer.statisticsForTesting.resets, resets)
+    }
+
     func testAutomaticOutputFlushPreservesPausedIntentAndComposedGain() async throws {
         try activateAudio()
         let path = directory()

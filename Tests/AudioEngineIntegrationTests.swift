@@ -99,7 +99,10 @@ import XCTest
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
         let origin = Date(timeIntervalSince1970: 1_000_000)
-        let fixture = try BufferedAudioTestFixture.make(in: path)
+        // Match the station's roughly ten-second storage segments. Seeking the
+        // last third of a four-second finite clip leaves only 1.4 seconds for
+        // native reliable-start preroll, conflating refill with input starvation.
+        let fixture = try BufferedAudioTestFixture.make(in: path, duration: 30)
         var start = origin
         let files: [AudioSegment] = fixture.segments.enumerated().map { index, url -> AudioSegment in
             let end: Date = start.addingTimeInterval(fixture.segmentDurations[index])
@@ -127,6 +130,10 @@ import XCTest
         XCTAssertEqual(latest?.pendingSeekAt, consumedEnd)
         await fulfillment(of: [ready], timeout: 8)
         if let failure { throw failure }
+        if latest?.isReady != true, let renderer = engine.bufferedTransportForTesting {
+            print("Refill renderer seeking=\(renderer.isSeeking) hasAudio=\(renderer.hasAudio) " +
+                  "statistics=\(renderer.statisticsForTesting) prepared=\(renderer.preparedMediaForTesting)")
+        }
         XCTAssertEqual(latest?.isReady, true)
         XCTAssertEqual(latest?.hasAudio, true)
         XCTAssertEqual(latest?.heardAt, consumedEnd)
