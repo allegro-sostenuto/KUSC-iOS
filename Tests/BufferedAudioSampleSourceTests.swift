@@ -80,7 +80,11 @@ enum BufferedAudioTestFixture {
             var size = 0
             let status = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(buffer,
                 packetDescriptionsPointerOut: &descriptions, sizeOut: &size)
-            guard status == noErr, count > 0 else { throw AudioStreamError.invalidAAC }
+            guard status == noErr, count > 0 else {
+                throw NSError(domain: "KUSC.Tests.CompressedPackets", code: Int(status), userInfo: [
+                    NSLocalizedDescriptionKey: "Packet description lookup failed: status=\(status) samples=\(count) blockBytes=\(blockSize) sampleBytes=\(CMSampleBufferGetTotalSampleSize(buffer))"
+                ])
+            }
             let packets: [AudioStreamPacketDescription]
             if let descriptions {
                 guard size == count * MemoryLayout<AudioStreamPacketDescription>.stride else { throw AudioStreamError.invalidAAC }
@@ -157,7 +161,7 @@ enum BufferedAudioTestFixture {
         let fixture = try BufferedAudioTestFixture.make(in: directory)
         let whole = try await BufferedAudioSampleSource.load(url: fixture.whole)
         XCTAssertTrue(whole.buffers.allSatisfy { CMSampleBufferGetNumSamples($0) > 0 },
-                      "AssetReader's trailing control marker must not be returned as audio")
+                      "File boundaries must not be returned as empty audio samples")
         var joinedPackets: [Data] = []
         var splitBuffers: [CMSampleBuffer] = []
         var joinedDuration = CMTime.zero
@@ -171,6 +175,8 @@ enum BufferedAudioTestFixture {
             for buffer in part.buffers {
                 XCTAssertGreaterThan(CMSampleBufferGetNumSamples(buffer), 0,
                                      "A file-end control marker must not become an AAC packet")
+                XCTAssertGreaterThan(CMSampleBufferGetTotalSampleSize(buffer), 0,
+                                     "Compressed AAC must include sample sizes for packet access and suffix copies")
                 XCTAssertEqual(CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(buffer), precedingEnd), 0)
                 let description = try XCTUnwrap(CMSampleBufferGetFormatDescription(buffer))
                 let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(description)).pointee

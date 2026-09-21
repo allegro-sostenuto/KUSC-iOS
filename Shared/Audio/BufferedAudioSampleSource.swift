@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 import Foundation
 
@@ -21,7 +22,7 @@ enum BufferedAudioSampleSource {
     static func load(url: URL) async throws -> BufferedAudioSamples {
         try Task.checkCancellation()
         let worker = Task.detached(priority: .userInitiated) {
-            try await read(url: url)
+            try read(url: url)
         }
         return try await withTaskCancellationHandler {
             let result = try await worker.value
@@ -32,113 +33,168 @@ enum BufferedAudioSampleSource {
         }
     }
 
-    private static func read(url: URL) async throws -> BufferedAudioSamples {
+    private static func read(url: URL) throws -> BufferedAudioSamples {
         try Task.checkCancellation()
         guard url.isFileURL else { throw AudioStreamError.unsupportedFormat("buffered audio must be a local file") }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let size = values.fileSize, size > 0, size <= maximumBytes else {
             throw AudioStreamError.storageLimit
         }
-        let asset = AVURLAsset(url: url)
-        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        var opened: AudioFileID?
+        let openStatus = AudioFileOpenURL(url as CFURL, .readPermission, kAudioFileAAC_ADTSType, &opened)
+        guard openStatus == noErr, let file = opened else { throw failure("open audio file", status: openStatus) }
+        defer { AudioFileClose(file) }
         try Task.checkCancellation()
-        guard tracks.count == 1, let track = tracks.first else {
-            throw failure("audio tracks", detail: "count=\(tracks.count)")
+
+        var asbd = AudioStreamBasicDescription()
+        var asbdSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let formatStatus = AudioFileGetProperty(file, kAudioFilePropertyDataFormat, &asbdSize, &asbd)
+        guard formatStatus == noErr, Int(asbdSize) == MemoryLayout<AudioStreamBasicDescription>.size else {
+            throw failure("file audio format", status: formatStatus)
         }
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-        output.alwaysCopiesSampleData = true
-        guard reader.canAdd(output) else { throw failure("add compressed reader output") }
-        reader.add(output)
-        defer { reader.cancelReading() }
-        guard reader.startReading() else {
-            throw reader.error ?? failure("start reader", detail: "status=\(reader.status.rawValue)")
+        guard [kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2].contains(asbd.mFormatID),
+              asbd.mSampleRate.isFinite, asbd.mSampleRate > 0,
+              asbd.mSampleRate.rounded() == asbd.mSampleRate, asbd.mSampleRate <= Double(Int32.max),
+              asbd.mChannelsPerFrame > 0 else {
+            throw failure("AAC stream format", detail: "id=\(asbd.mFormatID) rate=\(asbd.mSampleRate)")
+        }
+        let timescale = CMTimeScale(asbd.mSampleRate)
+        let cookie = try optionalProperty(file, id: kAudioFilePropertyMagicCookieData)
+        let layout = try optionalProperty(file, id: kAudioFilePropertyChannelLayout)
+        var description: CMAudioFormatDescription?
+        let descriptionStatus = cookie.withUnsafeBytes { cookieBytes in
+            layout.withUnsafeBytes { layoutBytes in
+                CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd,
+                    layoutSize: layout.count, layout: layout.isEmpty ? nil : layoutBytes.baseAddress?.assumingMemoryBound(to: AudioChannelLayout.self),
+                    magicCookieSize: cookie.count, magicCookie: cookie.isEmpty ? nil : cookieBytes.baseAddress, extensions: nil,
+                    formatDescriptionOut: &description)
+            }
+        }
+        guard descriptionStatus == noErr, let description else {
+            throw failure("create audio format", status: descriptionStatus)
         }
 
-        var buffers: [CMSampleBuffer] = []
-        var firstPTS: CMTime?
-        var previousEnd: CMTime?
+        var maximumPacketSize: UInt32 = 0
+        var propertySize = UInt32(MemoryLayout<UInt32>.size)
+        let sizeStatus = AudioFileGetProperty(file, kAudioFilePropertyPacketSizeUpperBound, &propertySize, &maximumPacketSize)
+        guard sizeStatus == noErr, Int(propertySize) == MemoryLayout<UInt32>.size else {
+            throw failure("maximum packet size", status: sizeStatus)
+        }
+        // Keep temporary reads below 64 KiB; ADTS packets themselves have a
+        // 13-bit length. Retained compressed payload remains capped at 2 MiB.
+        guard maximumPacketSize > 0, maximumPacketSize <= 64 * 1024 else { throw AudioStreamError.storageLimit }
+        let batchCount = min(64, (64 * 1024) / Int(maximumPacketSize))
+        let capacity = batchCount * Int(maximumPacketSize)
+        var readBytes = Data(count: capacity)
+        var packetIndex: Int64 = 0
+        var totalFrames: Int64 = 0
         var byteCount = 0
-        var readCount = 0
-        var format: CMFormatDescription?
-        while let buffer = output.copyNextSampleBuffer() {
+        var buffers: [CMSampleBuffer] = []
+        while true {
             try Task.checkCancellation()
-            guard readCount < maximumBuffers else { throw AudioStreamError.storageLimit }
-            readCount += 1
-            let sampleCount = CMSampleBufferGetNumSamples(buffer)
-            let block = CMSampleBufferGetDataBuffer(buffer)
-            let blockBytes = block.map { CMBlockBufferGetDataLength($0) } ?? 0
-            if sampleCount == 0 {
-                // AssetReader emits an empty control buffer at the end of an
-                // ADTS file. A storage cut must not drain/reset our continuous
-                // decoder, change its clock, or become a fabricated AAC packet.
-                // Only a ready marker with no payload can be discarded.
-                guard CMSampleBufferDataIsReady(buffer), blockBytes == 0 else {
-                    throw failure("empty control buffer", detail: "ready=\(CMSampleBufferDataIsReady(buffer)) bytes=\(blockBytes)")
-                }
-                continue
+            var byteSize = UInt32(capacity)
+            var packetCount = UInt32(batchCount)
+            var packets = [AudioStreamPacketDescription](repeating: AudioStreamPacketDescription(), count: batchCount)
+            let status = readBytes.withUnsafeMutableBytes { memory in
+                AudioFileReadPacketData(file, false, &byteSize, &packets, packetIndex, &packetCount, memory.baseAddress)
             }
-            #if DEBUG
-            if buffers.isEmpty {
-                let description = CMSampleBufferGetFormatDescription(buffer)
-                let asbd = description.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
-                let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
-                let duration = CMSampleBufferGetDuration(buffer)
-                print("BufferedAAC first buffer: samples=\(sampleCount) ready=\(CMSampleBufferDataIsReady(buffer)) blockBytes=\(blockBytes) format=\(asbd?.mFormatID ?? 0) rate=\(asbd?.mSampleRate ?? 0) framesPerPacket=\(asbd?.mFramesPerPacket ?? 0) pts=\(pts.value)/\(pts.timescale)/\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale)/\(duration.flags.rawValue)")
+            guard status == noErr || status == kAudioFileEndOfFileError else {
+                throw failure("read compressed packets", status: status, detail: "packet=\(packetIndex)")
             }
-            #endif
-            guard CMSampleBufferDataIsReady(buffer), sampleCount > 0 else {
-                throw failure("sample readiness", detail: "ready=\(CMSampleBufferDataIsReady(buffer)) samples=\(sampleCount) buffer=\(buffers.count)")
+            guard Int(packetCount) <= batchCount, Int(byteSize) <= capacity else { throw failure("packet read bounds") }
+            if packetCount == 0 {
+                guard byteSize == 0 else { throw failure("empty packet read with payload") }
+                break
             }
-            guard let block else { throw failure("sample data block") }
-            guard let description = CMSampleBufferGetFormatDescription(buffer),
-                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
-                throw failure("audio format description")
-            }
-            guard [kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2].contains(asbd.mFormatID),
-                  asbd.mSampleRate.isFinite, asbd.mSampleRate > 0 else {
-                throw failure("AAC stream format", detail: "id=\(asbd.mFormatID) rate=\(asbd.mSampleRate)")
-            }
-            if let format, !CMFormatDescriptionEqual(format, otherFormatDescription: description) {
-                throw AudioStreamError.unsupportedFormat("AAC format changed within a segment")
-            }
-            format = description
-            let bytes = CMBlockBufferGetDataLength(block)
-            guard bytes > 0, bytes <= maximumBytes - byteCount, buffers.count < maximumBuffers else {
+            guard Int(packetCount) <= maximumBuffers - Int(packetIndex), byteSize > 0 else {
                 throw AudioStreamError.storageLimit
             }
-            byteCount += bytes
-            let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
-            let duration = CMSampleBufferGetDuration(buffer)
-            guard finite(pts), finite(duration), duration.seconds > 0 else {
-                throw failure("sample timing", detail: "buffer=\(buffers.count) samples=\(sampleCount) pts=\(pts.value)/\(pts.timescale) flags=\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale) flags=\(duration.flags.rawValue) framesPerPacket=\(asbd.mFramesPerPacket)")
+            packets.removeLast(batchCount - Int(packetCount))
+            if asbd.mBytesPerPacket > 0, asbd.mFramesPerPacket > 0 {
+                for index in packets.indices {
+                    packets[index] = AudioStreamPacketDescription(mStartOffset: Int64(index) * Int64(asbd.mBytesPerPacket),
+                        mVariableFramesInPacket: asbd.mFramesPerPacket, mDataByteSize: asbd.mBytesPerPacket)
+                }
             }
-            if let previousEnd, abs(CMTimeSubtract(pts, previousEnd).seconds) > 0.000_001 {
-                throw AudioStreamError.unsupportedFormat("noncontiguous AAC packet timing")
+            var payload = Data()
+            var batchFrames: Int64 = 0
+            var previousPacketEnd = 0
+            for index in packets.indices {
+                let packet = packets[index]
+                guard packet.mStartOffset >= Int64(previousPacketEnd), packet.mStartOffset <= Int64(byteSize),
+                      packet.mDataByteSize > 0, Int(packet.mDataByteSize) <= Int(byteSize) - Int(packet.mStartOffset) else {
+                    throw failure("compressed packet byte range", detail: "packet=\(packetIndex + Int64(index))")
+                }
+                let frames = packet.mVariableFramesInPacket > 0 ? packet.mVariableFramesInPacket : asbd.mFramesPerPacket
+                guard frames > 0 else { throw failure("compressed packet frame count") }
+                let start = Int(packet.mStartOffset)
+                previousPacketEnd = start + Int(packet.mDataByteSize)
+                // Pack only declared packet bytes; transport headers/padding
+                // never become sample data or alter the decoder configuration.
+                packets[index].mStartOffset = Int64(payload.count)
+                payload.append(readBytes[start..<previousPacketEnd])
+                batchFrames += Int64(frames)
             }
-            if firstPTS == nil { firstPTS = pts }
-            let end = CMTimeAdd(pts, duration)
-            guard finite(end), let firstPTS,
-                  CMTimeSubtract(end, firstPTS).seconds <= maximumDuration else { throw AudioStreamError.storageLimit }
-            let copy = try retimed(buffer, by: CMTimeMultiplyByFloat64(firstPTS, multiplier: -1))
-            // An ADTS file is only a storage cut in a continuous encoder stream.
-            // AssetReader's per-file priming/trailing policy must not discard
-            // packets, drain, or reset the shared decoder at every HLS boundary.
-            for key in [kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                        kCMSampleBufferAttachmentKey_TrimDurationAtEnd,
-                        kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
-                        kCMSampleBufferAttachmentKey_DrainAfterDecoding] {
-                CMRemoveAttachment(copy, key: key)
+            guard payload.count <= maximumBytes - byteCount else { throw AudioStreamError.storageLimit }
+            let end = CMTime(value: totalFrames + batchFrames, timescale: timescale)
+            guard finite(end), end.seconds <= maximumDuration else { throw AudioStreamError.storageLimit }
+            let buffer = try makeBuffer(payload: payload, packets: packets, description: description,
+                                        start: CMTime(value: totalFrames, timescale: timescale))
+            let expectedDuration = CMTime(value: batchFrames, timescale: timescale)
+            guard finite(CMSampleBufferGetDuration(buffer)),
+                  abs(CMTimeSubtract(CMSampleBufferGetDuration(buffer), expectedDuration).seconds) < 0.000_001 else {
+                throw failure("constructed packet timing")
             }
-            buffers.append(copy)
-            previousEnd = end
+            buffers.append(buffer)
+            byteCount += payload.count
+            totalFrames += batchFrames
+            packetIndex += Int64(packetCount)
+            if status == kAudioFileEndOfFileError { break }
         }
         try Task.checkCancellation()
-        guard reader.status == .completed else {
-            throw reader.error ?? failure("finish reader", detail: "status=\(reader.status.rawValue) buffers=\(buffers.count)")
+        guard !buffers.isEmpty, totalFrames > 0 else { throw failure("empty compressed reader output") }
+        return BufferedAudioSamples(buffers: buffers, duration: CMTime(value: totalFrames, timescale: timescale))
+    }
+
+    private static func optionalProperty(_ file: AudioFileID, id: AudioFilePropertyID) throws -> Data {
+        var size: UInt32 = 0
+        let infoStatus = AudioFileGetPropertyInfo(file, id, &size, nil)
+        if infoStatus == kAudioFileUnsupportedPropertyError { return Data() }
+        guard infoStatus == noErr else { throw failure("audio property size", status: infoStatus, detail: "id=\(id)") }
+        guard size <= 64 * 1024 else { throw AudioStreamError.storageLimit }
+        guard size > 0 else { return Data() }
+        var bytes = Data(count: Int(size))
+        let status = bytes.withUnsafeMutableBytes { memory in AudioFileGetProperty(file, id, &size, memory.baseAddress!) }
+        guard status == noErr, Int(size) <= bytes.count else { throw failure("audio property data", status: status, detail: "id=\(id)") }
+        return Data(bytes.prefix(Int(size)))
+    }
+
+    private static func makeBuffer(payload: Data, packets: [AudioStreamPacketDescription],
+                                   description: CMAudioFormatDescription, start: CMTime) throws -> CMSampleBuffer {
+        var block: CMBlockBuffer?
+        let blockStatus = CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil,
+            blockLength: payload.count, blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
+            offsetToData: 0, dataLength: payload.count, flags: 0, blockBufferOut: &block)
+        guard blockStatus == noErr, let block else { throw failure("allocate packet block", status: blockStatus) }
+        let copied = payload.withUnsafeBytes { memory in
+            CMBlockBufferReplaceDataBytes(with: memory.baseAddress!, blockBuffer: block,
+                                          offsetIntoDestination: 0, dataLength: memory.count)
         }
-        guard let firstPTS, let previousEnd, !buffers.isEmpty else { throw failure("empty compressed reader output") }
-        return BufferedAudioSamples(buffers: buffers, duration: CMTimeSubtract(previousEnd, firstPTS))
+        guard copied == noErr else { throw failure("copy packet bytes", status: copied) }
+        var buffer: CMSampleBuffer?
+        let status = packets.withUnsafeBufferPointer { pointer in
+            CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: kCFAllocatorDefault, dataBuffer: block,
+                formatDescription: description, sampleCount: packets.count, presentationTimeStamp: start,
+                packetDescriptions: pointer.baseAddress, sampleBufferOut: &buffer)
+        }
+        guard status == noErr, let buffer else { throw failure("create sized AAC buffer", status: status) }
+        guard CMSampleBufferGetNumSamples(buffer) == packets.count,
+              CMSampleBufferGetTotalSampleSize(buffer) == payload.count else {
+            throw failure("constructed packet sizes")
+        }
+        // Storage cuts have no priming/trim/reset attachments: every packet is
+        // represented once and all segments feed one continuous AAC decoder.
+        return buffer
     }
 
     /// Core Media copies timing while retaining the original compressed data,

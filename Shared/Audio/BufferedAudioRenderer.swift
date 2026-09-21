@@ -430,9 +430,12 @@ import Foundation
     var statisticsForTesting: (resets: Int, segments: Int, requested: Bool, gain: Float) {
         (decoderResetCount, appendedSegmentCount, playbackRequested, renderer.volume)
     }
-    var preparedMediaForTesting: (first: Double?, end: Double, pendingBatches: Int, ready: Bool) {
+    var preparedMediaForTesting: (first: Double?, end: Double, pendingBatches: Int, ready: Bool,
+                                 reportedRate: Float, effectiveRate: Double, status: Int, error: String?) {
         (firstEnqueuedTime?.seconds, scheduledEnd.seconds,
-         pendingBuffers.count - pendingIndex, renderer.hasSufficientMediaDataForReliablePlaybackStart)
+         pendingBuffers.count - pendingIndex, renderer.hasSufficientMediaDataForReliablePlaybackStart,
+         synchronizer.rate, CMTimebaseGetEffectiveRate(synchronizer.timebase), renderer.status.rawValue,
+         renderer.error.map { "\(($0 as NSError).domain)/\(($0 as NSError).code)" })
     }
     func simulateOutputFlushForTesting() { recoverOutputFlush(reason: "test output flush") }
     #endif
