@@ -235,6 +235,119 @@ enum BufferedAudioSampleSource {
         return copy
     }
 
+    /// Groups a bounded sequence of contiguous AAC packets without decoding or
+    /// changing their timing. Seek preroll can then enter the renderer in the
+    /// same enqueue as the first post-target packet, even across a storage cut.
+    /// The result has fresh attachments; seek output trimming is applied later.
+    static func concatenating(_ buffers: [CMSampleBuffer]) throws -> CMSampleBuffer {
+        guard let first = buffers.first, buffers.count <= maximumBuffers,
+              let format = CMSampleBufferGetFormatDescription(first),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+              [kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2].contains(asbd.mFormatID),
+              asbd.mSampleRate.isFinite, asbd.mSampleRate > 0,
+              asbd.mSampleRate.rounded() == asbd.mSampleRate, asbd.mSampleRate <= Double(Int32.max) else {
+            throw failure("concatenation format")
+        }
+        let start = CMSampleBufferGetPresentationTimeStamp(first)
+        guard finite(start) else { throw failure("concatenation start") }
+        let timescale = CMTimeScale(asbd.mSampleRate)
+        var end = start
+        var payload = Data()
+        var joinedPackets: [AudioStreamPacketDescription] = []
+        var decodeTimes: [CMTime] = []
+        for buffer in buffers {
+            try Task.checkCancellation()
+            guard CMSampleBufferDataIsReady(buffer),
+                  let description = CMSampleBufferGetFormatDescription(buffer),
+                  CMFormatDescriptionEqual(format, otherFormatDescription: description),
+                  let block = CMSampleBufferGetDataBuffer(buffer) else {
+                throw failure("concatenation buffer format")
+            }
+            let count = CMSampleBufferGetNumSamples(buffer)
+            let blockSize = CMBlockBufferGetDataLength(block)
+            guard count > 0, count <= maximumBuffers - joinedPackets.count,
+                  blockSize > 0, blockSize <= maximumBytes else { throw AudioStreamError.storageLimit }
+            let bufferStart = CMSampleBufferGetPresentationTimeStamp(buffer)
+            let duration = CMSampleBufferGetDuration(buffer)
+            guard finite(bufferStart), finite(duration), duration.seconds > 0,
+                  CMTimeCompare(bufferStart, end) == 0 else { throw failure("concatenation continuity") }
+
+            var descriptions: UnsafePointer<AudioStreamPacketDescription>?
+            var descriptionBytes = 0
+            let descriptionStatus = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(buffer,
+                packetDescriptionsPointerOut: &descriptions, sizeOut: &descriptionBytes)
+            guard descriptionStatus == noErr else {
+                throw failure("concatenation packet descriptions", status: descriptionStatus)
+            }
+            if descriptions != nil {
+                guard descriptionBytes == count * MemoryLayout<AudioStreamPacketDescription>.stride else {
+                    throw failure("concatenation packet description count")
+                }
+            } else {
+                guard asbd.mBytesPerPacket > 0, asbd.mFramesPerPacket > 0,
+                      count <= blockSize / Int(asbd.mBytesPerPacket) else {
+                    throw failure("concatenation missing packet descriptions")
+                }
+            }
+            var previousByteEnd: Int64 = 0
+            for index in 0..<count {
+                var packet: AudioStreamPacketDescription
+                if let descriptions { packet = descriptions[index] }
+                else {
+                    packet = AudioStreamPacketDescription(mStartOffset: Int64(index) * Int64(asbd.mBytesPerPacket),
+                        mVariableFramesInPacket: asbd.mFramesPerPacket, mDataByteSize: asbd.mBytesPerPacket)
+                }
+                guard packet.mStartOffset >= previousByteEnd, packet.mStartOffset <= Int64(blockSize),
+                      packet.mDataByteSize > 0,
+                      Int(packet.mDataByteSize) <= blockSize - Int(packet.mStartOffset),
+                      Int(packet.mDataByteSize) <= maximumBytes - payload.count else {
+                    throw failure("concatenation packet bounds")
+                }
+                let frames = packet.mVariableFramesInPacket > 0 ? packet.mVariableFramesInPacket : asbd.mFramesPerPacket
+                var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+                let timingStatus = CMSampleBufferGetSampleTimingInfo(buffer, at: index, timingInfoOut: &timing)
+                let packetDuration = CMTime(value: Int64(frames), timescale: timescale)
+                guard timingStatus == noErr, frames > 0, finite(timing.presentationTimeStamp), finite(timing.duration),
+                      !timing.decodeTimeStamp.isValid || finite(timing.decodeTimeStamp),
+                      CMTimeCompare(timing.presentationTimeStamp, end) == 0,
+                      CMTimeCompare(timing.duration, packetDuration) == 0 else {
+                    throw failure("concatenation packet timing", status: timingStatus)
+                }
+                end = CMTimeAdd(end, packetDuration)
+                guard finite(end), CMTimeSubtract(end, start).seconds <= maximumDuration else {
+                    throw AudioStreamError.storageLimit
+                }
+                var bytes = Data(count: Int(packet.mDataByteSize))
+                let copied = bytes.withUnsafeMutableBytes { memory in
+                    CMBlockBufferCopyDataBytes(block, atOffset: Int(packet.mStartOffset),
+                        dataLength: memory.count, destination: memory.baseAddress!)
+                }
+                guard copied == noErr else { throw failure("concatenation packet copy", status: copied) }
+                previousByteEnd = packet.mStartOffset + Int64(packet.mDataByteSize)
+                packet.mStartOffset = Int64(payload.count)
+                payload.append(bytes)
+                joinedPackets.append(packet)
+                decodeTimes.append(timing.decodeTimeStamp)
+            }
+            guard CMTimeCompare(end, CMTimeAdd(bufferStart, duration)) == 0 else {
+                throw failure("concatenation buffer duration")
+            }
+        }
+        let result = try makeBuffer(payload: payload, packets: joinedPackets, description: format, start: start)
+        guard CMTimeCompare(CMSampleBufferGetDuration(result), CMTimeSubtract(end, start)) == 0 else {
+            throw failure("concatenated duration")
+        }
+        for index in decodeTimes.indices {
+            var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+            let status = CMSampleBufferGetSampleTimingInfo(result, at: index, timingInfoOut: &timing)
+            guard status == noErr, timing.decodeTimeStamp.isValid == decodeTimes[index].isValid,
+                  !decodeTimes[index].isValid || CMTimeCompare(timing.decodeTimeStamp, decodeTimes[index]) == 0 else {
+                throw failure("concatenated decode timing", status: status)
+            }
+        }
+        return result
+    }
+
     /// Keeps encoded preroll for the decoder while excluding its old output
     /// from the paused presentation queue. Core Media permits a full-duration
     /// start trim for buffers used only to prime the decoder during a seek.

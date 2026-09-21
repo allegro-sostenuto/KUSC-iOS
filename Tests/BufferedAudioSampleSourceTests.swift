@@ -292,6 +292,103 @@ enum BufferedAudioTestFixture {
         XCTAssertThrowsError(try BufferedAudioSampleSource.packets(buffers, endingAfter: .positiveInfinity))
     }
 
+    func testConcatenationPreservesSlicedPacketsAcrossContinuousFileBoundaries() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try BufferedAudioTestFixture.make(in: directory)
+        let origin = CMTime(value: 7 * 44_100, timescale: 44_100)
+        var fileStart = origin
+        var inputs: [CMSampleBuffer] = []
+        var duration = CMTime.zero
+        for (index, url) in fixture.segments.enumerated() {
+            let samples = try await BufferedAudioSampleSource.load(url: url)
+            let selected: [CMSampleBuffer]
+            if index == 0 {
+                // A real range copy may share storage with discarded packets.
+                // Concatenation must copy only the retained packet byte ranges.
+                let cutoff = CMTimeSubtract(samples.duration, CMTime(value: 17_640, timescale: 44_100))
+                selected = try BufferedAudioSampleSource.packets(samples.buffers, endingAfter: cutoff)
+                XCTAssertLessThan(selected.reduce(0) { $0 + CMSampleBufferGetNumSamples($1) },
+                                  samples.buffers.reduce(0) { $0 + CMSampleBufferGetNumSamples($1) })
+            } else { selected = samples.buffers }
+            for buffer in selected {
+                let retimed = try BufferedAudioSampleSource.retimed(buffer, by: fileStart)
+                inputs.append(retimed)
+                duration = CMTimeAdd(duration, CMSampleBufferGetDuration(retimed))
+            }
+            fileStart = CMTimeAdd(fileStart, samples.duration)
+        }
+        let originalFirst = try XCTUnwrap(inputs.first)
+        let firstStart = CMSampleBufferGetPresentationTimeStamp(originalFirst)
+        let firstEnd = CMTimeAdd(firstStart, CMSampleBufferGetDuration(originalFirst))
+        // Grouping creates fresh attachments; the renderer trims the joined
+        // buffer once, after adding the first post-target packet batch.
+        inputs[0] = try BufferedAudioSampleSource.preparingForSeek(originalFirst, at: firstEnd)
+        let expectedPackets = try BufferedAudioTestFixture.packetPayloads(inputs)
+        let joined = try BufferedAudioSampleSource.concatenating(inputs)
+        let format = try XCTUnwrap(CMSampleBufferGetFormatDescription(originalFirst))
+        XCTAssertTrue(CMFormatDescriptionEqual(format,
+            otherFormatDescription: try XCTUnwrap(CMSampleBufferGetFormatDescription(joined))))
+        XCTAssertEqual(try BufferedAudioTestFixture.packetPayloads([joined]), expectedPackets)
+        XCTAssertEqual(CMSampleBufferGetNumSamples(joined), expectedPackets.count)
+        XCTAssertEqual(CMSampleBufferGetTotalSampleSize(joined), expectedPackets.reduce(0) { $0 + $1.count })
+        XCTAssertEqual(CMBlockBufferGetDataLength(try XCTUnwrap(CMSampleBufferGetDataBuffer(joined))),
+                       expectedPackets.reduce(0) { $0 + $1.count })
+        XCTAssertEqual(CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(joined), firstStart), 0)
+        XCTAssertEqual(CMTimeCompare(CMSampleBufferGetDuration(joined), duration), 0)
+        XCTAssertEqual(CMTimeCompare(CMTimeAdd(firstStart, duration), fileStart), 0)
+        var joinedIndex = 0
+        for buffer in inputs {
+            for index in 0..<CMSampleBufferGetNumSamples(buffer) {
+                var before = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+                var after = before
+                XCTAssertEqual(CMSampleBufferGetSampleTimingInfo(buffer, at: index, timingInfoOut: &before), noErr)
+                XCTAssertEqual(CMSampleBufferGetSampleTimingInfo(joined, at: joinedIndex, timingInfoOut: &after), noErr)
+                XCTAssertEqual(CMTimeCompare(before.presentationTimeStamp, after.presentationTimeStamp), 0)
+                XCTAssertEqual(CMTimeCompare(before.duration, after.duration), 0)
+                XCTAssertEqual(before.decodeTimeStamp.isValid, after.decodeTimeStamp.isValid)
+                if before.decodeTimeStamp.isValid {
+                    XCTAssertEqual(CMTimeCompare(before.decodeTimeStamp, after.decodeTimeStamp), 0)
+                }
+                joinedIndex += 1
+            }
+        }
+        for key in [kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                    kCMSampleBufferAttachmentKey_TrimDurationAtEnd,
+                    kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
+                    kCMSampleBufferAttachmentKey_DrainAfterDecoding] {
+            XCTAssertNil(CMGetAttachment(joined, key: key, attachmentModeOut: nil))
+        }
+        XCTAssertNotNil(CMGetAttachment(inputs[0], key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                                        attachmentModeOut: nil))
+        XCTAssertNil(CMGetAttachment(originalFirst, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                                     attachmentModeOut: nil))
+        XCTAssertThrowsError(try BufferedAudioSampleSource.concatenating([]))
+        XCTAssertThrowsError(try BufferedAudioSampleSource.concatenating(Array(repeating: originalFirst, count: 16_385)))
+        var gapped = inputs
+        gapped[1] = try BufferedAudioSampleSource.retimed(gapped[1], by: CMTime(value: 1, timescale: 1000))
+        XCTAssertThrowsError(try BufferedAudioSampleSource.concatenating(gapped))
+        XCTAssertThrowsError(try BufferedAudioSampleSource.concatenating([inputs[0], inputs[0]]))
+
+        var differentASBD = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(format)).pointee
+        differentASBD.mSampleRate = 48_000
+        var differentFormat: CMAudioFormatDescription?
+        XCTAssertEqual(CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &differentASBD,
+            layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
+            formatDescriptionOut: &differentFormat), noErr)
+        var descriptions: UnsafePointer<AudioStreamPacketDescription>?
+        var descriptionBytes = 0
+        XCTAssertEqual(CMSampleBufferGetAudioStreamPacketDescriptionsPtr(originalFirst,
+            packetDescriptionsPointerOut: &descriptions, sizeOut: &descriptionBytes), noErr)
+        var incompatible: CMSampleBuffer?
+        XCTAssertEqual(CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: kCFAllocatorDefault,
+            dataBuffer: try XCTUnwrap(CMSampleBufferGetDataBuffer(originalFirst)),
+            formatDescription: try XCTUnwrap(differentFormat), sampleCount: CMSampleBufferGetNumSamples(originalFirst),
+            presentationTimeStamp: firstEnd, packetDescriptions: try XCTUnwrap(descriptions),
+            sampleBufferOut: &incompatible), noErr)
+        XCTAssertThrowsError(try BufferedAudioSampleSource.concatenating([originalFirst, try XCTUnwrap(incompatible)]))
+    }
+
     func testSeekPrerollTrimsOnlyDecodedOutputAndLeavesOriginalPacketsUntouched() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

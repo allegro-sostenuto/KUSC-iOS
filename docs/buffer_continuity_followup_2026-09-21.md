@@ -26,18 +26,26 @@ Build 14 identified why packet extraction and bounded seeks could not work with 
 
 Build 15 passed all six compressed-source tests and all seven renderer tests, including exact equality between original ADTS payloads and whole/split file reads, continuous boundary playback, paused seeks and resume. The focused run's remaining failure occurred when the cached-refill integration fixture sought the final third of a four-second clip. Build 16 separated clip length from refill by using station-sized ten-second segments and adding a short-tail arrival regression.
 
-## Build 16 verification
+## Exact-boundary seek diagnosis
 
 Source `8b7732f3a01d293d75fd1643b88ee39342ee5dad` ran in [Actions run 35582385059](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35582385059). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. The larger refill fixture passed, but the new short-tail renderer regression failed. Build 16 is not an accepted installation candidate.
 
 The trace identified a real exact-boundary seek issue: the paused renderer reported sufficient decoded media while its last enqueued timestamp equalled the seek target and the successor's two batches remained pending. Preroll before the target filled the output queue. Clip length alone was not the cause. The follow-up marks seek-only preroll with Apple's [TrimDurationAtStart attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_trimdurationatstart), which permits decoding packets for context while discarding their output. Full buffers before the target produce no output; a buffer spanning the target discards only its earlier portion. Ordinary playback gets no trim. The original short engine fixture is restored, alongside the short-tail arrival regression. Native verification of this correction is pending.
 
-The downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 16, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35582385059`.
+Build 17 caught a compile-only API constant error: the legacy `CMAttachmentMode` is a C integer alias, so the attachment uses `kCMAttachmentMode_ShouldPropagate`. No native tests ran for that revision.
+
+## Build 18 verification
+
+Source `c914ecc9b9d41f849b6ad7fdfc32942eeb382a16` ran in [Actions run 35584810875](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35584810875). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. All seven source tests passed, including the trim semantics, but both exact-boundary paused-seek cases remained blocked with the same trace. Build 18 is not an accepted installation candidate.
+
+Trim metadata alone did not make the paused native renderer accept the next buffer. The follow-up holds the bounded preroll until the first batch extending past the target is available, then concatenates those exact compressed packets into one initial sample buffer before applying the seek trim. All later ordinary arrivals retain their normal packaging. Source tests compare every packet and timing entry after concatenation, including shared-backing suffix buffers. The renderer test requires a confirmed paused cursor, then arrival and playback across the successor without a reset; it no longer expects all future media to enter a backpressured paused queue. Native verification of this correction is pending.
+
+The downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 18, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35584810875`.
 
 | Package | IPA SHA-256 |
 |---|---|
-| KUSC-17-unsigned.ipa | `03e5c05e0ca0565ad892bda2b6306e6732b8dfe590f00975b3c7d44860e9d124` |
-| KUSC-SE-unsigned.ipa | `4105726710811c0991a70e44a3c642bb99a7dcac2badd879ab157f1ce26c4929` |
+| KUSC-17-unsigned.ipa | `b68410abe2ab8f44c161c5b57f3c6290c5207679f9ed5b63132c81a83f5d4c91` |
+| KUSC-SE-unsigned.ipa | `6284cf183bdf49041202b334c5879e0fad8cca481cc5f0a2e46792e3cba0c508` |
 
 ## Physical acceptance procedure
 

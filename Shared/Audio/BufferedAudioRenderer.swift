@@ -28,6 +28,7 @@ import Foundation
     private var retained: [AudioSegment] = []
     private var entries: [Entry] = []
     private var pendingBuffers: [CMSampleBuffer] = []
+    private var seekPrerollBuffers: [CMSampleBuffer] = []
     private var pendingIndex = 0
     private var requestingData = false
     private var scheduledEnd = CMTime.zero
@@ -217,6 +218,7 @@ import Foundation
         decoderResetCount += 1
         entries.removeAll()
         pendingBuffers.removeAll()
+        seekPrerollBuffers.removeAll()
         pendingIndex = 0
         scheduledEnd = .zero
         firstEnqueuedTime = nil
@@ -288,18 +290,31 @@ import Foundation
         } else {
             packets = samples.buffers
         }
-        pendingBuffers = try packets.map { packet in
-            let retimed = try BufferedAudioSampleSource.retimed(packet, by: start)
-            // Decode preroll for AAC context, but discard its output. Merely
-            // placing old packets before the paused timebase can fill the
-            // renderer before it accepts the packet at the requested boundary.
-            if isSeeking { return try BufferedAudioSampleSource.preparingForSeek(retimed, at: requestedStart) }
-            return retimed
-        }
-        pendingIndex = 0
         lastLoadedSegment = segment
         appendedSegmentCount += 1
         onDiagnostic?("renderer appended start=\(segment.start.timeIntervalSince1970) timeline=\(start.seconds)...\(end.seconds) batches=\(packets.count)/\(samples.buffers.count) resets=\(decoderResetCount)")
+        var prepared = try packets.map { try BufferedAudioSampleSource.retimed($0, by: start) }
+        if isSeeking {
+            let available = seekPrerollBuffers + prepared
+            // A paused renderer can backpressure after accepting only preroll,
+            // even when that buffer's decoded output is entirely trimmed. Hold
+            // the bounded prefix until the first batch reaches past the target,
+            // including across a storage-file boundary, then enqueue it together.
+            guard let playable = available.firstIndex(where: {
+                CMTimeCompare(CMTimeAdd(CMSampleBufferGetPresentationTimeStamp($0),
+                                       CMSampleBufferGetDuration($0)), requestedStart) > 0
+            }) else {
+                seekPrerollBuffers = available
+                loadNextIfNeeded()
+                return
+            }
+            let first = try BufferedAudioSampleSource.concatenating(Array(available.prefix(playable + 1)))
+            seekPrerollBuffers.removeAll()
+            prepared = [first] + available.dropFirst(playable + 1)
+            prepared = try prepared.map { try BufferedAudioSampleSource.preparingForSeek($0, at: requestedStart) }
+        }
+        pendingBuffers = prepared
+        pendingIndex = 0
         requestMoreData()
     }
 
@@ -416,6 +431,7 @@ import Foundation
         requestingData = false
         loadTask?.cancel()
         loadTask = nil
+        seekPrerollBuffers.removeAll()
         onFailure?(error)
     }
 

@@ -164,7 +164,7 @@ import XCTest
         XCTAssertEqual(renderer.statisticsForTesting.resets, 1)
     }
 
-    func testPausedSeekIntoShortTailCanPrepareWhenContiguousAudioArrives() async throws {
+    func testPausedSeekAtShortFileBoundaryResumesIntoLaterArrivalsWithoutReset() async throws {
         try activateAudio()
         let path = directory()
         // Expose only the first half initially. All later files remain cuts of
@@ -180,23 +180,26 @@ import XCTest
         renderer.updateSegments(initial)
         var confirmed: Date?
         renderer.seek(to: target, playing: false) { confirmed = $0 }
-        try await waitUntil("The short retained tail is fully enqueued while paused") {
-            renderer.statisticsForTesting.segments == 2 &&
-                renderer.preparedMediaForTesting.pendingBatches == 0 && renderer.hasAudio
+        try await waitUntil("The first paused enqueue reaches playable audio across the exact file boundary") {
+            confirmed == target && renderer.isReady
         }
-        // Reliable-start thresholds vary by output route. Either an already
-        // confirmed seek or one waiting for more packets is valid at this point.
         let resets = renderer.statisticsForTesting.resets
         XCTAssertFalse(renderer.isPlaying)
         XCTAssertFalse(renderer.statisticsForTesting.requested)
+        XCTAssertEqual(renderer.position?.timeIntervalSince(target) ?? -1, 0, accuracy: 0.001)
         renderer.updateSegments(media)
-        try await waitUntil("A contiguous successor completes preparation without a replacing seek") {
-            confirmed == target && renderer.statisticsForTesting.segments >= 3
-        }
+        // A paused output may keep later packets backpressured. Arrival must
+        // preserve the confirmed cursor; Play drains and consumes the successor.
+        try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertFalse(renderer.isSeeking)
         XCTAssertFalse(renderer.isPlaying)
         XCTAssertFalse(renderer.statisticsForTesting.requested)
         XCTAssertEqual(renderer.position?.timeIntervalSince(target) ?? -1, 0, accuracy: 0.001)
+        renderer.play()
+        try await waitUntil("Resume crosses into audio that arrived while paused") {
+            (renderer.position ?? self.origin) > initial[2].end.addingTimeInterval(0.1)
+        }
+        XCTAssertGreaterThanOrEqual(renderer.statisticsForTesting.segments, 3)
         XCTAssertEqual(renderer.statisticsForTesting.resets, resets)
     }
 
