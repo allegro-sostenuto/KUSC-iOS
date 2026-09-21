@@ -2,7 +2,7 @@
 
 Native private-use KUSC FM 91.5 player, with shared Swift/SwiftUI source and separate iOS 16 and iOS 26 app targets. Build from Windows through the included public-repository GitHub Actions workflow, then install with AltStore Classic and AltServer. Exact steps for both phones are in **[installation_guides.md](installation_guides.md)**; no local Mac or paid Apple membership is required for that route.
 
-**Delivery status:** the starting revision `1cc5ae6` passed the [unsigned device workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35489878713); installation, background playback, and Live Activity were subsequently reported working by the owner. The September 20 update revises the interface, rolling-buffer timeline, and scheduled start. Its separate build/test results and remaining device checks are recorded in [the update report](docs/update_2026-09-20.md). Earlier successful playback does not validate the new implementation.
+**Delivery status:** [build 19](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35586611350) passes both device builds, 105 portable tests, 24 focused native audio tests, and 140 hosted plus six UI tests per simulator profile. The September 21 follow-up replaces per-file buffered playback with a continuous decoder and fixes the history label after scrubbing. Verified package hashes, native screenshot evidence and the remaining physical listening checks are in [the follow-up report](docs/buffer_continuity_followup_2026-09-21.md). The preceding interface, rolling-buffer and scheduled-start update is recorded in [the September 20 report](docs/update_2026-09-20.md).
 
 ## Windows build and installation
 

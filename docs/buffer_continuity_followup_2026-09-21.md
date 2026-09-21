@@ -1,12 +1,25 @@
 # Buffered audio continuity and history display follow-up
 
+## Verified build 19
+
+Source `7a9c7ef9eb0881c8e8ada100db3c395882c0fbb7` passed all five jobs in [Actions run 35586611350](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35586611350): both Release device builds, all 105 portable tests, all 24 focused native audio tests, and all 140 hosted plus six UI tests on each simulator profile. The original four-second cached-refill fixture and the exact-file-boundary paused-seek/resume regression both pass. Packet tests confirm original/whole/split payload equality and byte/timing preservation when grouping seek preroll. Xcode is 26.6 (17F113), device SDK and both simulator runtimes are iOS 26.5; this is not an iOS 16 runtime test.
+
+Both downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 19, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35586611350`. Physical listening on the owner's iPhone 17 remains necessary to confirm that the reported Bluetooth/live-stream dips are gone.
+
+All 29 native capture hashes per profile match their manifests and expected orientations. The growing-history interaction passes after both a touch scrub and a normalized adjustment. Visual review of the iPhone 17 partial-buffer and dark captures shows no clipping; sampled page, card, Settings, Play/Pause, Live and overflow interiors are RGB `(0, 0, 0)`. These are deterministic UI fixtures, not recordings of station playback.
+
+| Package | IPA SHA-256 |
+|---|---|
+| KUSC-17-unsigned.ipa | `30e3c54e83657c96588aa8d96731418f6ae511d9983cc4a19d713df49904a664` |
+| KUSC-SE-unsigned.ipa | `a0019c07dddb35f11af448d6910898af86d1645b8b1f35347247c0343a2eadd5` |
+
 ## Device evidence
 
 The owner tested build 9 on their iPhone 17 after the playlist-clock correction. Buffered audio now keeps playing, but a brief volume dip repeats approximately every 15 seconds. The dip occurs both at Live and after rewinding into downloaded audio. Zero-minute retention remains unaffected. The owner also reports that the left history label stops updating after scrubbing before the five-minute buffer has accumulated.
 
 These observations narrow the investigation to the buffered transport and its scrub UI. They do not establish that the audible interval exactly matches each HLS segment or measure the dip's duration. The preceding captured stream used approximately 9.98458-second segments. The normal playback code has no periodic gain envelope; scheduled-start and sleep fades are separate operations.
 
-## Changes under validation
+## Implemented changes
 
 The buffered path now uses one `AVSampleBufferAudioRenderer` and render synchronizer instead of separate local AAC `AVPlayerItem` handoffs. `AudioFileReadPacketData` reads compressed packets off the main queue. The source constructs Core Media buffers with explicit packet sizes and the original format and magic cookie, without per-file trim/reset attachments. Encoded durations place successive packets on one continuous timeline; a segment mapping retains the corresponding station time. The downloaded files remain the retention store. Explicit seek, true discontinuity and output recovery remain reset points. Zero-minute retention keeps its direct HLS player.
 
@@ -18,11 +31,13 @@ The integration also invalidates obsolete media objects after an iOS media-servi
 
 Native regression tests generate a continuous AAC-LC stream, split its existing packets into files, and compare packet payloads, durations and timing with the whole file. Renderer tests exercise actual compressed playback across file boundaries, paused seeks, output recovery, discontinuities and obsolete reads. These fixtures are not a HE-AAC Bluetooth recording. Seven pure Swift scrub regressions and a growing-history native UI interaction cover the display fix. A focused hosted-audio CI job runs independently of the longer screenshot jobs so native media failures produce actionable logs sooner.
 
-Build 11 compiled both unsigned device apps and passed the 103 portable tests, but native testing rejected the candidate: the AAC source raised a generic format error before enqueuing media, and a normalized slider adjustment retained its preview. Ordinary touch scrubs and subsequent history growth passed. Build 12's focused native test identified an empty control buffer after the valid AAC packets; the reader incorrectly rejected its zero sample count. The independent compressed-packet retiming test passed. Device-build success alone is not acceptance; final native and artifact verification remains pending.
+## Diagnostic history
 
-Build 13 passed all six iPhone 17 native UI tests, including the growing-history adjustment, and ordinary compressed playback crossed three files with one decoder reset. The remaining native media failures exposed deep paused-seek backpressure and an unresolved whole-versus-split byte comparison. Seek preparation now limits decoder preroll to one second of complete packets, and payload validation compares packet-description byte ranges with the original ADTS payloads. The refill fixture explicitly activates its output session, as AppModel does in production, and the pause/resume fixture leaves sufficient retained audio after both starts. These corrections require another native run before delivery.
+Build 11 compiled both unsigned device apps and passed the 103 portable tests, but native testing rejected the candidate: the AAC source raised a generic format error before enqueuing media, and a normalized slider adjustment retained its preview. Ordinary touch scrubs and subsequent history growth passed. Build 12's focused native test identified an empty control buffer after the valid AAC packets; the reader incorrectly rejected its zero sample count. The independent compressed-packet retiming test passed. Device-build success alone was insufficient for acceptance.
 
-Build 14 identified why packet extraction and bounded seeks could not work with the passthrough buffers: they lacked usable sample-size metadata (`CMSampleBufferCopySampleBufferForRange` returned `-12735`, and packet-description extraction also failed). The longer pause/resume fixture still stalled with audio remaining. The source now reads explicit packets using Audio File Services and constructs fully described compressed buffers; strict original-packet equality and native resume validation remain required.
+Build 13 passed all six iPhone 17 native UI tests, including the growing-history adjustment, and ordinary compressed playback crossed three files with one decoder reset. The remaining native media failures exposed deep paused-seek backpressure and an unresolved whole-versus-split byte comparison. Seek preparation was limited to one second of complete packets, and payload validation compared packet-description byte ranges with the original ADTS payloads. The refill fixture explicitly activated its output session, as AppModel does in production, and the pause/resume fixture left sufficient retained audio after both starts.
+
+Build 14 identified why packet extraction and bounded seeks could not work with the passthrough buffers: they lacked usable sample-size metadata (`CMSampleBufferCopySampleBufferForRange` returned `-12735`, and packet-description extraction also failed). The longer pause/resume fixture still stalled with audio remaining. The source was changed to read explicit packets using Audio File Services and construct fully described compressed buffers.
 
 Build 15 passed all six compressed-source tests and all seven renderer tests, including exact equality between original ADTS payloads and whole/split file reads, continuous boundary playback, paused seeks and resume. The focused run's remaining failure occurred when the cached-refill integration fixture sought the final third of a four-second clip. Build 16 separated clip length from refill by using station-sized ten-second segments and adding a short-tail arrival regression.
 
@@ -30,7 +45,7 @@ Build 15 passed all six compressed-source tests and all seven renderer tests, in
 
 Source `8b7732f3a01d293d75fd1643b88ee39342ee5dad` ran in [Actions run 35582385059](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35582385059). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. The larger refill fixture passed, but the new short-tail renderer regression failed. Build 16 is not an accepted installation candidate.
 
-The trace identified a real exact-boundary seek issue: the paused renderer reported sufficient decoded media while its last enqueued timestamp equalled the seek target and the successor's two batches remained pending. Preroll before the target filled the output queue. Clip length alone was not the cause. The follow-up marks seek-only preroll with Apple's [TrimDurationAtStart attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_trimdurationatstart), which permits decoding packets for context while discarding their output. Full buffers before the target produce no output; a buffer spanning the target discards only its earlier portion. Ordinary playback gets no trim. The original short engine fixture is restored, alongside the short-tail arrival regression. Native verification of this correction is pending.
+The trace identified a real exact-boundary seek issue: the paused renderer reported sufficient decoded media while its last enqueued timestamp equalled the seek target and the successor's two batches remained pending. Preroll before the target filled the output queue. Clip length alone was not the cause. The follow-up marked seek-only preroll with Apple's [TrimDurationAtStart attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_trimdurationatstart), which permits decoding packets for context while discarding their output. Full buffers before the target produce no output; a buffer spanning the target discards only its earlier portion. Ordinary playback gets no trim. The original short engine fixture was restored, alongside the short-tail arrival regression.
 
 Build 17 caught a compile-only API constant error: the legacy `CMAttachmentMode` is a C integer alias, so the attachment uses `kCMAttachmentMode_ShouldPropagate`. No native tests ran for that revision.
 
@@ -38,14 +53,7 @@ Build 17 caught a compile-only API constant error: the legacy `CMAttachmentMode`
 
 Source `c914ecc9b9d41f849b6ad7fdfc32942eeb382a16` ran in [Actions run 35584810875](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35584810875). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. All seven source tests passed, including the trim semantics, but both exact-boundary paused-seek cases remained blocked with the same trace. Build 18 is not an accepted installation candidate.
 
-Trim metadata alone did not make the paused native renderer accept the next buffer. The follow-up holds the bounded preroll until the first batch extending past the target is available, then concatenates those exact compressed packets into one initial sample buffer before applying the seek trim. All later ordinary arrivals retain their normal packaging. Source tests compare every packet and timing entry after concatenation, including shared-backing suffix buffers. The renderer test requires a confirmed paused cursor, then arrival and playback across the successor without a reset; it no longer expects all future media to enter a backpressured paused queue. Native verification of this correction is pending.
-
-The downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 18, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35584810875`.
-
-| Package | IPA SHA-256 |
-|---|---|
-| KUSC-17-unsigned.ipa | `b68410abe2ab8f44c161c5b57f3c6290c5207679f9ed5b63132c81a83f5d4c91` |
-| KUSC-SE-unsigned.ipa | `6284cf183bdf49041202b334c5879e0fad8cca481cc5f0a2e46792e3cba0c508` |
+Trim metadata alone did not make the paused native renderer accept the next buffer. The final implementation holds the bounded preroll until the first batch extending past the target is available, then concatenates those exact compressed packets into one initial sample buffer before applying the seek trim. All later ordinary arrivals retain their normal packaging. Source tests compare every packet and timing entry after concatenation, including shared-backing suffix buffers. The renderer test requires a confirmed paused cursor, then arrival and playback across the successor without a reset; it no longer expects all future media to enter a backpressured paused queue. Build 19 verifies this correction.
 
 ## Physical acceptance procedure
 
