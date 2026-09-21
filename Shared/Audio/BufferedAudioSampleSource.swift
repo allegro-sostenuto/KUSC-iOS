@@ -260,7 +260,7 @@ enum BufferedAudioSampleSource {
                 throw failure("seek trim attachment")
             }
             CMSetAttachment(copied, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                            value: value, attachmentMode: .shouldPropagate)
+                            value: value, attachmentMode: kCMAttachmentMode_ShouldPropagate)
         } else {
             CMRemoveAttachment(copied, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
         }
