@@ -136,7 +136,10 @@ final class PlayerInteractionTests: XCTestCase {
         assertHistoryAdvances(history)
         assertHistoryAdvances(history)
         slider.adjust(toNormalizedSliderPosition: 0.55)
-        XCTAssertFalse(((slider.value as? String) ?? "").contains("Preview"))
+        let adjustedValue = (slider.value as? String) ?? ""
+        attach(app, named: "growing-buffer-after-normalized-adjustment")
+        XCTAssertFalse(adjustedValue.contains("Preview"),
+                       "A completed normalized adjustment must release its preview; got \(adjustedValue)")
         assertHistoryAdvances(history)
     }
 

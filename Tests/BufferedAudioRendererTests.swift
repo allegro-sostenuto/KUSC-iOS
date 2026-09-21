@@ -6,6 +6,14 @@ import XCTest
 
 @MainActor final class BufferedAudioRendererTests: XCTestCase {
     private let origin = Date(timeIntervalSince1970: 1_789_900_000)
+    private var rendererFailure: Error?
+    private weak var observedRenderer: BufferedAudioRenderer?
+
+    private func observeFailures(from renderer: BufferedAudioRenderer) {
+        rendererFailure = nil
+        observedRenderer = renderer
+        renderer.onFailure = { [weak self] in self?.rendererFailure = $0 }
+    }
 
     private func directory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("kusc-renderer-\(UUID().uuidString)", isDirectory: true)
@@ -28,9 +36,20 @@ import XCTest
     private func waitUntil(_ description: String, timeout: TimeInterval = 8,
                            condition: @escaping () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        while !condition(), rendererFailure == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        if let rendererFailure {
+            XCTFail("\(description): \(rendererFailure as NSError)")
+            throw rendererFailure
+        }
         guard condition() else {
-            XCTFail(description)
+            let state = observedRenderer.map {
+                "seeking=\($0.isSeeking) playing=\($0.isPlaying) hasAudio=\($0.hasAudio) " +
+                    "segments=\($0.statisticsForTesting.segments) resets=\($0.statisticsForTesting.resets) " +
+                    "time=\($0.currentSeconds)"
+            } ?? "renderer unavailable"
+            XCTFail("\(description): \(state)")
             throw AudioStreamError.stalled
         }
     }
@@ -42,17 +61,16 @@ import XCTest
         let media = segments(files)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         renderer.volume = 0.35
-        var errors: [Error] = []
-        renderer.onFailure = { errors.append($0) }
         renderer.updateSegments(media)
         var confirmed = false
         renderer.seek(to: origin.addingTimeInterval(0.1), playing: true) { _ in confirmed = true }
-        try await waitUntil("The real AAC renderer becomes ready") { confirmed || !errors.isEmpty }
+        try await waitUntil("The real AAC renderer becomes ready") { confirmed }
         try await waitUntil("Playback crosses the second compressed-file boundary") {
-            (renderer.position ?? self.origin) > media[2].start.addingTimeInterval(0.15) || !errors.isEmpty
+            (renderer.position ?? self.origin) > media[2].start.addingTimeInterval(0.15)
         }
-        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        XCTAssertNil(rendererFailure)
         XCTAssertEqual(renderer.statisticsForTesting.segments, 3)
         XCTAssertEqual(renderer.statisticsForTesting.resets, 1,
                        "Storage boundaries must append packets without flushing the decoder")
@@ -66,6 +84,7 @@ import XCTest
         let files = try BufferedAudioTestFixture.make(in: path)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         renderer.updateSegments(segments(files))
         let target = origin.addingTimeInterval(0.2)
         renderer.seek(to: target, playing: false) { _ in }
@@ -92,6 +111,7 @@ import XCTest
         let media = segments(files)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         renderer.updateSegments(media)
         let target = media[1].start.addingTimeInterval(10)
         var confirmed: Date?
@@ -111,6 +131,7 @@ import XCTest
         let files = try BufferedAudioTestFixture.make(in: path)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         renderer.volume = 0
         renderer.updateSegments(segments(files))
         let target = origin.addingTimeInterval(0.3)
@@ -137,6 +158,7 @@ import XCTest
                                    discontinuity: true)
         let renderer = BufferedAudioRenderer()
         defer { renderer.stop(); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         renderer.updateSegments([ordinary[0], shifted])
         renderer.seek(to: origin.addingTimeInterval(0.1), playing: false) { _ in }
         try await waitUntil("First epoch prepares") { !renderer.isSeeking }
@@ -160,9 +182,8 @@ import XCTest
             await withCheckedContinuation { release = $0 }
         }
         defer { renderer.stop(); release?.resume(returning: packets); try? FileManager.default.removeItem(at: path) }
+        observeFailures(from: renderer)
         var completed = false
-        var errors: [Error] = []
-        renderer.onFailure = { errors.append($0) }
         renderer.updateSegments(media)
         renderer.seek(to: origin.addingTimeInterval(0.1), playing: true) { _ in completed = true }
         try await waitUntil("Reader is pending") { release != nil }
@@ -173,7 +194,7 @@ import XCTest
         pending?.resume(returning: packets) // Simulate a reader completing after cancellation.
         try await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertFalse(completed)
-        XCTAssertTrue(errors.isEmpty)
+        XCTAssertNil(rendererFailure)
         XCTAssertFalse(renderer.isPlaying)
         XCTAssertFalse(renderer.hasAudio)
         XCTAssertFalse(renderer.isSeeking)

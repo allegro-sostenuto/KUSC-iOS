@@ -41,6 +41,15 @@ public struct BufferScrubState {
         return commit(value, in: window)
     }
 
+    /// Accessibility/value-setting events do not have to deliver a matching
+    /// touch-end callback. A non-tracking value is already a complete action.
+    public mutating func finishAdjustment(_ value: Date, currentWindow: BufferWindow) -> BufferScrubCommit? {
+        let window = frozenWindow ?? currentWindow
+        frozenWindow = nil
+        preview = nil
+        return commit(value, in: window)
+    }
+
     public mutating func cancel() {
         frozenWindow = nil
         preview = nil

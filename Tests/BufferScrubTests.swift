@@ -65,4 +65,27 @@ final class BufferScrubTests: XCTestCase {
         XCTAssertNil(scrub.preview)
         XCTAssertEqual(scrub.update(date(10), currentWindow: window(40, 340)), .seek(date(40)))
     }
+
+    func testNonTrackingValueCompletesAnUnpairedEditingCallback() {
+        var scrub = BufferScrubState()
+        scrub.begin(in: window(0, 60))
+        _ = scrub.update(date(20), currentWindow: window(0, 61))
+        XCTAssertEqual(scrub.finishAdjustment(date(30), currentWindow: window(0, 62)), .seek(date(30)))
+        XCTAssertFalse(scrub.isEditing)
+        XCTAssertNil(scrub.preview)
+        XCTAssertNil(scrub.frozenWindow)
+        XCTAssertNil(scrub.end(), "A later touch-end cannot seek twice")
+        scrub.begin(in: window(0, 180))
+        XCTAssertEqual(scrub.frozenWindow?.duration, 180)
+    }
+
+    func testNonTrackingRightEdgeCompletesUsingTheFrozenDragRange() {
+        var scrub = BufferScrubState()
+        scrub.begin(in: window(0, 60))
+        _ = scrub.update(date(55), currentWindow: window(0, 65))
+        XCTAssertEqual(scrub.finishAdjustment(date(60), currentWindow: window(0, 66)), .live)
+        XCTAssertNil(scrub.finishAdjustment(date(60), currentWindow: window(0, 67)))
+        XCTAssertFalse(scrub.isEditing)
+        XCTAssertNil(scrub.preview)
+    }
 }

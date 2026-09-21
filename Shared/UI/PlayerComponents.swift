@@ -240,23 +240,24 @@ private struct BufferPositionView: View {
                 let heard = confirmed.addingTimeInterval(elapsed)
                 let position = scrub.preview?.timeIntervalSince1970 ?? (sample.isAtLiveEdge && sample.isAdvancing ? upper : heard.timeIntervalSince1970)
                 VStack(spacing: 0) {
-                    Slider(value: Binding(
-                        get: { min(upper, max(lower, position)) },
-                        set: { value in
+                    RetainedAudioSlider(
+                        value: (min(upper, max(lower, position)) - lower) / (upper - lower),
+                        valueDescription: positionLabel(live: currentWindow.live, heard: heard),
+                        onBegin: { scrub.begin(in: currentWindow) },
+                        onChange: { fraction, tracking in
                             guard scenePhase == .active else { return }
-                            commit(scrub.update(Date(timeIntervalSince1970: value), currentWindow: currentWindow))
-                        }
-                    ), in: lower...upper) { editing in
-                        if editing {
-                            scrub.begin(in: currentWindow)
-                        } else {
-                            commit(scrub.end())
-                        }
-                    }
+                            let date = Date(timeIntervalSince1970: lower + fraction * (upper - lower))
+                            if tracking {
+                                scrub.begin(in: currentWindow)
+                                _ = scrub.update(date, currentWindow: currentWindow)
+                            } else {
+                                commit(scrub.finishAdjustment(date, currentWindow: currentWindow))
+                            }
+                        },
+                        onEnd: { commit(scrub.end()) },
+                        onCancel: { scrub.cancel() }
+                    )
                     .frame(minHeight: 44)
-                    .tint(.kuscRed)
-                    .accessibilityLabel("Listening position in retained audio")
-                    .accessibilityValue(positionLabel(live: currentWindow.live, heard: heard))
                     .overlay {
                         GeometryReader { geometry in
                             ForEach(Array(gaps(in: window).enumerated()), id: \.offset) { _, gap in
@@ -384,6 +385,72 @@ struct AudioOutputView: View {
         .foregroundStyle(Color.kuscInk)
         .background(Color.kuscBackground.ignoresSafeArea())
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+}
+
+/// Keep UIKit's native slider and its actual touch lifecycle. SwiftUI's editing
+/// callback can remain active after a normalized/accessibility value adjustment.
+/// A control that is not tracking a touch must commit immediately, not preview.
+private struct RetainedAudioSlider: UIViewRepresentable {
+    let value: Double
+    let valueDescription: String
+    let onBegin: () -> Void
+    let onChange: (Double, Bool) -> Void
+    let onEnd: () -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> TrackingSlider {
+        let slider = TrackingSlider()
+        slider.minimumValue = 0
+        slider.maximumValue = 1
+        slider.isContinuous = true
+        slider.accessibilityLabel = "Listening position in retained audio"
+        slider.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        slider.onBegin = { [weak coordinator = context.coordinator] in coordinator?.parent.onBegin() }
+        slider.onEnd = { [weak coordinator = context.coordinator] in coordinator?.parent.onEnd() }
+        slider.onCancel = { [weak coordinator = context.coordinator] in coordinator?.parent.onCancel() }
+        return slider
+    }
+
+    func updateUIView(_ slider: TrackingSlider, context: Context) {
+        context.coordinator.parent = self
+        slider.tintColor = UIColor(Color.kuscRed)
+        slider.accessibilityValue = valueDescription
+        // Clock samples may arrive during a long drag. UIKit owns the thumb
+        // until touch-end; the frozen station-time range maps its final value.
+        if !slider.isTracking { slider.setValue(Float(value), animated: false) }
+    }
+
+    @MainActor final class Coordinator: NSObject {
+        var parent: RetainedAudioSlider
+        init(_ parent: RetainedAudioSlider) { self.parent = parent }
+        @objc func changed(_ sender: UISlider) {
+            parent.onChange(Double(sender.value), sender.isTracking)
+        }
+    }
+
+    final class TrackingSlider: UISlider {
+        var onBegin: (() -> Void)?
+        var onEnd: (() -> Void)?
+        var onCancel: (() -> Void)?
+
+        override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            let tracking = super.beginTracking(touch, with: event)
+            if tracking { onBegin?() }
+            return tracking
+        }
+
+        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+            super.endTracking(touch, with: event)
+            onEnd?()
+        }
+
+        override func cancelTracking(with event: UIEvent?) {
+            super.cancelTracking(with: event)
+            onCancel?()
+        }
     }
 }
 
