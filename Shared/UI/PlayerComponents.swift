@@ -243,7 +243,10 @@ private struct BufferPositionView: View {
                     RetainedAudioSlider(
                         value: (min(upper, max(lower, position)) - lower) / (upper - lower),
                         valueDescription: positionLabel(live: currentWindow.live, heard: heard),
-                        onBegin: { scrub.begin(in: currentWindow) },
+                        onBegin: {
+                            guard scenePhase == .active else { scrub.cancel(); return }
+                            scrub.begin(in: currentWindow)
+                        },
                         onChange: { fraction, tracking in
                             guard scenePhase == .active else { return }
                             let date = Date(timeIntervalSince1970: lower + fraction * (upper - lower))
@@ -254,7 +257,10 @@ private struct BufferPositionView: View {
                                 commit(scrub.finishAdjustment(date, currentWindow: currentWindow))
                             }
                         },
-                        onEnd: { commit(scrub.end()) },
+                        onEnd: {
+                            guard scenePhase == .active else { scrub.cancel(); return }
+                            commit(scrub.end())
+                        },
                         onCancel: { scrub.cancel() }
                     )
                     .frame(minHeight: 44)

@@ -82,6 +82,8 @@ enum BufferedAudioTestFixture {
         defer { try? FileManager.default.removeItem(at: directory) }
         let fixture = try BufferedAudioTestFixture.make(in: directory)
         let whole = try await BufferedAudioSampleSource.load(url: fixture.whole)
+        XCTAssertTrue(whole.buffers.allSatisfy { CMSampleBufferGetNumSamples($0) > 0 },
+                      "AssetReader's trailing control marker must not be returned as audio")
         var joinedPayload = Data()
         var joinedDuration = CMTime.zero
         var joinedSampleCount = 0
@@ -92,6 +94,8 @@ enum BufferedAudioTestFixture {
             XCTAssertEqual(part.duration.seconds, fixture.segmentDurations[index], accuracy: 0.000_001)
             var precedingEnd = CMTime.zero
             for buffer in part.buffers {
+                XCTAssertGreaterThan(CMSampleBufferGetNumSamples(buffer), 0,
+                                     "A file-end control marker must not become an AAC packet")
                 XCTAssertEqual(CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(buffer), precedingEnd), 0)
                 let description = try XCTUnwrap(CMSampleBufferGetFormatDescription(buffer))
                 let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(description)).pointee

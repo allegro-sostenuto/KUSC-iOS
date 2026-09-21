@@ -59,23 +59,38 @@ enum BufferedAudioSampleSource {
         var firstPTS: CMTime?
         var previousEnd: CMTime?
         var byteCount = 0
+        var readCount = 0
         var format: CMFormatDescription?
         while let buffer = output.copyNextSampleBuffer() {
             try Task.checkCancellation()
+            guard readCount < maximumBuffers else { throw AudioStreamError.storageLimit }
+            readCount += 1
             let sampleCount = CMSampleBufferGetNumSamples(buffer)
+            let block = CMSampleBufferGetDataBuffer(buffer)
+            let blockBytes = block.map { CMBlockBufferGetDataLength($0) } ?? 0
+            if sampleCount == 0 {
+                // AssetReader emits an empty control buffer at the end of an
+                // ADTS file. A storage cut must not drain/reset our continuous
+                // decoder, change its clock, or become a fabricated AAC packet.
+                // Only a ready marker with no payload can be discarded.
+                guard CMSampleBufferDataIsReady(buffer), blockBytes == 0 else {
+                    throw failure("empty control buffer", detail: "ready=\(CMSampleBufferDataIsReady(buffer)) bytes=\(blockBytes)")
+                }
+                continue
+            }
             #if DEBUG
             if buffers.isEmpty {
                 let description = CMSampleBufferGetFormatDescription(buffer)
                 let asbd = description.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
                 let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
                 let duration = CMSampleBufferGetDuration(buffer)
-                print("BufferedAAC first buffer: samples=\(sampleCount) ready=\(CMSampleBufferDataIsReady(buffer)) bytes=\(CMSampleBufferGetTotalSampleSize(buffer)) format=\(asbd?.mFormatID ?? 0) rate=\(asbd?.mSampleRate ?? 0) framesPerPacket=\(asbd?.mFramesPerPacket ?? 0) pts=\(pts.value)/\(pts.timescale)/\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale)/\(duration.flags.rawValue)")
+                print("BufferedAAC first buffer: samples=\(sampleCount) ready=\(CMSampleBufferDataIsReady(buffer)) blockBytes=\(blockBytes) format=\(asbd?.mFormatID ?? 0) rate=\(asbd?.mSampleRate ?? 0) framesPerPacket=\(asbd?.mFramesPerPacket ?? 0) pts=\(pts.value)/\(pts.timescale)/\(pts.flags.rawValue) duration=\(duration.value)/\(duration.timescale)/\(duration.flags.rawValue)")
             }
             #endif
             guard CMSampleBufferDataIsReady(buffer), sampleCount > 0 else {
                 throw failure("sample readiness", detail: "ready=\(CMSampleBufferDataIsReady(buffer)) samples=\(sampleCount) buffer=\(buffers.count)")
             }
-            guard let block = CMSampleBufferGetDataBuffer(buffer) else { throw failure("sample data block") }
+            guard let block else { throw failure("sample data block") }
             guard let description = CMSampleBufferGetFormatDescription(buffer),
                   let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
                 throw failure("audio format description")
