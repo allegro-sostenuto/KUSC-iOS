@@ -193,6 +193,23 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertFalse(model.isPlaying)
     }
 
+    @MainActor func testNormalPauseAfterScheduledFadePreservesTheRewindTransport() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 10, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 10)
+        let before = model.audioRecoveryStateForTesting.engineGeneration
+        XCTAssertTrue(model.scheduleStateForTesting.fullGain)
+        model.pauseRemote()
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.engineGeneration, before,
+                       "A normal Pause must not stop and discard the retained transport after the scheduled fade")
+        XCTAssertTrue(model.audioRecoveryStateForTesting.started)
+    }
+
     @MainActor func testDeletingDuringInterruptionRejectsLateResumeAndRouteEvents() {
         let model = AppModel.shared
         model.configureScheduleForTesting(options: .init(batteryOnlyStop: true), secondsUntilStart: 10,

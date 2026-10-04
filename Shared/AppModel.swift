@@ -232,7 +232,11 @@ import UIKit
             return
         }
         scheduleGeneration.invalidate()
-        if scheduleRequest != nil { clearSchedule(stopOwnedPlayback: true) }
+        // Once a normal scheduled start is audible, Pause should retain the
+        // same rewind cache as ordinary playback. Early preparation still stops.
+        let keepBufferedAudio = scheduleOwnsPlayback && scheduleReachedFullGain
+        if keepBufferedAudio { wantsPlayback = false; applyGain(); engine.pause() }
+        if scheduleRequest != nil { clearSchedule(stopOwnedPlayback: !keepBufferedAudio) }
         if reconnectStarted != nil || state == .connecting {
             engine.stop(); hasStartedEngine = false; bufferWindow = nil
         }
@@ -242,7 +246,7 @@ import UIKit
         connectionTask?.cancel(); connectionTask = nil
         connectionGeneration = UUID()
         reconnectStarted = nil
-        engine.pause()
+        if !keepBufferedAudio { engine.pause() }
         state = bufferWindow != nil && (bufferWindow!.live.timeIntervalSince(heardAt) > 12) ? .pausedDelayed : .pausedLive
         refreshSystemSurfaces()
     }
