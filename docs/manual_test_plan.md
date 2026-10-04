@@ -4,6 +4,19 @@
 
 ## Test records
 
+### October scheduled-start acceptance (new modes)
+
+Run on the physical iPhone 17 with the new build, initially foregrounded and then locked, with the debugger detached. These checks are not yet executed locally.
+
+1. Schedule **Always speaker** two minutes ahead while headphones are connected. Disconnect/reconnect them during standby and during the fade. The start remains listed, real audio stays silent until the fade, and playback uses the phone speaker. Repeat with Bluetooth and wired/USB audio; also check an AirPlay route if available.
+2. Schedule **Selected output**, confirm the actual output, and keep it selected. It plays there. Change or disconnect it, testing both fallbacks separately: **Notify only** remains silent; **Use iPhone speaker** switches to the speaker even if another accessory becomes the system output.
+3. Enable **Allow while unplugged**, then unplug with battery above X%. Standby must continue beyond 20 minutes. It must also be possible to create a start while already unplugged. Disable the option in a separate run; unplugging then leaves notification-only fallback.
+4. To exercise the actual minimum-duration safeguard without draining below 25%, choose X above the current battery (for example 80% while at 60%), Y = 20 minutes, and stay unplugged. It continues for 19:59 and stops at 20 minutes or the next tick, including after the start has reached normal volume. Plugging in before expiry resets the whole countdown. Repeat by lowering X below the current battery in a newly created schedule; high battery must never start the countdown. Lower limits cannot be set below 25% / 20 minutes.
+5. Enable **Ignore everything except battery**. Test Pause from the app, headphones and Lock Screen; a sleep timer; network loss longer than a minute; headphone disconnects; and a call spanning the start. Only deleting the start in KUSC or the battery safeguard ends its playback intent. iOS may withhold audio during the call; afterward playback retries and fades in. Network recovery must resume on the speaker. A normal (nonpersistent) start must still honor manual Pause.
+6. Delete the persistent start during standby, preparation, fading, and full-volume playback. Audio stops and late callbacks, route events and notification taps do not restart it. Create a replacement start and verify old callbacks cannot remove it.
+7. Disable notifications, enable persistent speaker mode, and schedule again. The app warns that the backup reminder is unavailable but keeps the start armed. Force-quit/reboot remains outside an automatic-playback guarantee; reopen KUSC and verify the retained persistent request can recover.
+8. Check the speaker/output/fallback and power cards in light/dark appearance, large text, and on SE. Dark card/control surfaces remain black with borders; controls and the primary action remain reachable by scrolling.
+
 Create a separate record for each device and build. Record the device model and generation, OS version and build, app scheme and build identifier, signing profile expiration, network, connected audio route, battery percentage, charging state, and whether the debugger was attached. Include observed behavior, timestamps, screenshots where useful, and device/Xcode logs for failures. A failed or blocked test must retain that status and its reason; do not mark it passed because a related unit test passed.
 
 | Device configuration | Status |

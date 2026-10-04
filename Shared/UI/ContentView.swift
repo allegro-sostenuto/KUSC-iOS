@@ -86,7 +86,7 @@ struct ContentView: View {
             switch fixture {
             case "settings": sheet = .settings
             case "sleep": sheet = .sleep
-            case "schedule", "schedule-output": sheet = .schedule
+            case "schedule", "schedule-output", "schedule-power": sheet = .schedule
             case "output", "unavailable-output": sheet = .output
             case "paused": choosingPauseBehavior = true
             default: break

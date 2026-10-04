@@ -9,6 +9,89 @@ import XCTest
 final class ScheduleRegressionTests: XCTestCase {
     private let target = Date(timeIntervalSince1970: 1_000_000)
 
+    func testSpeakerPolicyNeverAcceptsAnotherOutputOrAnEmptyRoute() {
+        XCTAssertTrue(ScheduledOutputPreference.speaker.permits(route("speaker", "Speaker", "iPhone")))
+        XCTAssertFalse(ScheduledOutputPreference.speaker.permits(route("bt:1", "BluetoothA2DP", "Headphones")))
+        XCTAssertFalse(ScheduledOutputPreference.speaker.permits(.init(ports: [])))
+        XCTAssertFalse(ScheduledOutputPreference.speaker.permits(.init(ports: [
+            .init(uid: "speaker", type: "Speaker", name: "iPhone"),
+            .init(uid: "bt:1", type: "BluetoothA2DP", name: "Headphones")
+        ])))
+    }
+
+    func testSelectedSpeakerFallbackDoesNotPermitUnrelatedHeadphones() {
+        let chosen = route("airplay:1", "AirPlay", "Living Room")
+        let preference = ScheduledOutputPreference(route: chosen, fallback: .speaker)
+        XCTAssertTrue(preference.permits(chosen))
+        XCTAssertTrue(preference.permits(route("speaker", "Speaker", "iPhone")))
+        XCTAssertFalse(preference.permits(route("bt:2", "BluetoothA2DP", "Other device")))
+        XCTAssertFalse(ScheduledOutputPreference(mode: .selected).permits(chosen))
+    }
+
+    func testBatteryTimerStartsOnlyBelowThresholdWhileUnplugged() {
+        var guardState = ScheduledBatteryGuard()
+        let options = ScheduledStartOptions(allowOnBattery: true, batteryPercent: 30, lowBatteryMinutes: 20)
+        XCTAssertFalse(guardState.shouldStop(uptime: 0, plugged: false, level: 0.8, options: options))
+        XCTAssertFalse(guardState.shouldStop(uptime: 10_000, plugged: false, level: 0.3, options: options))
+        XCTAssertNil(guardState.lowSince)
+        XCTAssertFalse(guardState.shouldStop(uptime: 10_100, plugged: false, level: 0.299, options: options))
+        XCTAssertEqual(guardState.lowSince, 10_100)
+        XCTAssertFalse(guardState.shouldStop(uptime: 11_299, plugged: false, level: 0.2, options: options))
+        XCTAssertTrue(guardState.shouldStop(uptime: 11_300, plugged: false, level: 0.2, options: options))
+    }
+
+    func testBatteryRecoveryAndChargingResetTheWholeCountdown() {
+        for recovery in [(plugged: true, level: 0.1), (plugged: false, level: 0.25)] {
+            var guardState = ScheduledBatteryGuard()
+            let options = ScheduledStartOptions(allowOnBattery: true)
+            XCTAssertFalse(guardState.shouldStop(uptime: 1, plugged: false, level: 0.2, options: options))
+            XCTAssertFalse(guardState.shouldStop(uptime: 1_200, plugged: recovery.plugged, level: recovery.level, options: options))
+            XCTAssertNil(guardState.lowSince)
+            XCTAssertFalse(guardState.shouldStop(uptime: 1_201, plugged: false, level: 0.2, options: options))
+            XCTAssertFalse(guardState.shouldStop(uptime: 2_400, plugged: false, level: 0.1, options: options))
+            XCTAssertTrue(guardState.shouldStop(uptime: 2_401, plugged: false, level: 0.1, options: options))
+        }
+    }
+
+    func testUnknownBatteryDoesNotInventALowReadingAndUptimeResetRestartsTimer() {
+        var guardState = ScheduledBatteryGuard()
+        let options = ScheduledStartOptions()
+        for level in [-1, Double.nan, 2] {
+            XCTAssertFalse(guardState.shouldStop(uptime: 100, plugged: false, level: level, options: options))
+            XCTAssertNil(guardState.lowSince)
+        }
+        XCTAssertFalse(guardState.shouldStop(uptime: 1_000, plugged: false, level: 0.2, options: options))
+        XCTAssertFalse(guardState.shouldStop(uptime: 10, plugged: false, level: 0.2, options: options))
+        XCTAssertEqual(guardState.lowSince, 10)
+    }
+
+    func testBatteryMinimumsAreEnforcedDuringConstructionAndDecoding() throws {
+        let options = ScheduledStartOptions(batteryOnlyStop: true, batteryPercent: 1, lowBatteryMinutes: 1)
+        XCTAssertTrue(options.allowOnBattery)
+        XCTAssertEqual(options.batteryPercent, 25)
+        XCTAssertEqual(options.lowBatteryMinutes, 20)
+        let data = Data(#"{"allowOnBattery":false,"batteryOnlyStop":true,"batteryPercent":0,"lowBatteryMinutes":0}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(ScheduledStartOptions.self, from: data), options)
+    }
+
+    func testSavedV2RequestsDecodeWithoutLosingTheirOutputOrIdentity() throws {
+        let old = Data(#"{"id":"A534CB3E-F39E-4BEB-8E43-78013BC7E658","date":1000,"output":{"fallback":"notifyOnly"}}"#.utf8)
+        let request = try JSONDecoder().decode(ScheduledStartRequest.self, from: old)
+        XCTAssertEqual(request.id.uuidString, "A534CB3E-F39E-4BEB-8E43-78013BC7E658")
+        XCTAssertEqual(request.output.mode, .currentOutput)
+        XCTAssertFalse(request.requiresDeletionToCancel)
+        XCTAssertEqual(request.options, .init())
+    }
+
+    func testPersistentSpeakerRequestRetainsPowerAndCancellationPolicyWhenSaved() throws {
+        let request = ScheduledStartRequest(date: target, output: .speaker,
+            options: .init(batteryOnlyStop: true, batteryPercent: 45, lowBatteryMinutes: 40))
+        let restored = try JSONDecoder().decode(ScheduledStartRequest.self, from: JSONEncoder().encode(request))
+        XCTAssertEqual(restored, request)
+        XCTAssertTrue(restored.requiresDeletionToCancel)
+        XCTAssertTrue(restored.survivesInterruption)
+    }
+
     func testRealPrerollStartsAtSixtySecondsNotAtSelectedTime() {
         XCTAssertFalse(ScheduledStartPolicy.shouldPrepare(target: target, now: target.addingTimeInterval(-60.001)))
         XCTAssertTrue(ScheduledStartPolicy.shouldPrepare(target: target, now: target.addingTimeInterval(-60)))

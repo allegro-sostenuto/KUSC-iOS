@@ -1,6 +1,18 @@
 # Platform limits and verification status
 
-Source review updated: 20 September 2026. This document distinguishes public API limits from behavior that still requires a signed build and physical device. The local Windows environment has no Xcode runtime or attached iPhone, Bluetooth/AirPlay destination, or CarPlay head unit. CI compilation and simulator evidence, when available, are reported separately in `update_2026-09-20.md`.
+Source review updated: 4 October 2026. This document distinguishes public API limits from behavior that still requires a signed build and physical device. The local Windows environment has no Xcode runtime or attached iPhone, Bluetooth/AirPlay destination, or CarPlay head unit. CI compilation and simulator evidence, when available, are reported separately in the dated update documents.
+
+## Scheduled-start changes, 4 October 2026
+
+The new scheduling sheet offers **Always speaker** and **Selected output**. Selected output stores the actual observed UID/transport set; if it is no longer selected, the chosen fallback is either notification-only or the built-in speaker. It cannot reconnect an arbitrary remembered Bluetooth or AirPlay output. Legacy saved current-output schedules still decode with their original output policy.
+
+Always speaker uses the public `playAndRecord` category and `overrideOutputAudioPort(.speaker)` when the observed output is not the built-in speaker. KUSC creates no recording stream and reads no microphone samples. Speaker routing is applied at preparation and restored after route changes; duplicate notifications for the same output do not restart the fade. A selected-output speaker fallback is latched for that run. Apple's speaker override is temporary and can be reset by route changes or interruptions. The override applies to play-and-record sessions, including connected headsets. Actual Bluetooth, USB/wired, and AirPlay transitions still require device testing. [Apple QA1754](https://developer.apple.com/library/archive/qa/qa1754/_index.html).
+
+Speaker starts stay armed through interruptions. A call can still prevent session activation; the app waits and retries, and never treats a rejected activation as successful playback. A headphone disconnect does not consume the schedule. **Allow while unplugged** permits standby and the subsequent playback on battery. The safeguard begins only when unplugged AND below X%; it stops after Y continuous minutes in that condition. Charging, recovery to X%, or an unknown battery reading resets the measurement. X is at least 25%; Y is at least 20 minutes. Uptime, rather than the wall clock, measures the interval. The app cannot measure battery changes while terminated; relaunch begins observation again.
+
+**Ignore everything except battery** is an explicit speaker-only option. It enables battery operation, ignores Pause/Play/Live/seek as cancellation actions, ignores sleep-timer stops, and retries connection/session failures. The request remains visible after reaching normal volume. Delete Scheduled Start in the app is its explicit cancellation action; battery protection can still stop it and leave the request visible. Notification permission failure does not disarm this mode. A retained persistent request can resume when the user relaunches KUSC; it cannot execute while force-quit, terminated, or powered off. This option does not override iOS control of calls or background execution.
+
+The charging/grace, cancellation, and playback-only routing descriptions below describe the September implementation and legacy current-output path. The October behavior above supersedes them for new speaker/selected-output requests. Simulator policy tests cannot establish physical routing, audibility, or a guaranteed background wakeup.
 
 ## System media controls
 

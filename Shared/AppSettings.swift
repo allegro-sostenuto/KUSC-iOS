@@ -7,6 +7,8 @@ struct AppSettings: Codable, Equatable {
     var minimalist = false
     var appearance = "system"
     var lastSleepMinutes = 0
+    var scheduledStartDefaults: ScheduledStartOptions?
+    var scheduledOutputDefault: ScheduledOutputPreference?
 
     static func load() -> AppSettings {
         guard let data = UserDefaults.standard.data(forKey: "settings.v1"),

@@ -27,7 +27,9 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "sleep-large-text", state: "sleep", largeText: true),
             CaptureFixture(name: "settings-dark", state: "settings", dark: true),
             CaptureFixture(name: "sleep-dark", state: "sleep", dark: true),
-            CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true)
+            CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true),
+            CaptureFixture(name: "schedule-power", state: "schedule-power"),
+            CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true)
         ]
         var regularSheetTitleHeights: [String: CGFloat] = [:]
         for fixture in fixtures {
@@ -46,7 +48,7 @@ final class PlayerInteractionTests: XCTestCase {
                 if fixture.state == "sleep" {
                     XCTAssertTrue(app.buttons["timer-primary-action"].isHittable,
                                   "Sleep timer action must stay visible without scrolling.")
-                } else if ["schedule", "schedule-output"].contains(fixture.state) {
+                } else if ["schedule", "schedule-output", "schedule-power"].contains(fixture.state) {
                     XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable,
                                   "Schedule action must stay visible without scrolling.")
                 }
@@ -74,6 +76,26 @@ final class PlayerInteractionTests: XCTestCase {
                 attach(app, named: "capture-" + fixture.name, fixture: fixture)
             }
         }
+    }
+
+    @MainActor
+    func testPersistentSchedulePowerControlsKeepSafeguardAndExposeDeletionRule() {
+        let app = launchFixture("schedule-power")
+        defer { app.terminate() }
+        let persistent = app.switches["scheduled-battery-only"]
+        XCTAssertEqual(persistent.value as? String, "1")
+        XCTAssertEqual(app.switches["scheduled-allow-battery"].value as? String, "1")
+        XCTAssertFalse(app.switches["scheduled-allow-battery"].isEnabled)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "delete this scheduled start")).firstMatch.exists)
+        let threshold = app.steppers["scheduled-battery-threshold"]
+        for _ in 0..<3 {
+            if threshold.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(threshold.isHittable)
+        XCTAssertTrue(app.staticTexts["Battery below 25%"].exists)
+        XCTAssertTrue(app.staticTexts["For 20 minutes"].exists)
+        XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable)
     }
 
     @MainActor
@@ -207,6 +229,7 @@ final class PlayerInteractionTests: XCTestCase {
         case "sleep": marker = app.staticTexts["Sleep Timer"]
         case "schedule": marker = app.staticTexts["Start once"]
         case "schedule-output": marker = app.staticTexts["Audio Output"]
+        case "schedule-power": marker = app.switches["scheduled-battery-only"]
         case "output", "unavailable-output": marker = app.staticTexts["Audio Output"]
         case "paused": marker = app.buttons["Keep counting"]
         case "programme": marker = app.staticTexts["Programme layout fixture"]

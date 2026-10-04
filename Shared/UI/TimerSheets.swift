@@ -77,16 +77,24 @@ struct ScheduledStartView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var createdAt = Date()
     @State private var selectedDate = Date().addingTimeInterval(300)
-    @State private var prefersSpecificOutput = false
+    @State private var outputMode: ScheduledOutputMode = .speaker
     @State private var preferredRoute: ObservedAudioRoute?
     @State private var fallback: ScheduleFallback = .notifyOnly
     @State private var isScheduling = false
     @State private var failure: String?
+    @State private var allowOnBattery = false
+    @State private var batteryOnlyStop = false
+    @State private var batteryPercent = 25
+    @State private var lowBatteryMinutes = 20
 
     private var outputPreference: ScheduledOutputPreference {
-        prefersSpecificOutput
-            ? ScheduledOutputPreference(route: preferredRoute, fallback: fallback)
-            : .currentOutput
+        outputMode == .speaker ? .speaker
+            : ScheduledOutputPreference(route: preferredRoute, fallback: fallback, mode: .selected)
+    }
+
+    private var options: ScheduledStartOptions {
+        .init(allowOnBattery: allowOnBattery, batteryOnlyStop: outputMode == .speaker && batteryOnlyStop,
+              batteryPercent: batteryPercent, lowBatteryMinutes: lowBatteryMinutes)
     }
 
     var body: some View {
@@ -117,9 +125,13 @@ struct ScheduledStartView: View {
                 .disabled(isScheduling)
                 .id("scheduled-output")
 
+            powerControls
+                .disabled(isScheduling)
+                .id("scheduled-power")
+
             TimerStatusCard(
                 title: "Automatic start & notification",
-                message: "Automatic start is best effort while charging, with a brief grace period after unplugging. Otherwise, tap the notification to start. A backup notification remains scheduled.",
+                message: "Keep KUSC running for automatic playback. iOS can delay audio during calls or suspend the app; force-quitting or restarting the phone prevents a guaranteed start. A backup reminder is scheduled when notifications are enabled.",
                 symbol: "bell"
             )
 
@@ -128,19 +140,20 @@ struct ScheduledStartView: View {
             }
 
             if model.scheduleDescription != nil {
-                Button("Cancel Scheduled Start", role: .destructive) {
+                Button("Delete Scheduled Start", role: .destructive) {
                     model.cancelSchedule()
                     dismiss()
                 }
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .disabled(isScheduling)
+                .accessibilityIdentifier("delete-scheduled-start")
             }
         } footer: {
             Button {
                 isScheduling = true
                 Task { @MainActor in
                     do {
-                        try await model.scheduleStart(at: selectedDate, output: outputPreference)
+                        try await model.scheduleStart(at: selectedDate, output: outputPreference, options: options)
                         dismiss()
                     } catch {
                         failure = error.localizedDescription
@@ -156,20 +169,24 @@ struct ScheduledStartView: View {
             }
             .buttonStyle(KUSCPrimaryButtonStyle())
             .accessibilityIdentifier("schedule-primary-action")
-            .disabled(isScheduling || (prefersSpecificOutput && preferredRoute == nil))
+            .disabled(isScheduling || (outputMode == .selected && preferredRoute == nil))
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear {
             model.refreshCurrentOutput()
-            if let route = model.scheduledOutput.route {
-                prefersSpecificOutput = true
-                preferredRoute = route
-                fallback = model.scheduledOutput.fallback
-            }
+            let saved = model.scheduledOutput
+            outputMode = saved.mode == .speaker ? .speaker : .selected
+            preferredRoute = saved.route
+            fallback = saved.fallback == .currentOutput ? .speaker : saved.fallback
+            let savedOptions = model.scheduledOptions
+            allowOnBattery = savedOptions.allowOnBattery
+            batteryOnlyStop = savedOptions.batteryOnlyStop
+            batteryPercent = savedOptions.batteryPercent
+            lowBatteryMinutes = savedOptions.lowBatteryMinutes
             #if DEBUG
             if UIFixture.state == "schedule-output", model.currentOutputRoute.isIdentifiable {
-                prefersSpecificOutput = true
+                outputMode = .selected
                 preferredRoute = model.currentOutputRoute
             }
             #endif
@@ -188,12 +205,14 @@ struct ScheduledStartView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Audio Output")
                 .font(.headline)
-            Picker("Output policy", selection: $prefersSpecificOutput) {
-                Text("Current output").tag(false)
-                Text("Selected output").tag(true)
+            Picker("Output policy", selection: $outputMode) {
+                Text("Always speaker").tag(ScheduledOutputMode.speaker)
+                Text("Selected output").tag(ScheduledOutputMode.selected)
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("scheduled-output-mode")
 
+            if outputMode == .selected {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Currently selected")
@@ -215,7 +234,6 @@ struct ScheduledStartView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if prefersSpecificOutput {
                 Button {
                     // Read the real route at confirmation; opening or dismissing
                     // Apple's picker is not proof that an output changed.
@@ -240,28 +258,28 @@ struct ScheduledStartView: View {
                 } else {
                     Text(model.currentOutputRoute.isIdentifiable
                          ? "Confirm the actual selected output above before scheduling."
-                         : "This output cannot be identified reliably. Choose another output or use Current output.")
+                         : "This output cannot be identified reliably. Choose another output or Always speaker.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Picker("If the output is unavailable", selection: $fallback) {
                     Text("Notify only").tag(ScheduleFallback.notifyOnly)
-                    Text("Use current output").tag(ScheduleFallback.currentOutput)
+                    Text("Use iPhone speaker").tag(ScheduleFallback.speaker)
                 }
                 .pickerStyle(.menu)
                 .frame(minHeight: 44)
 
                 Text(fallback == .notifyOnly
                      ? "If the planned output is unavailable or no longer selected, scheduled audio stays silent and a notification remains."
-                     : "If the planned output is unavailable or no longer selected, playback may use the current output, including the iPhone speaker.")
+                     : "If the planned output is unavailable or no longer selected, playback switches to the iPhone speaker.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Keep the planned output available and selected. KUSC cannot reconnect Bluetooth or choose an AirPlay destination automatically.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("At start time, use whichever output the system has selected, including the iPhone speaker.")
+                Text("Starts on the iPhone speaker even with headphones connected. Disconnecting an output does not cancel this start. Temporary audio interruptions keep it armed until iOS permits playback.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -272,6 +290,40 @@ struct ScheduledStartView: View {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
         }
+    }
+
+    private var powerControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Power & interruptions").font(.headline)
+            if outputMode == .speaker {
+                Toggle("Ignore everything except battery", isOn: $batteryOnlyStop)
+                    .accessibilityIdentifier("scheduled-battery-only")
+                    .onChange(of: batteryOnlyStop) { enabled in
+                        if enabled { allowOnBattery = true }
+                    }
+                if batteryOnlyStop {
+                    Text("Stays armed and keeps retrying through unplugging, output changes, interruptions, and connection failures. Pause and sleep timers do not stop it. To stop it yourself, delete this scheduled start in KUSC.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle("Allow while unplugged", isOn: $allowOnBattery)
+                .disabled(outputMode == .speaker && batteryOnlyStop)
+                .accessibilityIdentifier("scheduled-allow-battery")
+            if options.allowOnBattery {
+                Stepper("Battery below \(batteryPercent)%", value: $batteryPercent, in: 25...100)
+                    .accessibilityIdentifier("scheduled-battery-threshold")
+                Stepper("For \(lowBatteryMinutes) minutes", value: $lowBatteryMinutes, in: 20...1_440, step: 5)
+                    .accessibilityIdentifier("scheduled-battery-duration")
+                Text("Stops only after the battery stays below \(batteryPercent)% while unplugged for \(lowBatteryMinutes) continuous minutes. Plugging in or reaching \(batteryPercent)% resets the countdown. This protection continues after playback starts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Automatic standby and playback require a charger. Unplugging leaves the backup notification available.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
     }
 }
 
@@ -315,6 +367,10 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
                     if UIFixture.state == "schedule-output" {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                             proxy.scrollTo("scheduled-output", anchor: .top)
+                        }
+                    } else if UIFixture.state == "schedule-power" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            proxy.scrollTo("scheduled-power", anchor: .top)
                         }
                     }
                 }

@@ -15,6 +15,7 @@ CAPTURES = {
     "partial-buffer", "paused-buffer", "scheduled-silent", "scheduled-fade", "unavailable-output",
     "landscape", "minimal-landscape", "large-text", "programme-large-text", "schedule-large-text", "sleep-large-text",
     "settings-dark", "sleep-dark", "schedule-output-dark", "more", "diagnostics-recording",
+    "schedule-power", "schedule-power-dark",
 }
 
 

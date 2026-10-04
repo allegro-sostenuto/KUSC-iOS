@@ -26,6 +26,7 @@ import UIKit
         model.settings.minimalist = state == "minimal" ||
             ProcessInfo.processInfo.environment["KUSC_UI_MINIMAL"] == "1"
         model.settings.lastSleepMinutes = 30
+        if state == "schedule-power" { model.settings.scheduledStartDefaults = .init(batteryOnlyStop: true) }
         let anchor = ISO8601DateFormatter().date(from: "2026-09-20T09:41:00Z")!
         model.heardAt = anchor
         model.state = paused ? .pausedLive : .playingLive
