@@ -710,9 +710,9 @@ import UIKit
             // Some route/suspension interruptions have no matching .ended event.
             // A successful public session activation is the permission to resume;
             // calls that still own audio reject it, leaving the request armed.
-            guard dueForPreparation, scheduleUptime >= scheduleRetryUptime else { return }
+            guard scheduleUptime >= scheduleRetryUptime else { return }
             scheduleRetryUptime = scheduleUptime + 5
-            do { try activateSession(forceSpeaker: true) }
+            do { try activateSession(forceSpeaker: dueForPreparation) }
             catch { return }
             interruptionActive = false; wasPlayingBeforeInterruption = false
             scheduleRetryUptime = 0

@@ -86,6 +86,20 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
     }
 
+    @MainActor func testSilentStandbyRecoversBeforePreparationWithoutEndedEvent() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 3_600, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.interruptScheduledAudioForTesting()
+        model.advanceScheduleForTesting(seconds: 5, activationFails: true)
+        XCTAssertFalse(model.scheduleStateForTesting.standby)
+        model.advanceScheduleForTesting(seconds: 5, activationFails: false)
+        XCTAssertTrue(model.scheduleStateForTesting.standby)
+        XCTAssertFalse(model.scheduleStateForTesting.owned)
+        XCTAssertFalse(model.scheduleStateForTesting.notificationOnly)
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+    }
+
     @MainActor func testBatterySafeguardContinuesAfterScheduledFadeCompletes() {
         let model = AppModel.shared
         model.configureScheduleForTesting(options: .init(batteryOnlyStop: true), secondsUntilStart: 10,
