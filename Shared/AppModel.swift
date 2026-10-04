@@ -500,9 +500,9 @@ import UIKit
         scheduleTestStandby = false
     }
     var scheduleStateForTesting: (exists: Bool, owned: Bool, standby: Bool, notificationOnly: Bool,
-                                   lowSince: TimeInterval?, fullGain: Bool) {
+                                   lowSince: TimeInterval?, fullGain: Bool, speakerSession: Bool) {
         (scheduleRequest != nil, scheduleOwnsPlayback, standbyIsRunning, notificationOnly,
-         scheduledBattery.lowSince, scheduleReachedFullGain)
+         scheduledBattery.lowSince, scheduleReachedFullGain, speakerSessionActive)
     }
     #endif
 
@@ -886,13 +886,14 @@ import UIKit
         guard let request = scheduleRequest else { return }
         recordScheduleDiagnostic("fallback \(message)")
         scheduleGain = 0; applyGain()
-        let owned = scheduleOwnsPlayback
+        let owned = scheduleOwnsPlayback || request.requiresDeletionToCancel
         scheduleOwnsPlayback = false; scheduleEnvelope = nil; scheduleUserInitiated = false
         notificationOnly = true; stopStandby(); setSchedulePhase(.notificationOnly)
         persistSchedule()
         if owned { stopEverything(reason: .idle) }
         else if state == .scheduledStandby { state = .idle }
         scheduleGain = 1; applyGain()
+        releaseScheduledSessionIfIdle()
         notice = message
         scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · tap notification to play · \(request.output.summary)"
         if !isScheduleTesting { NotificationCoordinator.shared.replaceFallback(request, body: message) }
@@ -902,7 +903,7 @@ import UIKit
         if scheduleRequest != nil { recordScheduleDiagnostic("clear stopOwned=\(stopOwnedPlayback)") }
         scheduleGeneration.invalidate()
         pendingProtectedSchedule = false
-        let owned = scheduleOwnsPlayback
+        let owned = scheduleOwnsPlayback || (scheduleRequest?.requiresDeletionToCancel == true && wantsPlayback)
         if owned && stopOwnedPlayback {
             scheduleGain = 0; applyGain()
             stopEverything(reason: .idle)
@@ -917,17 +918,18 @@ import UIKit
         persistSchedule()
         scheduleGain = 1; applyGain()
         if state == .scheduledStandby { state = .idle }
-        if speakerSessionActive {
-            // Restore ordinary playback routing only after this request relinquishes audio.
-            speakerSessionActive = false
-            if wantsPlayback { try? activateSession(forceSpeaker: false) }
-            else if !isScheduleTesting {
-                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
-            }
+        if speakerSessionActive && wantsPlayback { try? activateSession(forceSpeaker: false) }
+        releaseScheduledSessionIfIdle()
+    }
+
+    private func releaseScheduledSessionIfIdle() {
+        guard !wantsPlayback else { return }
+        if !isScheduleTesting {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            if speakerSessionActive { try? session.setCategory(.playback, mode: .default, policy: .longFormAudio) }
         }
-        if !wantsPlayback && !isScheduleTesting {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
+        speakerSessionActive = false
     }
 
     private func persistSchedule() {

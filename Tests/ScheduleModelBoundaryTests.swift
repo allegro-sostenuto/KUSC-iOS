@@ -117,6 +117,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertFalse(model.isPlaying)
         XCTAssertTrue(model.scheduleStateForTesting.notificationOnly)
         XCTAssertTrue(model.scheduleStateForTesting.exists, "Battery stop must leave the request visible for deletion")
+        XCTAssertFalse(model.scheduleStateForTesting.speakerSession)
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
     }
 
