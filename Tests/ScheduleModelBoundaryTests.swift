@@ -329,6 +329,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
     @MainActor func testCancelingSleepCannotUnmuteTheRealScheduledGainBoundary() {
         let model = AppModel.shared
         model.configureScheduledGainBoundaryTest(schedule: 0, sleep: 0.4)
+        defer { model.finishScheduleForTesting() }
         model.cancelSleep()
         let result = model.scheduledGainBoundaryState
         XCTAssertTrue(result.wantsPlayback)
@@ -342,6 +343,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
     @MainActor func testPausingSleepCannotRestoreFullGainDuringPreroll() {
         let model = AppModel.shared
         model.configureScheduledGainBoundaryTest(schedule: 0, sleep: 0.25)
+        defer { model.finishScheduleForTesting() }
         model.choosePausedTimer(.pauseTimer)
         let result = model.scheduledGainBoundaryState
         XCTAssertTrue(result.ownsPlayback)
@@ -353,6 +355,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
     @MainActor func testScheduleCancelMutesBeforeResettingItsEnvelope() {
         let model = AppModel.shared
         model.configureScheduledGainBoundaryTest(schedule: 0.5, sleep: 0.4)
+        defer { model.finishScheduleForTesting() }
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.2, accuracy: 0.0001)
         let setupSamples = model.scheduledGainBoundaryState.trace.count
         model.cancelSchedule()
@@ -369,6 +372,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
     @MainActor func testLateGainCallbackCannotResumeAfterManualPause() {
         let model = AppModel.shared
         model.configureScheduledGainBoundaryTest(schedule: 0, sleep: 1)
+        defer { model.finishScheduleForTesting() }
         model.pauseRemote()
         model.runScheduledGainCallbackForTest()
         let result = model.scheduledGainBoundaryState

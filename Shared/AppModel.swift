@@ -375,10 +375,12 @@ import UIKit
     /// starting an AVPlayer, changing the audio session, or contacting the station.
     func configureScheduledGainBoundaryTest(schedule: Float, sleep: Float) {
         precondition(isUIFixture, "Boundary tests require the isolated UI fixture launch environment")
-        cancelSchedule(); cancelSleep()
+        finishScheduleForTesting()
         ticker?.invalidate(); ticker = nil
         gainTimer?.invalidate(); gainTimer = nil
-        scheduleRequest = ScheduledStartRequest(date: Date().addingTimeInterval(60))
+        scheduleTestEnvironment = .init(now: Date(), uptime: ProcessInfo.processInfo.systemUptime,
+            plugged: true, level: 1, route: .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")]))
+        scheduleRequest = ScheduledStartRequest(date: scheduleNow.addingTimeInterval(60))
         scheduleOwnsPlayback = true
         scheduleEnvelope = nil
         wantsPlayback = true
