@@ -87,14 +87,14 @@ final class PlayerInteractionTests: XCTestCase {
         XCTAssertEqual(app.switches["scheduled-allow-battery"].value as? String, "1")
         XCTAssertFalse(app.switches["scheduled-allow-battery"].isEnabled)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "delete this scheduled start")).firstMatch.exists)
-        let threshold = app.steppers["scheduled-battery-threshold"]
+        let threshold = app.descendants(matching: .any).matching(identifier: "scheduled-battery-threshold").firstMatch
         for _ in 0..<3 {
             if threshold.isHittable { break }
             app.swipeUp()
         }
         XCTAssertTrue(threshold.isHittable)
         XCTAssertEqual(threshold.value as? String, "25 percent")
-        XCTAssertEqual(app.steppers["scheduled-battery-duration"].value as? String, "20 minutes")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "scheduled-battery-duration").firstMatch.value as? String, "20 minutes")
         XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable)
     }
 

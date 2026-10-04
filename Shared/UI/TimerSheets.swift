@@ -310,13 +310,11 @@ struct ScheduledStartView: View {
                 .disabled(outputMode == .speaker && batteryOnlyStop)
                 .accessibilityIdentifier("scheduled-allow-battery")
             if options.allowOnBattery {
-                Stepper("Battery below \(batteryPercent)%", value: $batteryPercent, in: 25...100)
-                    .accessibilityLabel("Battery threshold")
-                    .accessibilityValue("\(batteryPercent) percent")
+                ScheduledValueControl(title: "Battery below \(batteryPercent)%", spokenLabel: "Battery threshold",
+                                      value: $batteryPercent, range: 25...100, step: 1, unit: "percent")
                     .accessibilityIdentifier("scheduled-battery-threshold")
-                Stepper("For \(lowBatteryMinutes) minutes", value: $lowBatteryMinutes, in: 20...1_440, step: 5)
-                    .accessibilityLabel("Time below threshold while unplugged")
-                    .accessibilityValue("\(lowBatteryMinutes) minutes")
+                ScheduledValueControl(title: "For \(lowBatteryMinutes) minutes", spokenLabel: "Time below threshold while unplugged",
+                                      value: $lowBatteryMinutes, range: 20...1_440, step: 5, unit: "minutes")
                     .accessibilityIdentifier("scheduled-battery-duration")
                 Text("Stops only after the battery stays below \(batteryPercent)% while unplugged for \(lowBatteryMinutes) continuous minutes. Plugging in or reaching \(batteryPercent)% resets the countdown. This protection continues after playback starts.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -329,6 +327,50 @@ struct ScheduledStartView: View {
         .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 18))
         .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
     }
+}
+
+/// An adjustable control whose surface follows the same pure-black palette as
+/// the other controls. Native Stepper draws an opaque gray pill in dark mode.
+private struct ScheduledValueControl: View {
+    let title: String
+    let spokenLabel: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let unit: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Button { adjust(-step) } label: {
+                    Image(systemName: "minus").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(value <= range.lowerBound)
+                Rectangle().fill(Color.kuscSeparator).frame(width: 0.75, height: 24)
+                Button { adjust(step) } label: {
+                    Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(value >= range.upperBound)
+            }
+            .buttonStyle(.plain)
+            .background(Color.kuscSurface, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenLabel)
+        .accessibilityValue("\(value) \(unit)")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: adjust(step)
+            case .decrement: adjust(-step)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func adjust(_ amount: Int) { value = min(range.upperBound, max(range.lowerBound, value + amount)) }
 }
 
 private struct TimerSheetLayout<Content: View, Footer: View>: View {
