@@ -94,7 +94,20 @@ final class PlayerInteractionTests: XCTestCase {
         }
         XCTAssertTrue(threshold.isHittable)
         XCTAssertEqual(threshold.value as? String, "25 percent")
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "scheduled-battery-duration").firstMatch.value as? String, "20 minutes")
+        let duration = app.descendants(matching: .any).matching(identifier: "scheduled-battery-duration").firstMatch
+        for _ in 0..<3 {
+            if duration.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(duration.isHittable)
+        XCTAssertEqual(duration.value as? String, "20 minutes")
+        let right = duration.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+        right.withOffset(CGVector(dx: -22, dy: 0)).tap()
+        XCTAssertEqual(duration.value as? String, "20 minutes", "The cutoff delay cannot exceed 20 minutes")
+        right.withOffset(CGVector(dx: -66, dy: 0)).tap()
+        XCTAssertEqual(duration.value as? String, "19 minutes", "Shorter delays must be selectable")
+        right.withOffset(CGVector(dx: -22, dy: 0)).tap()
+        XCTAssertEqual(duration.value as? String, "20 minutes")
         XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable)
     }
 

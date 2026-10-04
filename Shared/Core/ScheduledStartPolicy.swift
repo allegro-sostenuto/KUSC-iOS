@@ -79,7 +79,7 @@ public struct ScheduledStartOptions: Codable, Equatable {
         self.allowOnBattery = allowOnBattery || batteryOnlyStop
         self.batteryOnlyStop = batteryOnlyStop
         self.batteryPercent = min(100, max(25, batteryPercent))
-        self.lowBatteryMinutes = min(1_440, max(20, lowBatteryMinutes))
+        self.lowBatteryMinutes = min(20, max(1, lowBatteryMinutes))
     }
     private enum CodingKeys: String, CodingKey { case allowOnBattery, batteryOnlyStop, batteryPercent, lowBatteryMinutes }
     public init(from decoder: Decoder) throws {
@@ -131,7 +131,7 @@ public struct ScheduledStartRequest: Codable, Equatable {
 }
 
 public enum ScheduledStartPhase: String, Equatable {
-    case waiting, standby, preparing, silent, fading, playing, notificationOnly
+    case waiting, standby, preparing, silent, fading, playing, paused, notificationOnly
 }
 
 /// Wall time records the user's intent. Once audio becomes ready, uptime drives the

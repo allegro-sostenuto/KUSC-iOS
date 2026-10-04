@@ -65,13 +65,27 @@ final class ScheduleRegressionTests: XCTestCase {
         XCTAssertEqual(guardState.lowSince, 10)
     }
 
-    func testBatteryMinimumsAreEnforcedDuringConstructionAndDecoding() throws {
+    func testBatteryLimitsAreEnforcedDuringConstructionAndDecoding() throws {
         let options = ScheduledStartOptions(batteryOnlyStop: true, batteryPercent: 1, lowBatteryMinutes: 1)
         XCTAssertTrue(options.allowOnBattery)
         XCTAssertEqual(options.batteryPercent, 25)
-        XCTAssertEqual(options.lowBatteryMinutes, 20)
+        XCTAssertEqual(options.lowBatteryMinutes, 1)
         let data = Data(#"{"allowOnBattery":false,"batteryOnlyStop":true,"batteryPercent":0,"lowBatteryMinutes":0}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(ScheduledStartOptions.self, from: data), options)
+        let old = Data(#"{"allowOnBattery":true,"batteryPercent":45,"lowBatteryMinutes":1440}"#.utf8)
+        let restored = try JSONDecoder().decode(ScheduledStartOptions.self, from: old)
+        XCTAssertEqual(restored.lowBatteryMinutes, 20)
+        XCTAssertEqual(restored.batteryPercent, 45)
+        XCTAssertEqual(ScheduledStartOptions(lowBatteryMinutes: 21).lowBatteryMinutes, 20)
+        XCTAssertEqual(ScheduledStartOptions(lowBatteryMinutes: 7).lowBatteryMinutes, 7)
+    }
+
+    func testOneMinuteBatteryDelayStopsAtSixtySecondsOfContinuousLowBattery() {
+        var guardState = ScheduledBatteryGuard()
+        let options = ScheduledStartOptions(allowOnBattery: true, lowBatteryMinutes: 1)
+        XCTAssertFalse(guardState.shouldStop(uptime: 100, plugged: false, level: 0.2, options: options))
+        XCTAssertFalse(guardState.shouldStop(uptime: 159.999, plugged: false, level: 0.2, options: options))
+        XCTAssertTrue(guardState.shouldStop(uptime: 160, plugged: false, level: 0.2, options: options))
     }
 
     func testSavedV2RequestsDecodeWithoutLosingTheirOutputOrIdentity() throws {
@@ -85,7 +99,7 @@ final class ScheduleRegressionTests: XCTestCase {
 
     func testPersistentSpeakerRequestRetainsPowerAndCancellationPolicyWhenSaved() throws {
         let request = ScheduledStartRequest(date: target, output: .speaker,
-            options: .init(batteryOnlyStop: true, batteryPercent: 45, lowBatteryMinutes: 40))
+            options: .init(batteryOnlyStop: true, batteryPercent: 45, lowBatteryMinutes: 10))
         let restored = try JSONDecoder().decode(ScheduledStartRequest.self, from: JSONEncoder().encode(request))
         XCTAssertEqual(restored, request)
         XCTAssertTrue(restored.requiresDeletionToCancel)

@@ -302,7 +302,7 @@ struct ScheduledStartView: View {
                         if enabled { allowOnBattery = true }
                     }
                 if batteryOnlyStop {
-                    Text("Stays armed and keeps retrying through unplugging, output changes, interruptions, and connection failures. Pause and sleep timers do not stop it. To stop it yourself, delete this scheduled start in KUSC.")
+                    Text("Stays armed through unplugging, output changes, interruptions, and connection failures. Pause silences the current audio without deleting the start. A future start still runs at its set time; afterward, Pause waits for Play. Sleep timers do not cancel it. To cancel it yourself, delete this scheduled start in KUSC.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -314,7 +314,7 @@ struct ScheduledStartView: View {
                                       value: $batteryPercent, range: 25...100, step: 1, unit: "percent")
                     .accessibilityIdentifier("scheduled-battery-threshold")
                 ScheduledValueControl(title: "For \(lowBatteryMinutes) minutes", spokenLabel: "Time below threshold while unplugged",
-                                      value: $lowBatteryMinutes, range: 20...1_440, step: 5, unit: "minutes")
+                                      value: $lowBatteryMinutes, range: 1...20, step: 1, unit: "minutes")
                     .accessibilityIdentifier("scheduled-battery-duration")
                 Text("Stops only after the battery stays below \(batteryPercent)% while unplugged for \(lowBatteryMinutes) continuous minutes. Plugging in or reaching \(batteryPercent)% resets the countdown. This protection continues after playback starts.")
                     .font(.caption).foregroundStyle(.secondary)
