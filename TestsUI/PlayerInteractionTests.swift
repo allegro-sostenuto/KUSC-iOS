@@ -93,8 +93,8 @@ final class PlayerInteractionTests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(threshold.isHittable)
-        XCTAssertTrue(app.staticTexts["Battery below 25%"].exists)
-        XCTAssertTrue(app.staticTexts["For 20 minutes"].exists)
+        XCTAssertEqual(threshold.value as? String, "25 percent")
+        XCTAssertEqual(app.steppers["scheduled-battery-duration"].value as? String, "20 minutes")
         XCTAssertTrue(app.buttons["schedule-primary-action"].isHittable)
     }
 

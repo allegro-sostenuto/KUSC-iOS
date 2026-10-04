@@ -311,8 +311,12 @@ struct ScheduledStartView: View {
                 .accessibilityIdentifier("scheduled-allow-battery")
             if options.allowOnBattery {
                 Stepper("Battery below \(batteryPercent)%", value: $batteryPercent, in: 25...100)
+                    .accessibilityLabel("Battery threshold")
+                    .accessibilityValue("\(batteryPercent) percent")
                     .accessibilityIdentifier("scheduled-battery-threshold")
                 Stepper("For \(lowBatteryMinutes) minutes", value: $lowBatteryMinutes, in: 20...1_440, step: 5)
+                    .accessibilityLabel("Time below threshold while unplugged")
+                    .accessibilityValue("\(lowBatteryMinutes) minutes")
                     .accessibilityIdentifier("scheduled-battery-duration")
                 Text("Stops only after the battery stays below \(batteryPercent)% while unplugged for \(lowBatteryMinutes) continuous minutes. Plugging in or reaching \(batteryPercent)% resets the countdown. This protection continues after playback starts.")
                     .font(.caption).foregroundStyle(.secondary)
