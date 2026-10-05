@@ -51,7 +51,7 @@ struct ContentView: View {
         .foregroundStyle(Color.kuscInk)
         .tint(.kuscRed)
         .preferredColorScheme(colorScheme)
-        .sheet(item: $sheet) { selected in
+        .sheet(item: $sheet, onDismiss: { model.clearScheduleManagementRequest() }) { selected in
             Group {
                 switch selected {
                 case .settings: SettingsView()
@@ -75,6 +75,12 @@ struct ContentView: View {
         }
         .onChange(of: model.settings.minimalist) { enabled in
             if enabled { showingProgramme = false }
+        }
+        .onChange(of: model.scheduleManagementRequest) { request in
+            if request != nil { choosingPauseBehavior = false; sheet = .schedule }
+        }
+        .onAppear {
+            if model.scheduleManagementRequest != nil { sheet = .schedule }
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { model.onForeground() }

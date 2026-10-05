@@ -98,25 +98,25 @@ struct ScheduledStartView: View {
     }
 
     var body: some View {
-        TimerSheetLayout(title: "Scheduled Start") {
+        TimerSheetLayout(title: "Scheduled Start", scrollTarget: "scheduled-delete", scrollRequest: model.scheduleManagementRequest) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Start once")
                     .font(.headline)
                 Text("Within the next 24 hours")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                DatePicker("Reach normal volume at", selection: $selectedDate,
+                DatePicker("Start playback at", selection: $selectedDate,
                            in: createdAt...createdAt.addingTimeInterval(24 * 60 * 60),
                            displayedComponents: [.date, .hourAndMinute])
                     .datePickerStyle(.wheel)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                     .clipped()
-                    .accessibilityLabel("Reach normal volume at")
+                    .accessibilityLabel("Start playback at")
                     .disabled(isScheduling)
             }
 
-            Text("Starts silently 1 minute early. Fades in during the last 10 seconds to reach normal volume at the selected time.")
+            Text("Prepares silently 1 minute early while other apps can keep playing. At the selected time, KUSC takes over audio and fades in over 10 seconds.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -131,7 +131,7 @@ struct ScheduledStartView: View {
 
             TimerStatusCard(
                 title: "Automatic start & notification",
-                message: "Keep KUSC running for automatic playback. iOS can delay audio during calls or suspend the app; force-quitting or restarting the phone prevents a guaranteed start. A backup reminder is scheduled when notifications are enabled.",
+                message: "A reminder arrives 2 minutes before the start; tap it to open Delete Scheduled Start. Starts less than 2 minutes away get the reminder immediately. Keep KUSC running for automatic playback. iOS can delay audio during calls or suspend the app; a backup notification remains available.",
                 symbol: "bell"
             )
 
@@ -147,6 +147,7 @@ struct ScheduledStartView: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .disabled(isScheduling)
                 .accessibilityIdentifier("delete-scheduled-start")
+                .id("scheduled-delete")
             }
         } footer: {
             Button {
@@ -378,9 +379,14 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
     let title: String
     let content: Content
     let footer: Footer
+    let scrollTarget: String?
+    let scrollRequest: UUID?
 
-    init(title: String, @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
+    init(title: String, scrollTarget: String? = nil, scrollRequest: UUID? = nil,
+         @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
         self.title = title
+        self.scrollTarget = scrollTarget
+        self.scrollRequest = scrollRequest
         self.content = content()
         self.footer = footer()
     }
@@ -407,6 +413,14 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 4)
                     .padding(.bottom, 24)
+                }
+                .task(id: scrollRequest) {
+                    guard scrollRequest != nil, let scrollTarget else { return }
+                    // Saved options expand the power card as the sheet opens.
+                    // Scroll after that presentation layout has settled.
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo(scrollTarget, anchor: .bottom)
                 }
                 #if DEBUG
                 .onAppear {

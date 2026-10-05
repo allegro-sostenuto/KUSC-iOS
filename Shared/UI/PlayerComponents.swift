@@ -194,16 +194,8 @@ struct PlayerControls: View {
     }
 
     private var moreButton: some View {
-        Menu {
-            Button(action: showSleep) { Label("Sleep Timer", systemImage: "moon") }
-            Button(action: showSchedule) { Label("Scheduled Start", systemImage: "alarm") }
-            Button(action: showOutput) { Label("Audio Output", systemImage: "airplayaudio") }
-        } label: {
-            Image(systemName: "ellipsis").font(.system(size: 20, weight: .medium))
-                .foregroundStyle(Color.kuscInk)
-                .frame(width: auxiliarySize, height: auxiliarySize).kuscControlSurface(Circle())
-        }
-        .accessibilityLabel("More controls")
+        StablePlayerMenu(diameter: auxiliarySize, showSleep: showSleep, showSchedule: showSchedule, showOutput: showOutput)
+            .frame(width: auxiliarySize, height: auxiliarySize)
     }
 
     private var playbackStatus: some View {
@@ -218,6 +210,51 @@ struct PlayerControls: View {
                     .tint(.kuscRed).accessibilityLabel("Reconnection time used")
             }
         }
+    }
+}
+
+/// Playback publishes frequently. Keep UIKit's presented menu and action colors
+/// stable instead of replacing a SwiftUI Menu while it is on screen.
+private struct StablePlayerMenu: UIViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+    let diameter: CGFloat
+    let showSleep: () -> Void
+    let showSchedule: () -> Void
+    let showOutput: () -> Void
+
+    final class Coordinator {
+        var actions: StablePlayerMenu
+        var appearance: ColorScheme?
+        init(_ actions: StablePlayerMenu) { self.actions = actions }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis", withConfiguration:
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)), for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = "More controls"
+        button.tintAdjustmentMode = .normal
+        let coordinator = context.coordinator
+        button.menu = UIMenu(children: [
+            UIAction(title: "Sleep Timer", image: UIImage(systemName: "moon")) { _ in coordinator.actions.showSleep() },
+            UIAction(title: "Scheduled Start", image: UIImage(systemName: "alarm")) { _ in coordinator.actions.showSchedule() },
+            UIAction(title: "Audio Output", image: UIImage(systemName: "airplayaudio")) { _ in coordinator.actions.showOutput() }
+        ])
+        button.layer.borderWidth = 0.75
+        button.layer.cornerRadius = 24
+        return button
+    }
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.actions = self
+        button.layer.cornerRadius = diameter / 2
+        guard context.coordinator.appearance != colorScheme else { return }
+        context.coordinator.appearance = colorScheme
+        let dark = colorScheme == .dark
+        button.overrideUserInterfaceStyle = dark ? .dark : .light
+        button.tintColor = dark ? UIColor(white: 0.95, alpha: 1) : UIColor(white: 0.09, alpha: 1)
+        button.backgroundColor = dark ? .black : .white
+        button.layer.borderColor = (dark ? UIColor.white.withAlphaComponent(0.28) : UIColor.black.withAlphaComponent(0.12)).cgColor
     }
 }
 

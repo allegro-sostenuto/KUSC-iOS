@@ -19,6 +19,7 @@ import UIKit
     @Published var notice: String?
     @Published var settings = AppSettings.load()
     @Published private(set) var schedulePhase: ScheduledStartPhase?
+    @Published private(set) var scheduleManagementRequest: UUID?
     @Published private(set) var currentOutputRoute = ObservedAudioRoute(ports: [])
     @Published private(set) var acquisitionIsStale = false
     @Published private(set) var bufferFailureMessage: String?
@@ -70,6 +71,11 @@ import UIKit
     private var pausedAt: Date?
     private var wasPlayingBeforeInterruption = false
     private var interruptionActive = false
+    private var interruptionRetryStarted: TimeInterval?
+    private var interruptionRetryAt: TimeInterval = 0
+    private var explicitPlayPending = false
+    private var manualPlaybackOverridesSchedule = false
+    private var manualPlaybackPrecedesStart = false
     private var reconnectStarted: Date?
     private var nextRetry = Date.distantPast
     private var lastMetadataFetch = Date.distantPast
@@ -96,6 +102,8 @@ import UIKit
     private var scheduleRetryUptime: TimeInterval = 0
     private var scheduledBattery = ScheduledBatteryGuard()
     private var speakerSessionActive = false
+    private var sessionMixesWithOthers = false
+    private var scheduledHasAudioFocus = false
     private var pendingProtectedSchedule = false
     private var gainTimer: Timer?
     private var scheduleBoundaryTimer: Timer?
@@ -113,9 +121,11 @@ import UIKit
         var level: Double
         var route: ObservedAudioRoute
         var activationFails = false
+        var otherAudioPlaying = false
     }
     private var scheduleTestEnvironment: ScheduleTestEnvironment?
     private var scheduleTestStandby = false
+    private var sessionActivationAttempts: [(speaker: Bool, mixing: Bool)] = []
     #endif
     private var unpluggedAt: Date?
     private var notificationOnly = false
@@ -189,31 +199,25 @@ import UIKit
         guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
         ensureTicker()
-        guard !interruptionActive else { notice = "Playback will remain paused during the audio interruption."; return }
-        // Manual transport and scheduled intent are separate. In particular,
-        // a restored future speaker start must not consume the Play command.
-        if let request = scheduleRequest, scheduleOwnsPlayback || request.date <= scheduleNow {
-            scheduleUserInitiated = true
-            guard schedulePowerPermits(now: scheduleNow) else {
-                scheduleFallback("The scheduled start is stopped by its power settings."); return
-            }
-            scheduleOwnsPlayback = true; notificationOnly = false
-            guard validateScheduledRoute(request) else { return }
-            scheduleReachedFullGain = true; scheduleEnvelope = nil
-            setSchedulePhase(.playing); scheduleDescription = "Playing · \(request.output.summary)"
-        }
+        // Play is fresh user intent, independent of automatic route/power policy
+        // and of a possibly stale interruption notification. Ask iOS now.
+        manualPlaybackOverridesSchedule = scheduleRequest != nil
+        manualPlaybackPrecedesStart = scheduleRequest.map { scheduleNow < $0.date } ?? false
+        scheduleOwnsPlayback = false; scheduleEnvelope = nil; scheduledHasAudioFocus = false
         schedulePausedUntil = nil; persistSchedule()
         if let remaining = pausedSleepRemaining {
             sleepDeadline = Date().addingTimeInterval(remaining); pausedSleepRemaining = nil
         }
         wantsPlayback = true
         stopStandby()
-        scheduleGain = 1; applyGain()
-        do { try activateSession() } catch {
-            if scheduleOwnsPlayback { waitForScheduledAudio("Waiting for audio; scheduled start remains armed.") }
-            else { notice = error.localizedDescription; wantsPlayback = false; applyGain() }
-            return
-        }
+        scheduleGain = 1; notice = nil
+        explicitPlayPending = true; interruptionActive = true
+        interruptionRetryStarted = scheduleUptime; interruptionRetryAt = scheduleUptime
+        applyGain()
+        retryInterruptedPlayback(immediately: true)
+    }
+
+    private func resumeCurrentAudio() {
         if hasStartedEngine, reconnectStarted == nil {
             if let pausedAt, settings.resumeWherePaused, let window = bufferWindow {
                 engine.seek(to: ResumePolicy.target(mode: .wherePaused, pausedAt: pausedAt, window: window))
@@ -228,12 +232,44 @@ import UIKit
         fetchMetadata()
     }
 
+    private var otherAudioIsPlaying: Bool {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { return environment.otherAudioPlaying }
+        if audioRecoveryTestConnections != nil { return false }
+        #endif
+        return AVAudioSession.sharedInstance().isOtherAudioPlaying
+    }
+
+    private func retryInterruptedPlayback(immediately: Bool = false) {
+        guard interruptionActive, wantsPlayback, schedulePausedUntil == nil, !scheduleOwnsPlayback else { return }
+        // Automatic recovery must not take audio back from an app the user chose.
+        // Pressing Play explicitly requests focus even while another app plays.
+        guard explicitPlayPending || !otherAudioIsPlaying else { return }
+        let uptime = scheduleUptime
+        guard immediately || uptime >= interruptionRetryAt else { return }
+        if interruptionRetryStarted == nil { interruptionRetryStarted = uptime }
+        let interval: TimeInterval = uptime - interruptionRetryStarted! < 60 ? 5 : 15
+        interruptionRetryAt = uptime + interval
+        do { try activateSession(forceSpeaker: false) }
+        catch {
+            state = .interrupted
+            notice = "Waiting for iOS audio access. Play retries now; Pause cancels the retry."
+            return
+        }
+        interruptionActive = false; wasPlayingBeforeInterruption = false
+        explicitPlayPending = false; interruptionRetryStarted = nil
+        notice = nil; stopStandby(); applyGain()
+        resumeCurrentAudio()
+    }
+
     @discardableResult func pauseFromApp() -> Bool {
         pauseRemote()
         return sleepActive
     }
 
     func pauseRemote() {
+        explicitPlayPending = false; interruptionRetryStarted = nil
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
         if let request = scheduleRequest {
             schedulePausedUntil = scheduleNow < request.date ? request.date : .distantFuture
             scheduleEnvelope = nil
@@ -339,6 +375,14 @@ import UIKit
     func cancelSchedule() {
         clearSchedule(stopOwnedPlayback: true)
     }
+    func openScheduleCancellation(requestID: UUID?) {
+        guard let requestID, scheduleRequest?.id == requestID else { return }
+        if scheduleDescription == nil, let request = scheduleRequest {
+            scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+        }
+        scheduleManagementRequest = UUID()
+    }
+    func clearScheduleManagementRequest() { scheduleManagementRequest = nil }
     func startFromNotification(requestID: UUID? = nil) {
         guard let request = scheduleRequest, request.id == requestID else { return }
         if schedulePausedUntil != nil { play(); return }
@@ -369,6 +413,14 @@ import UIKit
     }
     func configureUIFixtureOutputUnavailable() {
         currentOutputRoute = ObservedAudioRoute(ports: [])
+    }
+    func configureScheduleReminderFixture() {
+        precondition(isUIFixture)
+        let request = ScheduledStartRequest(date: Date().addingTimeInterval(300), output: .speaker,
+                                            options: .init(batteryOnlyStop: true))
+        scheduleRequest = request
+        scheduleDescription = "Starts in 5 minutes · Always iPhone speaker"
+        openScheduleCancellation(requestID: request.id)
     }
 
     /// Hosted XCTest exercises the real coordinator/engine gain boundary without
@@ -473,6 +525,7 @@ import UIKit
         precondition(isUIFixture)
         finishAudioRecoveryForTesting()
         scheduleTestEnvironment = environment
+        sessionActivationAttempts = []
         audioRecoveryTestConnections = 0
         scheduleRequest = .init(date: environment.now.addingTimeInterval(secondsUntilStart), output: output, options: options)
         currentOutputRoute = environment.route
@@ -480,22 +533,25 @@ import UIKit
         evaluateSchedule()
     }
     func advanceScheduleForTesting(seconds: TimeInterval = 0, plugged: Bool? = nil, level: Double? = nil,
-                                   route: ObservedAudioRoute? = nil, activationFails: Bool? = nil) {
+                                   route: ObservedAudioRoute? = nil, activationFails: Bool? = nil,
+                                   otherAudioPlaying: Bool? = nil) {
         scheduleTestEnvironment?.now.addTimeInterval(seconds)
         if let environment = scheduleTestEnvironment { scheduleTestEnvironment?.uptime = environment.uptime + seconds }
         if let plugged { scheduleTestEnvironment?.plugged = plugged }
         if let level { scheduleTestEnvironment?.level = level }
         if let activationFails { scheduleTestEnvironment?.activationFails = activationFails }
+        if let otherAudioPlaying { scheduleTestEnvironment?.otherAudioPlaying = otherAudioPlaying }
         if let route {
             scheduleTestEnvironment?.route = route
             handleRouteChange(reason: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue)
         }
+        retryInterruptedPlayback()
         evaluateSchedule()
     }
     func simulateScheduledReadinessForTesting() {
         audioIsAdvancing = true
         if let request = scheduleRequest, !scheduleReachedFullGain {
-            scheduleEnvelope = ScheduledGainEnvelope(target: request.date, readyAt: scheduleNow, uptime: scheduleUptime)
+            scheduleEnvelope = ScheduledGainEnvelope(target: scheduledFadeTarget(request), readyAt: scheduleNow, uptime: scheduleUptime)
         }
         updateGains()
     }
@@ -517,6 +573,7 @@ import UIKit
         scheduleRequest = nil; scheduleOwnsPlayback = false; schedulePausedUntil = nil
         scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 1
         notificationOnly = false
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
         restoreScheduledRequest()
         evaluateSchedule()
     }
@@ -525,6 +582,10 @@ import UIKit
         (scheduleRequest != nil, scheduleOwnsPlayback, standbyIsRunning, notificationOnly,
          scheduledBattery.lowSince, scheduleReachedFullGain, speakerSessionActive)
     }
+    var sessionStateForTesting: (mixing: Bool, attempts: Int, exclusiveAttempts: Int) {
+        (sessionMixesWithOthers, sessionActivationAttempts.count, sessionActivationAttempts.filter { !$0.mixing }.count)
+    }
+    var scheduleIDForTesting: UUID? { scheduleRequest?.id }
     #endif
 
     private func startConnection(preserveScheduledGain: Bool = false) {
@@ -587,7 +648,7 @@ import UIKit
             if audioIsAdvancing && snapshot.isReady && !interruptionActive {
                 if scheduleEnvelope == nil, let request = scheduleRequest {
                     if !snapshot.hasConfirmedPosition { recordScheduleDiagnostic("audio ready; station timestamp unavailable") }
-                    scheduleEnvelope = ScheduledGainEnvelope(target: request.date, readyAt: scheduleNow, uptime: scheduleUptime)
+                    scheduleEnvelope = ScheduledGainEnvelope(target: scheduledFadeTarget(request), readyAt: scheduleNow, uptime: scheduleUptime)
                     startGainDriver()
                 }
                 updateGains()
@@ -624,6 +685,7 @@ import UIKit
 
     private func tick() {
         let now = Date()
+        retryInterruptedPlayback()
         if let started = reconnectStarted, !interruptionActive {
             objectWillChange.send()
             if ReconnectPolicy(startedAt: started).decision(at: now) == .stop {
@@ -691,6 +753,7 @@ import UIKit
         stopEverything(reason: .stoppedBySleepTimer); cancelSleep()
     }
     private func stopEverything(reason: PlaybackState) {
+        explicitPlayPending = false; interruptionRetryStarted = nil
         wantsPlayback = false; hasStartedEngine = false; pausedAt = nil; reconnectStarted = nil
         audioIsAdvancing = false; applyGain(); connectionGeneration = UUID()
         connectionTask?.cancel(); connectionTask = nil
@@ -708,6 +771,17 @@ import UIKit
         guard let request = scheduleRequest else { return }
         let now = scheduleNow
         let dueForPreparation = ScheduledStartPolicy.shouldPrepare(target: request.date, now: now)
+        if manualPlaybackOverridesSchedule {
+            if manualPlaybackPrecedesStart && now >= request.date {
+                manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
+            } else {
+                if (interruptionActive || !wantsPlayback) && now < request.date { maintainMixingStandby() }
+                scheduleDescription = now < request.date
+                    ? "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+                    : "Saved start · manual playback"
+                return
+            }
+        }
         if notificationOnly {
             setSchedulePhase(.notificationOnly)
             scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · tap notification to play · \(request.output.summary)"
@@ -724,8 +798,7 @@ import UIKit
                     : "Paused · tap Play to resume · \(request.output.summary)"
                 // Keep future intent alive without restarting the paused stream.
                 if now < request.date, !standbyIsRunning {
-                    do { try activateSession(forceSpeaker: false); try startStandby() }
-                    catch { return }
+                    maintainMixingStandby()
                 } else if now >= request.date { stopStandby() }
                 return
             }
@@ -735,13 +808,14 @@ import UIKit
         if wantsPlayback && !scheduleOwnsPlayback {
             if dueForPreparation && request.output.mode == .currentOutput { clearSchedule(stopOwnedPlayback: false); return }
             if !dueForPreparation {
-                stopStandby(); setSchedulePhase(.waiting)
+                if interruptionActive { maintainMixingStandby() } else { stopStandby() }
+                setSchedulePhase(.waiting)
                 scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
                 return
             }
         }
         if interruptionActive {
-            guard request.survivesInterruption || scheduleUsingSpeakerFallback else {
+            guard request.output.mode != .currentOutput || request.survivesInterruption || scheduleUsingSpeakerFallback else {
                 scheduleFallback("An audio interruption prevented the scheduled start. Tap to start when it ends."); return
             }
             // Some route/suspension interruptions have no matching .ended event.
@@ -749,7 +823,8 @@ import UIKit
             // calls that still own audio reject it, leaving the request armed.
             guard scheduleUptime >= scheduleRetryUptime else { return }
             scheduleRetryUptime = scheduleUptime + 5
-            do { try activateSession(forceSpeaker: dueForPreparation) }
+            do { try activateSession(forceSpeaker: now >= request.date && scheduledSpeakerRequired,
+                                     mixWithOthers: now < request.date) }
             catch { return }
             interruptionActive = false; wasPlayingBeforeInterruption = false
             scheduleRetryUptime = 0
@@ -772,7 +847,7 @@ import UIKit
                 if !standbyIsRunning {
                     // Pin speaker only when real scheduled audio starts. Setting
                     // up a future start must not reroute current system audio.
-                    try activateSession(forceSpeaker: false); try startStandby()
+                    try activateSession(forceSpeaker: false, mixWithOthers: true); try startStandby()
                 }
                 state = .scheduledStandby; setSchedulePhase(.standby)
             } catch {
@@ -847,11 +922,24 @@ import UIKit
         standby.stop()
     }
 
+    private func maintainMixingStandby() {
+        guard !standbyIsRunning, scheduleUptime >= scheduleRetryUptime else { return }
+        do {
+            try activateSession(forceSpeaker: false, mixWithOthers: true)
+            try startStandby()
+        } catch { scheduleRetryUptime = scheduleUptime + 5 }
+    }
+
+    private func scheduledFadeTarget(_ request: ScheduledStartRequest) -> Date {
+        request.output.mode == .currentOutput ? request.date : request.date.addingTimeInterval(10)
+    }
+
     private func waitForScheduledAudio(_ message: String, retryAfter: TimeInterval = 5) {
         guard scheduleRequest != nil else { return }
         scheduleGain = 0; applyGain()
         if scheduleOwnsPlayback { stopEverything(reason: .idle) }
         scheduleOwnsPlayback = false; scheduleReachedFullGain = false; scheduleEnvelope = nil
+        scheduledHasAudioFocus = false
         stopStandby()
         scheduleRetryUptime = scheduleUptime + retryAfter
         setSchedulePhase(.waiting); scheduleDescription = message
@@ -862,10 +950,13 @@ import UIKit
     private func beginScheduledPlayback(_ request: ScheduledStartRequest) {
         guard scheduleRequest?.id == request.id, !scheduleOwnsPlayback, !interruptionActive else { return }
         scheduleOwnsPlayback = true
+        scheduledHasAudioFocus = false
         scheduleGain = 0
         // Gain reaches the player before session activation, reconnect, or play.
         applyGain()
-        do { try activateSession(forceSpeaker: scheduledSpeakerRequired) }
+        let preparingSilently = scheduleNow < request.date && !scheduleUserInitiated
+        do { try activateSession(forceSpeaker: !preparingSilently && scheduledSpeakerRequired,
+                                 mixWithOthers: preparingSilently) }
         catch {
             if request.survivesInterruption { waitForScheduledAudio("Waiting for iPhone audio; scheduled start remains armed.") }
             else { scheduleFallback("KUSC could not activate audio. Tap to try again.") }
@@ -881,10 +972,18 @@ import UIKit
     }
 
     private func validateScheduledRoute(_ request: ScheduledStartRequest) -> Bool {
+        // Silent preloading must neither reroute accessories nor interrupt another app.
+        if scheduleNow < request.date && !scheduleUserInitiated { return true }
         refreshCurrentOutput()
         if request.output.mode == .selected && request.output.fallback == .speaker,
            request.output.route?.matches(currentOutputRoute) != true {
             scheduleUsingSpeakerFallback = true
+        }
+        if !scheduledHasAudioFocus {
+            do { try activateSession(forceSpeaker: scheduledSpeakerRequired) }
+            catch { waitForScheduledAudio("Waiting for audio; scheduled start remains armed."); return false }
+            scheduledHasAudioFocus = true
+            refreshCurrentOutput()
         }
         if scheduledSpeakerRequired {
             guard !currentOutputRoute.isBuiltInSpeaker else { return true }
@@ -949,8 +1048,11 @@ import UIKit
         scheduleRequest = nil; scheduleOwnsPlayback = false; scheduleEnvelope = nil
         scheduledBattery = ScheduledBatteryGuard(); scheduleUsingSpeakerFallback = false
         scheduleReachedFullGain = false; scheduleRetryUptime = 0; schedulePausedUntil = nil
+        scheduledHasAudioFocus = false
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
         scheduleUserInitiated = false; unpluggedAt = nil; notificationOnly = false
         scheduleDescription = nil; schedulePhase = nil; stopStandby()
+        scheduleManagementRequest = nil
         scheduleBoundaryTimer?.invalidate(); scheduleBoundaryTimer = nil
         persistSchedule()
         scheduleGain = 1; applyGain()
@@ -967,6 +1069,7 @@ import UIKit
             if speakerSessionActive { try? session.setCategory(.playback, mode: .default, policy: .longFormAudio) }
         }
         speakerSessionActive = false
+        sessionMixesWithOthers = false
     }
 
     private func persistSchedule() {
@@ -1138,15 +1241,19 @@ import UIKit
         NotificationCenter.default.post(name: .kuscPlaybackChanged, object: self)
     }
 
-    private func activateSession(forceSpeaker: Bool? = nil) throws {
-        let useSpeaker = forceSpeaker ?? (scheduleOwnsPlayback && scheduledSpeakerRequired)
+    private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
+        let silentPreparation = scheduleOwnsPlayback && !scheduleUserInitiated && scheduledAt.map { scheduleNow < $0 } == true
+        let mixing = mixWithOthers ?? silentPreparation
+        let useSpeaker = forceSpeaker ?? (!silentPreparation && scheduleOwnsPlayback && scheduledSpeakerRequired)
         #if DEBUG
         if let environment = scheduleTestEnvironment {
+            sessionActivationAttempts.append((useSpeaker, mixing))
             if environment.activationFails { throw SilentStandby.StandbyError.failed }
             if useSpeaker {
                 scheduleTestEnvironment?.route = .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")])
             }
             speakerSessionActive = useSpeaker
+            sessionMixesWithOthers = mixing
             refreshCurrentOutput()
             return
         }
@@ -1165,12 +1272,15 @@ import UIKit
                 try audio.overrideOutputAudioPort(.speaker)
             }
         } else {
-            if audio.category != .playback || speakerSessionActive {
-                try audio.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
+            let options: AVAudioSession.CategoryOptions = mixing ? [.mixWithOthers] : []
+            if audio.category != .playback || audio.categoryOptions != options || speakerSessionActive {
+                try audio.setCategory(.playback, mode: .default,
+                                      policy: mixing ? .default : .longFormAudio, options: options)
             }
             speakerSessionActive = false
             try audio.setActive(true)
         }
+        sessionMixesWithOthers = mixing
     }
 
     private func handleMediaServicesReset() {
@@ -1181,6 +1291,7 @@ import UIKit
         hasStartedEngine = false
         reconnectStarted = nil
         audioIsAdvancing = false
+        scheduledHasAudioFocus = false
         if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false }
         applyGain()
         engine.stop(); stopStandby()
@@ -1199,6 +1310,10 @@ import UIKit
     }
 
     private func endInterruption(shouldResume: Bool) {
+        if explicitPlayPending {
+            retryInterruptedPlayback(immediately: true)
+            return
+        }
         interruptionActive = false
         if schedulePausedUntil != nil {
             wasPlayingBeforeInterruption = false
@@ -1207,14 +1322,15 @@ import UIKit
         if let request = scheduleRequest, !notificationOnly,
            request.survivesInterruption || scheduleUsingSpeakerFallback {
             let resumeOrdinaryAudio = wasPlayingBeforeInterruption && wantsPlayback && !scheduleOwnsPlayback
-                && !ScheduledStartPolicy.shouldPrepare(target: request.date, now: scheduleNow)
+                && (manualPlaybackOverridesSchedule || scheduleNow < request.date)
             wasPlayingBeforeInterruption = false; scheduleRetryUptime = 0
             if scheduleOwnsPlayback {
                 guard schedulePowerPermits(now: scheduleNow) else {
                     scheduleFallback("The scheduled start stopped because of its power settings."); return
                 }
                 do {
-                    try activateSession(forceSpeaker: true)
+                    try activateSession(forceSpeaker: scheduleNow >= request.date && scheduledSpeakerRequired,
+                                        mixWithOthers: scheduleNow < request.date)
                     guard validateScheduledRoute(request) else { return }
                     applyGain()
                     if hasStartedEngine, reconnectStarted == nil { engine.play() }
@@ -1223,11 +1339,8 @@ import UIKit
             } else {
                 if resumeOrdinaryAudio {
                     if shouldResume {
-                        do {
-                            try activateSession(forceSpeaker: false); applyGain()
-                            if hasStartedEngine, reconnectStarted == nil { engine.play() }
-                            else { reconnectStarted = nil; startConnection() }
-                        } catch { connectionFailed(error) }
+                        interruptionActive = true
+                        retryInterruptedPlayback(immediately: true)
                     } else { wantsPlayback = false; applyGain() }
                 }
                 evaluateSchedule()
@@ -1235,12 +1348,9 @@ import UIKit
             return
         }
         if wasPlayingBeforeInterruption && wantsPlayback && shouldResume {
-            do {
-                try activateSession(); applyGain()
-                if hasStartedEngine, reconnectStarted == nil { engine.play() }
-                else { reconnectStarted = nil; startConnection() }
-                invalidateSleepEndpoint()
-            } catch { connectionFailed(error) }
+            interruptionActive = true
+            retryInterruptedPlayback(immediately: true)
+            invalidateSleepEndpoint()
         } else if wasPlayingBeforeInterruption {
             pauseRemote()
         }
@@ -1250,13 +1360,16 @@ import UIKit
     private func beginInterruption() {
         wasPlayingBeforeInterruption = wantsPlayback
         interruptionActive = true
+        explicitPlayPending = false; scheduledHasAudioFocus = false
+        interruptionRetryStarted = scheduleUptime; interruptionRetryAt = scheduleUptime + 5
         if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false }
         applyGain(); engine.pause(); stopStandby()
         audioIsAdvancing = false
         if wantsPlayback { state = .interrupted }
         if schedulePausedUntil != nil { return }
         if let request = scheduleRequest, (scheduleOwnsPlayback || !wasPlayingBeforeInterruption) {
-            if request.survivesInterruption || scheduleUsingSpeakerFallback {
+            if request.survivesInterruption || scheduleUsingSpeakerFallback
+                || (request.output.mode != .currentOutput && scheduleNow < request.date) {
                 scheduleDescription = "Waiting for audio · \(request.output.summary)"
                 setSchedulePhase(.waiting); scheduleRetryUptime = scheduleUptime + 5
             } else {
@@ -1270,10 +1383,15 @@ import UIKit
         let previous = currentOutputRoute
         refreshCurrentOutput()
         if schedulePausedUntil != nil { return }
+        if interruptionActive {
+            if !previous.matches(currentOutputRoute) { retryInterruptedPlayback(immediately: true) }
+            return
+        }
         if scheduleOwnsPlayback, let request = scheduleRequest, !interruptionActive {
             // Category/override notifications with the same output must not restart
             // the fade or produce volume dips. Mute before fixing a changed route.
             if !previous.matches(currentOutputRoute) {
+                scheduledHasAudioFocus = false
                 scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false; applyGain()
             }
             guard validateScheduledRoute(request) else { return }

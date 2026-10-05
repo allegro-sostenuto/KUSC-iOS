@@ -5,6 +5,19 @@ import XCTest
 /// Hosted coordinator regressions. Only the network/session-start boundary is
 /// intercepted; resets still invalidate the real engine and its transport clock.
 final class MediaServicesRecoveryTests: XCTestCase {
+    @MainActor func testExplicitPlayWithoutScheduleOverridesStaleInterruptionAndPauseStillWins() {
+        let model = AppModel.shared
+        model.configureAudioRecoveryForTesting(playing: false, interrupted: true)
+        defer { model.finishAudioRecoveryForTesting() }
+        model.play()
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+        model.pauseRemote()
+        model.endAudioInterruptionForTesting(shouldResume: true)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+    }
     @MainActor func testPausedResetClearsObsoleteTransportAndNextPlayReconnects() {
         let model = AppModel.shared
         model.configureAudioRecoveryForTesting(playing: false)

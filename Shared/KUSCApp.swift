@@ -11,7 +11,6 @@ import UIKit
                 #if DEBUG
                 .modifier(UIFixtureTextSize())
                 #endif
-                .preferredColorScheme(model.settings.appearance == "light" ? .light : model.settings.appearance == "dark" ? .dark : nil)
                 .tint(Color.kuscRed)
                 .task {
                     #if DEBUG

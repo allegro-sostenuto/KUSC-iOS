@@ -158,6 +158,64 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testReminderOpensAtDeleteWithoutCancellingTheSchedule() {
+        let app = launchFixture("schedule-reminder")
+        defer { app.terminate() }
+        let delete = app.buttons["delete-scheduled-start"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10))
+        XCTAssertTrue(delete.isHittable, "The reminder must scroll directly to the delete button")
+        XCTAssertTrue(app.staticTexts["Current schedule"].exists)
+        attach(app, named: "capture-schedule-reminder-delete")
+    }
+
+    @MainActor
+    func testDarkMenuBrightnessStaysStableDuringPlaybackUpdates() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["KUSC_UI_STATE"] = "live"
+        app.launchEnvironment["KUSC_UI_DARK"] = "1"
+        app.launchEnvironment["KUSC_UI_REPEAT_MODEL_UPDATES"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        let more = app.buttons["More controls"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let item = app.buttons["Sleep Timer"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        // Let the menu's opening animation settle before comparing brightness.
+        Thread.sleep(forTimeInterval: 1)
+        let baseline = try meanBrightness(of: item.frame, app: app)
+        for index in 1...3 {
+            Thread.sleep(forTimeInterval: 1)
+            XCTAssertTrue(item.isHittable)
+            XCTAssertEqual(try meanBrightness(of: item.frame, app: app), baseline, accuracy: 0.012,
+                           "Open menu text must not pulse when playback publishes state")
+            attach(app, named: "capture-more-dark-stable-\(index)")
+        }
+        item.tap()
+        XCTAssertTrue(app.staticTexts["Sleep Timer"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    private func meanBrightness(of frame: CGRect, app: XCUIApplication) throws -> Double {
+        let screen = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let scaleX = CGFloat(screen.width) / app.frame.width
+        let scaleY = CGFloat(screen.height) / app.frame.height
+        let crop = CGRect(x: frame.minX * scaleX, y: frame.minY * scaleY,
+                          width: frame.width * scaleX, height: frame.height * scaleY)
+        let image = try XCTUnwrap(screen.cropping(to: crop))
+        var pixels = [UInt8](repeating: 0, count: 64 * 16 * 4)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 64, height: 16,
+                bitsPerComponent: 8, bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 16))
+        }
+        let total = stride(from: 0, to: pixels.count, by: 4).reduce(0) { $0 + Int(pixels[$1]) + Int(pixels[$1 + 1]) + Int(pixels[$1 + 2]) }
+        return Double(total) / Double(64 * 16 * 3 * 255)
+    }
+
+    @MainActor
     func testHistoryKeepsGrowingAfterEarlyScrub() {
         let app = launchFixture("growing-buffer")
         let slider = app.sliders["Listening position in retained audio"]
@@ -243,6 +301,7 @@ final class PlayerInteractionTests: XCTestCase {
         case "schedule": marker = app.staticTexts["Start once"]
         case "schedule-output": marker = app.staticTexts["Audio Output"]
         case "schedule-power": marker = app.switches["scheduled-battery-only"]
+        case "schedule-reminder": marker = app.buttons["delete-scheduled-start"]
         case "output", "unavailable-output": marker = app.staticTexts["Audio Output"]
         case "paused": marker = app.buttons["Keep counting"]
         case "programme": marker = app.staticTexts["Programme layout fixture"]

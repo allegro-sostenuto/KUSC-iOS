@@ -1,5 +1,6 @@
 #if canImport(UIKit) && !canImport(KUSCCore) && DEBUG
 import XCTest
+import UserNotifications
 @testable import KUSC_SE
 
 /// Hosted iOS tests, not Swift Package policy tests. These invoke actual
@@ -30,6 +31,9 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertTrue(model.scheduleStateForTesting.standby)
         model.advanceScheduleForTesting(seconds: 60, route: headphones)
         XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertEqual(model.currentOutputRoute, headphones)
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        model.advanceScheduleForTesting(seconds: 60)
         XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
     }
@@ -40,7 +44,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
                                            environment: environment())
         defer { model.finishScheduleForTesting() }
         model.simulateScheduledReadinessForTesting()
-        model.advanceScheduleForTesting(seconds: 10)
+        model.advanceScheduleForTesting(seconds: 20)
         XCTAssertTrue(model.scheduleStateForTesting.fullGain)
         model.startSleep(minutes: 1)
         model.pauseRemote()
@@ -123,7 +127,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
                                            environment: environment())
         defer { model.finishScheduleForTesting() }
         model.simulateScheduledReadinessForTesting()
-        model.advanceScheduleForTesting(seconds: 10)
+        model.advanceScheduleForTesting(seconds: 20)
         XCTAssertTrue(model.scheduleStateForTesting.fullGain)
         model.advanceScheduleForTesting(seconds: 3_600)
         XCTAssertTrue(model.isPlaying, "Long periods unplugged above the threshold must remain allowed")
@@ -162,7 +166,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
                                                secondsUntilStart: 10, environment: environment())
             XCTAssertEqual(model.currentOutputRoute, headphones)
             let other = ObservedAudioRoute(ports: [.init(uid: "bt:2", type: "BluetoothA2DP", name: "Other headphones")])
-            model.advanceScheduleForTesting(route: other)
+            model.advanceScheduleForTesting(seconds: 10, route: other)
             if fallback == .notifyOnly {
                 XCTAssertTrue(model.scheduleStateForTesting.notificationOnly)
                 XCTAssertFalse(model.isPlaying)
@@ -179,7 +183,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         model.configureScheduleForTesting(secondsUntilStart: 10, environment: environment())
         defer { model.finishScheduleForTesting() }
         model.simulateScheduledReadinessForTesting()
-        model.advanceScheduleForTesting(seconds: 10)
+        model.advanceScheduleForTesting(seconds: 20)
         model.advanceScheduleForTesting(route: speaker)
         XCTAssertTrue(model.scheduleStateForTesting.fullGain)
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
@@ -220,7 +224,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         model.configureScheduleForTesting(secondsUntilStart: 10, environment: environment())
         defer { model.finishScheduleForTesting() }
         model.simulateScheduledReadinessForTesting()
-        model.advanceScheduleForTesting(seconds: 10)
+        model.advanceScheduleForTesting(seconds: 20)
         let before = model.audioRecoveryStateForTesting.engineGeneration
         XCTAssertTrue(model.scheduleStateForTesting.fullGain)
         model.pauseRemote()
@@ -270,7 +274,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
                                            environment: environment())
         defer { model.finishScheduleForTesting() }
         model.simulateScheduledReadinessForTesting()
-        model.advanceScheduleForTesting(seconds: 10)
+        model.advanceScheduleForTesting(seconds: 20)
         model.pauseRemote()
         model.reloadScheduleForTesting()
         model.advanceScheduleForTesting(seconds: 120, route: headphones)
@@ -279,7 +283,7 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         model.play()
         model.simulateScheduledReadinessForTesting()
         XCTAssertTrue(model.isPlaying)
-        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertEqual(model.currentOutputRoute, headphones)
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
     }
 
@@ -312,6 +316,143 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, connections)
     }
 
+    @MainActor func testStandbyAndPrerollMixUntilTheScheduledTimeThenTakeFocus() {
+        let model = AppModel.shared
+        var power = environment()
+        power.otherAudioPlaying = true
+        model.configureScheduleForTesting(environment: power)
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, 0)
+        model.advanceScheduleForTesting(seconds: 60)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 59)
+        XCTAssertEqual(model.currentOutputRoute, headphones)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, 0)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 1)
+        XCTAssertFalse(model.sessionStateForTesting.mixing)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertGreaterThan(model.sessionStateForTesting.exclusiveAttempts, 0)
+        model.advanceScheduleForTesting(seconds: 5)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.5, accuracy: 0.001)
+        model.advanceScheduleForTesting(seconds: 5)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testFutureScheduleDoesNotTakeAudioBackFromAnotherApp() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 180, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.play()
+        let exclusive = model.sessionStateForTesting.exclusiveAttempts
+        model.interruptScheduledAudioForTesting()
+        model.advanceScheduleForTesting(seconds: 5, otherAudioPlaying: true)
+        model.advanceScheduleForTesting(seconds: 60)
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, exclusive)
+        XCTAssertTrue(model.scheduleStateForTesting.exists)
+        XCTAssertFalse(model.isAudible)
+        model.advanceScheduleForTesting(seconds: 115)
+        XCTAssertGreaterThan(model.sessionStateForTesting.exclusiveAttempts, exclusive)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+    }
+
+    @MainActor func testPlayOverridesStaleInterruptionAndAutomaticPowerRestrictions() {
+        let model = AppModel.shared
+        var power = environment(level: 0.1)
+        power.otherAudioPlaying = true
+        model.configureScheduleForTesting(options: .init(allowOnBattery: false), secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        model.interruptScheduledAudioForTesting()
+        model.play()
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+        model.advanceScheduleForTesting(seconds: 10)
+        XCTAssertTrue(model.isPlaying, "Automatic schedule policy must not undo explicit Play")
+        model.pauseRemote()
+        model.advanceScheduleForTesting(seconds: 30)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+    }
+
+    @MainActor func testSelectedOutputStandbySurvivesOtherAppAndTakesFocusAtTarget() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(output: .init(route: headphones, fallback: .notifyOnly),
+                                           secondsUntilStart: 180, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.interruptScheduledAudioForTesting()
+        model.advanceScheduleForTesting(seconds: 5, otherAudioPlaying: true)
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        XCTAssertFalse(model.scheduleStateForTesting.notificationOnly)
+        model.advanceScheduleForTesting(seconds: 175)
+        XCTAssertGreaterThan(model.sessionStateForTesting.exclusiveAttempts, 0)
+        XCTAssertEqual(model.currentOutputRoute, headphones)
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+    }
+
+    @MainActor func testExplicitPlayRetriesEveryFiveSecondsAndPauseCancelsRetries() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 3_600, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(activationFails: true)
+        model.interruptScheduledAudioForTesting()
+        model.play()
+        let first = model.sessionStateForTesting.exclusiveAttempts
+        for _ in 0..<12 {
+            let previous = model.sessionStateForTesting.exclusiveAttempts
+            model.advanceScheduleForTesting(seconds: 4)
+            XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, previous)
+            model.advanceScheduleForTesting(seconds: 1)
+            XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, previous + 1)
+        }
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, first + 12)
+        model.advanceScheduleForTesting(seconds: 14)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, first + 12)
+        model.advanceScheduleForTesting(seconds: 1, activationFails: false)
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertTrue(model.isPlaying)
+        model.pauseRemote()
+        let stopped = model.sessionStateForTesting.exclusiveAttempts
+        model.advanceScheduleForTesting(seconds: 30)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, stopped)
+        XCTAssertFalse(model.isPlaying)
+    }
+
+    @MainActor func testChangedOutputRetriesPendingExplicitPlayImmediately() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(activationFails: true)
+        model.play()
+        XCTAssertTrue(model.audioRecoveryStateForTesting.interrupted)
+        model.advanceScheduleForTesting(route: speaker, activationFails: false)
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testHeadsUpReminderUsesTwoMinuteLeadAndOpensCancellationWithoutPlaying() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let request = ScheduledStartRequest(date: now.addingTimeInterval(600), output: .speaker)
+        let reminder = NotificationCoordinator.shared.headsUpNotification(request, now: now)
+        XCTAssertEqual((reminder.trigger as? UNTimeIntervalNotificationTrigger)?.timeInterval, 480)
+        XCTAssertEqual(reminder.content.userInfo["action"] as? String, "manage-schedule")
+        XCTAssertEqual(reminder.content.userInfo["scheduleID"] as? String, request.id.uuidString)
+        let short = ScheduledStartRequest(date: now.addingTimeInterval(30))
+        XCTAssertEqual((NotificationCoordinator.shared.headsUpNotification(short, now: now).trigger as? UNTimeIntervalNotificationTrigger)?.timeInterval, 1)
+        let model = AppModel.shared
+        model.configureScheduleForTesting(environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.openScheduleCancellation(requestID: UUID())
+        XCTAssertNil(model.scheduleManagementRequest)
+        model.openScheduleCancellation(requestID: model.scheduleIDForTesting)
+        XCTAssertNotNil(model.scheduleManagementRequest)
+        XCTAssertTrue(model.scheduleStateForTesting.exists)
+        XCTAssertFalse(model.isPlaying)
+    }
+
     @MainActor func testOrdinaryAudioResumesBeforeFutureSpeakerScheduleIsDue() {
         let model = AppModel.shared
         model.configureScheduleForTesting(environment: environment())
@@ -324,6 +465,21 @@ final class ScheduleModelBoundaryTests: XCTestCase {
         XCTAssertFalse(model.scheduleStateForTesting.owned)
         XCTAssertEqual(model.currentOutputRoute, headphones)
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testManualPlaybackRecoversDuringFinalMinuteAndAfterSavedStart() {
+        let model = AppModel.shared
+        for secondsUntilStart in [TimeInterval(30), -30] {
+            model.configureScheduleForTesting(secondsUntilStart: secondsUntilStart, environment: environment())
+            model.play()
+            model.interruptScheduledAudioForTesting()
+            model.endAudioInterruptionForTesting(shouldResume: true)
+            XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+            XCTAssertTrue(model.isPlaying)
+            XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+            XCTAssertFalse(model.scheduleStateForTesting.owned)
+            model.finishScheduleForTesting()
+        }
     }
 
     @MainActor func testCancelingSleepCannotUnmuteTheRealScheduledGainBoundary() {

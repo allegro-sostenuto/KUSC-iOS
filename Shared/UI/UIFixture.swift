@@ -17,7 +17,7 @@ import UIKit
     @discardableResult
     static func configure(model: AppModel) -> Bool {
         guard let state else { return false }
-        let paused = ["paused", "paused-buffer", "no-artwork"].contains(state)
+        let paused = ["paused", "paused-buffer", "no-artwork", "schedule-reminder"].contains(state)
         model.configureUIFixturePlayback(active: !paused)
         model.settings = AppSettings()
         model.settings.autoplay = false
@@ -39,6 +39,16 @@ import UIKit
         )
         model.programmeName = "Programme layout fixture"
         model.hostName = "Host · test data"
+        if state == "schedule-reminder" { model.configureScheduleReminderFixture() }
+        if ProcessInfo.processInfo.environment["KUSC_UI_REPEAT_MODEL_UPDATES"] == "1" {
+            Task { @MainActor in
+                for _ in 0..<240 {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled else { return }
+                    model.objectWillChange.send()
+                }
+            }
+        }
         model.previousItems = (1...5).map { index in
             ProgrammeItem(id: "ui-previous-\(index)",
                           start: anchor.addingTimeInterval(TimeInterval(-540 - index * 600)),
