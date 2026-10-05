@@ -211,7 +211,12 @@ final class PlayerInteractionTests: XCTestCase {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 16))
         }
-        let total = stride(from: 0, to: pixels.count, by: 4).reduce(0) { $0 + Int(pixels[$1]) + Int(pixels[$1 + 1]) + Int(pixels[$1 + 2]) }
+        var total = 0
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            total += Int(pixels[offset])
+            total += Int(pixels[offset + 1])
+            total += Int(pixels[offset + 2])
+        }
         return Double(total) / Double(64 * 16 * 3 * 255)
     }
 
