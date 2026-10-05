@@ -1,48 +1,54 @@
-# Scheduled-start update — 4 October 2026
+# Scheduled-start update — 5 October 2026
 
-Build **25**, source `29f43edc35ea005c96165fbaf8383b2ae10c17dc`, passes [the complete CI workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37207716538).
+Build **29**, source `b5097ffd01dc8da3a5565fe4eb4cc14dd32f64ae`, passes [the CI workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37312008040). This revision follows the owner's build 26 reports about stale interruption state, silent standby stopping other apps, and pulsing dark-menu text.
 
-## Behavior
+## Playback and scheduling
 
-The scheduling sheet offers two output modes:
+Silent standby and the final minute of muted station preparation allow other apps to play. At the selected time, KUSC takes audio focus, applies the output policy, and fades in over ten seconds. The fade now starts at the selected time so that preparing KUSC does not stop another app early.
 
-| Mode | Behavior |
+| Mode | Automatic playback |
 |---|---|
-| Always speaker | Applies the public speaker override at preparation, even with headphones connected. Output changes and audio interruptions retain the request; playback retries when iOS permits it. |
+| Always speaker | Applies the public speaker override at the selected time, even with headphones connected. Disconnects and interruptions retain the request and retry when iOS permits. |
 | Selected output | Uses the confirmed system output's UID/transport identity. If unavailable or no longer selected, the chosen fallback is either the iPhone speaker or notification-only. Arbitrary remembered Bluetooth/AirPlay destinations cannot be reconnected programmatically. |
 
-**Allow while unplugged** enables standby and scheduled playback on battery. Battery protection starts its countdown only while both unplugged and below the selected X%. It stops after Y continuous minutes in that condition. Charging or recovery to the threshold resets the countdown; unknown readings restart observation rather than inventing a low-battery condition. X cannot be below 25%, and Y cannot be below 20 minutes. The timer uses monotonic uptime. Protection remains active after the fade reaches normal volume.
+**Play** immediately requests audio access, ignoring stale app interruption state and automatic schedule power/output restrictions. Manual playback uses the current system output. Failed activation retries every five seconds for the first minute, then every fifteen seconds; a changed output also triggers an immediate attempt. Automatic recovery defers while another app plays before the scheduled target. iOS can still deny activation during a call.
 
-The optional speaker-only **Ignore everything except battery** setting enables battery operation and retains playback intent through Pause, sleep timers, output changes, session interruptions and network failures. Explicit cancellation requires **Delete Scheduled Start** in the app. Battery protection can still stop playback, leaving the request visible. Stopping or deleting releases the audio session. A notification-permission failure does not disarm this mode.
+**Pause** always silences current audio and cancels playback retries without deleting the schedule. Before the target, audio stays paused until Play or the target time; after the target, it stays paused until Play. The pause is saved across relaunch. Manual playback before the target leaves the future start armed; manual Play after the target takes control of current playback. Battery protection applies to automatic scheduled operation, not that explicit manual override.
 
-Speaker recovery handles interruptions without a corresponding end event, including during silent standby. Unchanged output notifications do not restart the gain envelope. The selected-output speaker fallback remains on the speaker for that run. A ready stream still begins silently one minute early and fades over the final ten seconds; recovery after the target uses a fresh ten-second fade.
+**Allow while unplugged** enables standby and scheduled playback on battery. Battery protection starts only while both unplugged and below X%. It stops after Y continuous minutes in that condition. Charging or recovery to the threshold resets the countdown; unknown readings restart observation. X cannot be below 25%. Y is adjustable from **1 to 20 minutes**, with 20 as the maximum and default; previously saved longer delays are clamped to 20. The timer uses monotonic uptime and remains active after automatic playback reaches normal volume.
 
-The power controls use black surfaces and borders in dark appearance, with accessible labels, values and adjustment actions. Normal starts continue to honor manual Pause, preserving existing rewind history after the scheduled fade finishes. Older saved requests and settings remain decodable.
+The speaker-only **Ignore everything except battery** option enables battery operation and retains the schedule through sleep timers, output changes, session interruptions and network failures. Manual Pause still wins. Explicit cancellation uses **Delete Scheduled Start**; battery protection may stop audio while leaving the request visible. Notification permission failure does not disarm this mode.
+
+## Reminder and menu
+
+A reminder is requested two minutes before the start. Starts less than two minutes away get it immediately. Tapping the notification or its **Tap to cancel** action opens Scheduled Start scrolled to **Delete Scheduled Start**. Opening the reminder does not cancel the request or command playback. The existing target-time playback fallback is separate. Deleting/replacing a request removes both notifications; old request IDs cannot affect its replacement.
+
+The More button keeps one native UIKit menu while playback publishes updates, with a stable appearance and tint. Dark controls and cards remain pure black with borders. The native menu's text brightness has a temporal simulator check, alongside navigation to the delete button.
 
 ## Verification
 
-Xcode 26.6 (17F113), iPhoneOS SDK 26.5, iOS 26.5 simulator runtime:
+Xcode 26.6 (17F113), iPhoneOS SDK 26.5:
 
-- Both unsigned Release arm64 device packages build and validate.
-- 113 portable tests pass in each device-build job.
-- 24 focused native audio tests pass.
-- 162 hosted tests and seven UI tests pass on each of the iPhone 17 and SE simulator profiles.
-- The hosted scheduling suite covers headset loss, selected-output fallbacks, continuous low-battery timing and resets, persistent Pause/sleep behavior, explicit deletion, late callbacks, session/network recovery, and preservation of the rewind transport when a normal scheduled start is paused after its fade.
-- The UI suite checks accessible battery values, mandatory battery operation in persistent mode, reachable controls, and 31 native layout captures per profile, including the new power card in light/dark appearance.
+- Both unsigned Release arm64 device builds pass.
+- 114 portable tests pass in the checked iPhone 17 device-build log.
+- All 24 focused native audio tests pass.
+- All 176 hosted tests and nine UI tests pass on each of the iPhone 17 and SE simulator profiles (iOS 26.5). The dark-menu brightness check and reminder-to-delete navigation check both pass on both profiles.
+- Both profiles complete the existing 31 native layout captures and their collection/metadata validation. This revision does not claim a new manual visual review of every capture.
+- Local structural validation passes for 52 Swift files and project resources. This Windows check does not type-check Swift or execute XCTest.
 
-Both downloaded IPAs were checked against the GitHub artifact digest, embedded source/build record, checksum manifest, bundle versions, device architecture, deployment target and unsigned packaging.
+Both downloaded IPAs pass artifact-digest, IPA-checksum, embedded-source, bundle-version, deployment-target and device-architecture checks. The iPhone 17 app and Live Activity extension both identify as version 1.0, build 29. They remain unsigned for the owner's installation workflow.
 
 | Package | SHA-256 |
 |---|---|
-| KUSC-17-unsigned.ipa | `4f65cc9548fec883f256d3c6dc0dbec18cf42977067ef958010aa4761eb655fc` |
-| KUSC-SE-unsigned.ipa | `0d4a10f654594022af6ed8d97c7814a697dc73b9e55dcd478ac2e2c2d3922f43` |
+| KUSC-17-unsigned.ipa | `ed561d635a1155e9d2b65b951d8d10a8944730ea3216d782917285ae78c4b38d` |
+| KUSC-SE-unsigned.ipa | `6872362d3e086609a915c857365ad9002857c1bd8055ea56f5d178f229954261` |
 
-Local packages, test logs and verification records are under `artifacts/ci-37207716538/`. The iPhone 17 app and Live Activity extension both identify as version 1.0, build 25. Simulator layout fixtures retain the project's Debug build number 1; their capture manifests and source record identify the matching source.
+Packages, test logs and verification records are under `artifacts/ci-37312008040/`.
 
-Visual inspection used the checksum-verified build 24 captures of both phone profiles under `artifacts/ci-37169574129/`, confirming black bordered power controls and readable layouts. The UI source, UI tests and capture collector are unchanged between builds 24 and 25; build 25 repeats all 31 captures and the interaction suite on each profile.
+The added regression cases cover immediate manual Play, five-second retries and Pause cancellation, changes of output, mixable standby, takeover at the target for both output modes, manual recovery near/after the target, the reminder's timing and stale-ID handling, visible deletion navigation, and menu brightness during frequent model updates.
 
 ## Physical-device checks
 
-Real headphone, Bluetooth, USB/wired and AirPlay routing, audible fades, locked/background behavior and the twenty-minute battery safeguard still require the owner's iPhone. Follow the October checklist in [manual_test_plan.md](manual_test_plan.md). An easy battery test is to choose X above the current battery percentage, keep Y at 20 minutes, and unplug; charging before expiry must reset the countdown.
+Follow the October checklist in [manual_test_plan.md](manual_test_plan.md). Start with these reported failures: play another app before the target, disconnect headphones then press Play, pause before/after the target, and open the dark More menu during playback. For the reminder, schedule three minutes ahead and test its banner/action from a locked phone, another sheet, and a cold launch. Delete must remain a separate deliberate action.
 
-iOS still controls audio-session availability and process execution. Calls may delay playback, and force-quit, termination, reboot or a powered-off phone prevent a guaranteed automatic start. A retained persistent request can recover when KUSC is relaunched, but battery observation restarts after process death. These limits are detailed in [platform_limits.md](platform_limits.md).
+Real headphone, Bluetooth, USB/wired and AirPlay routing, audible fades, locked/background behavior, notification delivery and battery timing still require the owner's iPhone. iOS controls session availability and process execution: force-quit, termination, reboot or a powered-off phone prevent a guaranteed automatic start. A retained persistent request can recover when KUSC is relaunched, respecting its saved manual pause; battery observation restarts after process death. See [platform_limits.md](platform_limits.md).
