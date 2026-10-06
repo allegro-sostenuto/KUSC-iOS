@@ -550,9 +550,6 @@ import UIKit
     }
     func simulateScheduledReadinessForTesting() {
         audioIsAdvancing = true
-        if let request = scheduleRequest, !scheduleReachedFullGain {
-            scheduleEnvelope = ScheduledGainEnvelope(target: scheduledFadeTarget(request), readyAt: scheduleNow, uptime: scheduleUptime)
-        }
         updateGains()
     }
     func interruptScheduledAudioForTesting() { beginInterruption() }
@@ -646,10 +643,8 @@ import UIKit
         audioIsAdvancing = snapshot.isPlaying && !snapshot.isWaiting && !snapshot.isSeeking
         if scheduleOwnsPlayback && !scheduleReachedFullGain {
             if audioIsAdvancing && snapshot.isReady && !interruptionActive {
-                if scheduleEnvelope == nil, let request = scheduleRequest {
+                if scheduleEnvelope == nil {
                     if !snapshot.hasConfirmedPosition { recordScheduleDiagnostic("audio ready; station timestamp unavailable") }
-                    scheduleEnvelope = ScheduledGainEnvelope(target: scheduledFadeTarget(request), readyAt: scheduleNow, uptime: scheduleUptime)
-                    startGainDriver()
                 }
                 updateGains()
             } else {
@@ -930,10 +925,6 @@ import UIKit
         } catch { scheduleRetryUptime = scheduleUptime + 5 }
     }
 
-    private func scheduledFadeTarget(_ request: ScheduledStartRequest) -> Date {
-        request.output.mode == .currentOutput ? request.date : request.date.addingTimeInterval(10)
-    }
-
     private func waitForScheduledAudio(_ message: String, retryAfter: TimeInterval = 5) {
         guard scheduleRequest != nil else { return }
         scheduleGain = 0; applyGain()
@@ -980,6 +971,9 @@ import UIKit
             scheduleUsingSpeakerFallback = true
         }
         if !scheduledHasAudioFocus {
+            // Preroll readiness belongs to the mixable session. Wait for a fresh
+            // engine sample after takeover before starting the audible fade.
+            if request.output.mode != .currentOutput { audioIsAdvancing = false }
             do { try activateSession(forceSpeaker: scheduledSpeakerRequired) }
             catch { waitForScheduledAudio("Waiting for audio; scheduled start remains armed."); return false }
             scheduledHasAudioFocus = true
@@ -1132,6 +1126,15 @@ import UIKit
             if schedulePausedUntil != nil { applyGain(); return }
             if interruptionActive { scheduleGain = 0; applyGain(); return }
             guard validateScheduledRoute(request) else { return }
+            if !scheduleReachedFullGain, scheduleEnvelope == nil, audioIsAdvancing {
+                if request.output.mode == .currentOutput || now >= request.date {
+                    // New starts always get ten audible seconds. A delayed wake,
+                    // route handoff or stream readiness must not consume the ramp.
+                    let target = request.output.mode == .currentOutput ? request.date : now
+                    scheduleEnvelope = ScheduledGainEnvelope(target: target, readyAt: now, uptime: scheduleUptime)
+                    startGainDriver()
+                }
+            }
             if scheduleReachedFullGain { scheduleGain = 1 }
             else if let envelope = scheduleEnvelope, audioIsAdvancing {
                 let uptime = scheduleUptime
@@ -1149,7 +1152,11 @@ import UIKit
                     }
                     state = .playingLive
                 }
-            } else { scheduleGain = 0; setSchedulePhase(.preparing) }
+            } else {
+                scheduleGain = 0
+                setSchedulePhase(audioIsAdvancing ? .silent : .preparing)
+                if audioIsAdvancing && state != .scheduledSilent { state = .scheduledSilent }
+            }
         }
         var sleepFading = false
         if !protectedSchedule, case .fade(let start, let end)? = sleepDecision, now >= start {
