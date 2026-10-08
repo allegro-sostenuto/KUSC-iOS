@@ -7,7 +7,15 @@ import UIKit
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
-            ContentView().environmentObject(model)
+            Group {
+                #if DEBUG
+                if let state = UIFixture.state, state.hasPrefix("widget-") {
+                    HomeWidgetFixture(state: state)
+                } else { ContentView() }
+                #else
+                ContentView()
+                #endif
+            }.environmentObject(model)
                 #if DEBUG
                 .modifier(UIFixtureTextSize())
                 #endif
@@ -19,6 +27,7 @@ import UIKit
                     model.launch()
                 }
                 .onChange(of: scenePhase) { phase in if phase == .active { model.onForeground() } }
+                .onOpenURL { model.handleWidgetURL($0) }
         }
     }
 }

@@ -62,6 +62,23 @@ if [ ! -d "$app" ]; then
 fi
 mkdir -p "$work/package/Payload"
 /usr/bin/ditto "$app" "$work/package/Payload/$scheme.app"
+# Preserve the App Group entitlement for AltStore's provisioning pass. An
+# ad-hoc signature carries capabilities only: no Apple account, certificate or
+# provisioning profile is used. AltStore replaces it with the owner's signature.
+python3 - "$work/package/Payload/$scheme.app" "$work/widget-entitlements.plist" <<'PY'
+import pathlib, plistlib, subprocess, sys
+app = pathlib.Path(sys.argv[1])
+entitlements = pathlib.Path(sys.argv[2])
+group = plistlib.loads((app / 'Info.plist').read_bytes())['KUSCAppGroup']
+entitlements.write_bytes(plistlib.dumps({'com.apple.security.application-groups': [group]}))
+for bundle in sorted((app / 'PlugIns').glob('*.appex')) + [app]:
+    info = plistlib.loads((bundle / 'Info.plist').read_bytes())
+    if info.get('KUSCAppGroup') != group or '$(' in group:
+        raise SystemExit('Widget App Group differs from its containing app')
+    subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none',
+                    '--generate-entitlement-der', '--entitlements', str(entitlements), str(bundle)], check=True)
+    subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(bundle)], check=True)
+PY
 ipa="$output/$scheme-unsigned.ipa"
 # Starting a fresh archive prevents files from an earlier build surviving.
 rm -f "$ipa"
@@ -78,6 +95,7 @@ python3 scripts/validate_ipa.py "$ipa" --scheme "$scheme" --bundle-prefix "$bund
   xcodebuild -version
   echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
   echo 'Signing: app and extension have no owner signing identity or provisioning; AltStore must sign before installation.'
+  echo 'App Group capabilities are preserved in ad-hoc signatures for AltStore provisioning.'
   echo 'Embedded libraries may retain verified Apple vendor signatures.'
   echo 'Validation: structure, bundle identifiers, arm64 iOS platform, deployment targets and signing material checked.'
   echo 'Device launch and automatic AltStore refresh require testing on the receiving phone.'

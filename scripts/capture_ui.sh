@@ -43,7 +43,8 @@ trap cleanup EXIT
     echo "UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     xcodebuild -version
     echo 'Fixtures are synthetic layout state; audio and network are disabled.'
-    echo 'Fixture work/host/performer names are labeled test data. Artwork is unavailable.'
+    echo 'Fixture work/host/performer names are labeled test data. Widget fixtures use a generated geometric cover; other artwork is unavailable.'
+    echo 'Widget captures render the shared native views in an app fixture, not SpringBoard or the WidgetKit extension host.'
     echo 'Output names, when available, come from the simulator audio session; no devices are fabricated.'
     echo 'These screenshots do not verify real playback, background scheduling, Bluetooth or AirPlay.'
     echo 'More menu capture is requested by native XCUITest using a real tap; test outcomes are recorded below.'

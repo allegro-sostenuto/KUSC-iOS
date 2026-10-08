@@ -18,11 +18,11 @@ tests=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Tests').glob('*.swif
 ui_tests=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'TestsUI').glob('*.swift'))
 resources=['Assets.xcassets','Configuration/PrivacyInfo.xcprivacy']
 app_configs=[('KUSC-SE','16.0',False,False),('KUSC-17','26.0',True,False),('KUSC-SE-CarPlay','16.0',False,True),('KUSC-17-CarPlay','26.0',True,True)]
-alltargets=[x[0] for x in app_configs]+['KUSCLiveActivity','KUSCTests','KUSCUITests']
+alltargets=[x[0] for x in app_configs]+['KUSCLiveActivity','KUSCWidgets','KUSCTests','KUSCUITests']
 base_config=file('Configuration/Signing.xcconfig')
 productrefs={}
 for name in alltargets:
-    ext='appex' if name=='KUSCLiveActivity' else 'xctest' if name in ['KUSCTests','KUSCUITests'] else 'app'
+    ext='appex' if name in ['KUSCLiveActivity','KUSCWidgets'] else 'xctest' if name in ['KUSCTests','KUSCUITests'] else 'app'
     productrefs[name]=add('product:'+name,isa='PBXFileReference',explicitFileType={'app':'wrapper.application','appex':'wrapper.app-extension','xctest':'wrapper.cfbundle'}[ext],includeInIndex=0,path=name+'.'+ext,sourceTree='BUILT_PRODUCTS_DIR')
 
 def configlist(name,settings):
@@ -41,19 +41,21 @@ common={'SDKROOT':'iphoneos','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','T
 for name,version,is_modern,carplay in app_configs:
     sources=shared+(modern if is_modern else [])+(['CarPlay/CarPlaySceneDelegate.swift'] if carplay else [])
     phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0),add('resources:'+name,isa='PBXResourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in resources],runOnlyForDeploymentPostprocessing=0),add('frameworks:'+name,isa='PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)]
-    dependencies=[]
-    if is_modern:
-        embed=add('embedfile:'+name,isa='PBXBuildFile',fileRef=productrefs['KUSCLiveActivity'],settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
-        phases.append(add('embed:'+name,isa='PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0))
-        dependencies=[dep(name,'KUSCLiveActivity')]
+    extension='KUSCLiveActivity' if is_modern else 'KUSCWidgets'
+    embed=add('embedfile:'+name,isa='PBXBuildFile',fileRef=productrefs[extension],settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
+    phases.append(add('embed:'+name,isa='PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0))
+    dependencies=[dep(name,extension)]
     settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET=version,PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_MODULE_NAME='KUSC_SE' if not is_modern else 'KUSC_17',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).'+('modern' if is_modern else 'classic'),INFOPLIST_FILE='Configuration/'+('App-CarPlay.plist' if carplay else 'App.plist'),ASSETCATALOG_COMPILER_APPICON_NAME='AppIcon',SWIFT_ACTIVE_COMPILATION_CONDITIONS=' '.join(x for x in ['MODERN' if is_modern else '', 'CARPLAY' if carplay else ''] if x))
     settings['CODE_SIGN_ENTITLEMENTS']='Configuration/'+('CarPlay.entitlements' if carplay else 'App.entitlements')
+    settings['KUSC_PROFILE']='modern' if is_modern else 'classic'
     add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=dependencies,name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.application')
-name='KUSCLiveActivity'
-sources=['Modern/LiveActivityAttributes.swift','Modern/PlaybackIntents.swift','Widget/KUSCLiveActivity.swift']
-phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0)]
-settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET='26.0',PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).modern.activity',INFOPLIST_FILE='Configuration/Widget.plist',APPLICATION_EXTENSION_API_ONLY='YES',SKIP_INSTALL='YES',SWIFT_ACTIVE_COMPILATION_CONDITIONS='WIDGET_EXTENSION',LD_RUNPATH_SEARCH_PATHS='$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks')
-add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.app-extension')
+widget_sources=['Shared/Core/ProgrammeItem.swift','Shared/Core/WidgetPlaybackSnapshot.swift',
+                'Shared/System/WidgetPlaybackIntent.swift','Shared/UI/HomeWidgetView.swift','Widget/KUSCHomeWidgets.swift']
+for name,profile,version,suffix in [('KUSCLiveActivity','modern','26.0','activity'),('KUSCWidgets','classic','16.0','widgets')]:
+    sources=widget_sources+(['Modern/LiveActivityAttributes.swift','Modern/PlaybackIntents.swift','Widget/KUSCLiveActivity.swift'] if profile=='modern' else [])
+    phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0)]
+    settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET=version,PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).'+profile+'.'+suffix,INFOPLIST_FILE='Configuration/Widget.plist',CODE_SIGN_ENTITLEMENTS='Configuration/App.entitlements',KUSC_PROFILE=profile,APPLICATION_EXTENSION_API_ONLY='YES',SKIP_INSTALL='YES',SWIFT_ACTIVE_COMPILATION_CONDITIONS='WIDGET_EXTENSION'+(' MODERN' if profile=='modern' else ''),LD_RUNPATH_SEARCH_PATHS='$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks')
+    add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.app-extension')
 name='KUSCTests'
 fixture_files=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Tests'/'Fixtures').glob('*.json'))
 phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in tests],runOnlyForDeploymentPostprocessing=0),add('resources:'+name,isa='PBXResourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in fixture_files],runOnlyForDeploymentPostprocessing=0)]
@@ -94,4 +96,4 @@ for name,*_ in app_configs:
 <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{br(name)}</BuildableProductRunnable></ProfileAction>
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>''')
-print(f'Generated {project.name}: {len(app_configs)} app schemes, one extension, unit and UI test targets.')
+print(f'Generated {project.name}: {len(app_configs)} app schemes, two widget extensions, unit and UI test targets.')

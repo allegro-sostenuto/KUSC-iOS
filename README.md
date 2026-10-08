@@ -8,7 +8,7 @@ Native private-use KUSC FM 91.5 player, with shared Swift/SwiftUI source and sep
 
 1. Extract the KUSC folder and publish its contents at the root of a public GitHub repository, including `.github`. Keep the app bundle prefix stable and leave `DEVELOPMENT_TEAM` blank for this route.
 2. The **Build unsigned iPhone apps** workflow runs Foundation tests and unsigned device builds on a standard `macos-26` runner. Download the appropriate `KUSC-SE-unsigned-ipa` or `KUSC-17-unsigned-ipa` artifact.
-3. Extract the artifact ZIP. Import its IPA using **AltStore Classic → My Apps → +**, with AltServer for Windows reachable. Keep the Live Activity extension in the iPhone 17 build.
+3. Extract the artifact ZIP. Import its IPA using **AltStore Classic → My Apps → +**, with AltServer for Windows reachable. Keep the widget extension in either build; the iPhone 17 extension also provides Live Activities.
 4. Enable Developer Mode and verify initial playback and manual Refresh All. Background refresh is attempted automatically; a missed refresh still requires intervention. The existing build is re-signed without a weekly source rebuild.
 
 Public standard runners are free under [GitHub's runner policy](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). [AltStore documents](https://faq.altstore.io/altstore-classic/your-altstore) the seven-day expiry, background attempts, and manual fallback. Current AltStore 2.3 requires iOS 17.4; an SE on iOS 16 needs AltServer's documented last-compatible-version selection. The original 2016 SE cannot run this app.
@@ -68,6 +68,10 @@ These limits affect the requested acceptance criteria and are not hidden behind 
 The original requested specification is retained in [build_specification.md](docs/build_specification.md). [platform_limits.md](docs/platform_limits.md) explains the Apple restrictions and required device checks.
 
 ## Code layout
+
+Home Screen widgets are available as **Play / Pause** (small), **Album Art** (medium), **Now Playing** (medium), and **The Full Picture** (large). The large widget includes artwork, work/movement, composer, performers, programme and host, with Play/Pause only. All dark widget surfaces and controls use pure black. Add them from the Home Screen widget gallery under KUSC after opening the updated app once. On iOS 17+, Play/Pause runs in the app process without opening its interface; iOS 16 opens the app to perform the action. Track details follow the heard position, including retained playback. WidgetKit schedules refreshes, so metadata and button state can lag the player.
+
+Both builds share widget metadata and a bounded artwork thumbnail through their own App Group. CI embeds only that capability in an ad-hoc signature so AltStore can provision it; no Apple signing identity or profile is included. Keep the extension during installation. The modern build reuses its existing Live Activity extension ID; the SE build adds one widget extension. See [widget implementation and phone checks](docs/home_screen_widgets.md).
 
 - `Shared/AppModel.swift`: playback intent, lifecycle, timers, schedule and integration coordinator.
 - `Shared/Audio`: HLS/ADTS parsing, acquisition, strict local retention and continuous buffered playback.

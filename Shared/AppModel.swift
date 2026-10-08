@@ -130,6 +130,8 @@ import UIKit
     private var unpluggedAt: Date?
     private var notificationOnly = false
     private var launched = false
+    private var receivedWidgetCommand = false
+    private let homeWidgets = HomeWidgetCoordinator()
     private let standby = SilentStandby()
     private lazy var nowPlaying = NowPlayingController(play: { [weak self] in self?.play() },
         pause: { [weak self] in self?.pauseRemote() },
@@ -167,8 +169,22 @@ import UIKit
         fetchMetadata()
         // Restore explicit scheduled intent before launch auto-play can defeat its
         // route policy or turn a fallback notification into a full-volume start.
-        if settings.autoplay && scheduleRequest == nil { play() }
+        if settings.autoplay && scheduleRequest == nil && !receivedWidgetCommand { play() }
         evaluateSchedule()
+        refreshHomeWidgets()
+    }
+
+    func setPlaybackFromWidget(_ playing: Bool) {
+        receivedWidgetCommand = true
+        if playing { play() } else { pauseRemote() }
+        // Persist before the intent returns and WidgetKit requests its timeline.
+        refreshHomeWidgets()
+    }
+
+    func handleWidgetURL(_ url: URL) {
+        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "KUSCURLScheme") as? String,
+              let playing = WidgetPlaybackLink.action(for: url, scheme: scheme) else { return }
+        setPlaybackFromWidget(playing)
     }
 
     func updateSettings() {
@@ -698,6 +714,7 @@ import UIKit
         if hasStartedEngine, now.timeIntervalSince(lastMetadataFetch) >= (sleepRetryStarted == nil ? 30 : 5) { fetchMetadata() }
         evaluateSleep(now: now)
         evaluateSchedule()
+        refreshHomeWidgets()
         if !hasStartedEngine && !sleepActive && scheduledAt == nil && reconnectStarted == nil {
             ticker?.invalidate(); ticker = nil
         }
@@ -1234,6 +1251,7 @@ import UIKit
     }
     private func refreshSystemSurfaces() {
         nowPlaying.update(item: currentItem, artwork: artwork, playing: isAudible)
+        refreshHomeWidgets()
         #if MODERN
         let surfaceStatus: String?
         switch state {
@@ -1246,6 +1264,14 @@ import UIKit
                             requested: isPlaying, status: surfaceStatus, visible: hasStartedEngine)
         #endif
         NotificationCenter.default.post(name: .kuscPlaybackChanged, object: self)
+    }
+
+    private func refreshHomeWidgets() {
+        #if DEBUG
+        guard !isUIFixture else { return }
+        #endif
+        homeWidgets.update(item: currentItem, programme: programmeName, host: hostName,
+                           artwork: artwork, requested: isPlaying)
     }
 
     private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {

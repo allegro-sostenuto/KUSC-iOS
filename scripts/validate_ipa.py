@@ -129,7 +129,7 @@ def inspect_library(data, name, minimum):
     return signed_slices
 
 
-def check_signature(data, name, allow_apple_vendor=False):
+def check_signature(data, name, allow_apple_vendor=False, expected_group=None):
     """Permit ad-hoc signatures, or Apple-anchored signatures on vendor libraries."""
     require(sys.platform == 'darwin', f'{name}: signature present; macOS codesign is required to audit it')
     with tempfile.TemporaryDirectory(prefix='kusc-signature-') as temp:
@@ -149,13 +149,21 @@ def check_signature(data, name, allow_apple_vendor=False):
         for line in details.splitlines():
             if line.startswith('TeamIdentifier='):
                 require(line == 'TeamIdentifier=not set', f'{name}: contains an Apple Team identifier')
+        if expected_group is not None:
+            result = subprocess.run(['/usr/bin/codesign', '-d', '--entitlements', ':-', str(path)], capture_output=True)
+            require(result.returncode == 0, f'{name}: cannot read widget App Group entitlements')
+            entitlements = plistlib.loads(result.stdout)
+            require(entitlements == {'com.apple.security.application-groups': [expected_group]},
+                    f'{name}: expected only the matching widget App Group capability')
 
 
 def validate(path, scheme, prefix):
     minimum = (16, 0, 0) if scheme == 'KUSC-SE' else (26, 0, 0)
     bundle_id = prefix + ('.classic' if scheme == 'KUSC-SE' else '.modern')
     root = f'Payload/{scheme}.app'
-    expected_extensions = [] if scheme == 'KUSC-SE' else [f'{root}/PlugIns/KUSCLiveActivity.appex']
+    extension_name = 'KUSCWidgets' if scheme == 'KUSC-SE' else 'KUSCLiveActivity'
+    expected_extensions = [f'{root}/PlugIns/{extension_name}.appex']
+    expected_group = 'group.' + bundle_id + '.widgets'
     with zipfile.ZipFile(path) as archive:
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
@@ -181,9 +189,10 @@ def validate(path, scheme, prefix):
             info_path = bundle + '/Info.plist'
             require(info_path in names, f'Missing {info_path}')
             info = plistlib.loads(archive.read(info_path))
-            expected_id = bundle_id if bundle == root else bundle_id + '.activity'
+            expected_id = bundle_id if bundle == root else bundle_id + ('.widgets' if scheme == 'KUSC-SE' else '.activity')
             require(info.get('CFBundleIdentifier') == expected_id,
                     f'{bundle}: expected bundle identifier {expected_id}')
+            require(info.get('KUSCAppGroup') == expected_group, f'{bundle}: wrong widget App Group')
             require(info.get('CFBundleSupportedPlatforms') == ['iPhoneOS'],
                     f'{bundle}: CFBundleSupportedPlatforms must be iPhoneOS')
             require(version(info.get('MinimumOSVersion', '0')) == minimum,
@@ -212,6 +221,7 @@ def validate(path, scheme, prefix):
                     f'{binary}: archive lost executable permission')
             data = archive.read(binary)
             min_os, signed = inspect_macho(data, binary)
+            require(signed, f'{binary}: missing ad-hoc widget App Group entitlements')
             require(min_os == minimum, f'{binary}: executable deployment target differs from Info.plist')
             binaries[binary] = (data, signed)
 
@@ -228,7 +238,7 @@ def validate(path, scheme, prefix):
                 vendor_signatures.extend(inspect_library(data, entry.filename, minimum))
         for binary, (data, signed) in binaries.items():
             if signed:
-                check_signature(data, binary)
+                check_signature(data, binary, expected_group=expected_group)
         for binary, data in vendor_signatures:
             check_signature(data, binary, allow_apple_vendor=True)
     print(f'PASS: {scheme}: arm64 iOS device IPA, minimum iOS {minimum[0]}.0, '

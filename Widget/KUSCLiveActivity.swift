@@ -5,7 +5,13 @@ import SwiftUI
 import UIKit
 
 @main struct KUSCLiveActivityBundle: WidgetBundle {
-    var body: some Widget { KUSCLiveActivity() }
+    var body: some Widget {
+        KUSCPlaybackWidget()
+        KUSCArtworkWidget()
+        KUSCDetailsWidget()
+        KUSCEverythingWidget()
+        KUSCLiveActivity()
+    }
 }
 struct KUSCLiveActivity: Widget {
     var body: some WidgetConfiguration {

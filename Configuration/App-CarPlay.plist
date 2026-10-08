@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>KUSCAppGroup</key>
+    <string>group.$(KUSC_BUNDLE_PREFIX).$(KUSC_PROFILE).widgets</string>
+    <key>KUSCURLScheme</key>
+    <string>kusc-$(KUSC_PROFILE)</string>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLSchemes</key><array><string>kusc-$(KUSC_PROFILE)</string></array>
+        <key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER).playback</string>
+    </dict></array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
