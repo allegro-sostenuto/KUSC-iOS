@@ -19,7 +19,7 @@ Check **Settings → General → About** for the phone model and iOS version. Th
 
 **AltStore has its own OS requirement.** Current AltStore Classic 2.3 requires iOS 17.4 or later. For an SE still on iOS 16–17.3, current AltServer's documented compatibility selection downloads the latest compatible older AltStore release. Its availability and successful install must be checked on that phone; the current 2.3 IPA cannot be installed by ignoring its minimum OS. KUSC-SE itself retains the requested iOS 16 minimum. [AltStore release notes](https://faq.altstore.io/release-notes/altstore), [AltServer compatibility selection](https://faq.altstore.io/release-notes/altserver).
 
-The SE package has no custom Dynamic Island extension. The iPhone 17 package includes one Live Activity extension. Both contain the same player core. Neither CI artifact includes the restricted full CarPlay app.
+Both packages include one Home Screen widget extension. The iPhone 17 extension also provides the Live Activity and Dynamic Island presentation. Both contain the same player core. Neither CI artifact includes the restricted full CarPlay app.
 
 ## 2. Put the source in a public GitHub repository
 
@@ -52,7 +52,7 @@ Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this rout
 4. Open the successful run's summary and download the artifact matching the phone from the table above. Artifact download may require signing into GitHub. [GitHub artifact downloads](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/downloading-workflow-artifacts).
 5. Extract the downloaded artifact ZIP. The resulting `.ipa` is the file imported into AltStore. Keep a local copy; Actions artifacts in this workflow expire after 14 days.
 
-The supplied workflow uses standard `macos-26`, an explicitly selected Xcode 26 installation, shared `KUSC-SE` / `KUSC-17` schemes, Release configuration, and **`generic/platform=iOS`**. The build is a device binary, not a simulator app. Apple signing is disabled. Packaging checks verify the app/extension structure, device architecture/platform, deployment versions, and absence of provisioning material before artifact upload.
+The supplied workflow uses standard `macos-26`, an explicitly selected Xcode 26 installation, shared `KUSC-SE` / `KUSC-17` schemes, Release configuration, and **`generic/platform=iOS`**. The build is a device binary, not a simulator app. Apple identity signing is disabled; packaging adds an identity-free ad-hoc signature carrying the widget App Group entitlement for AltStore. Checks verify the app/extension structure, matching group, device architecture/platform, deployment versions, and absence of provisioning material before artifact upload.
 
 The workflow runs only for public repositories. It excludes CarPlay schemes and contains no weekly schedule. GitHub rebuilds are needed after source changes or when an artifact needs to be regenerated; seven-day signing renewal happens through AltStore. Keep the standard runner label; larger runners are billed separately. [GitHub billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
@@ -84,18 +84,18 @@ Use the current Windows AltServer release, particularly on recent iOS 26 version
 5. Confirm audio, lock-screen Play/Pause, background playback, rotation, and the in-app Live button. The buffer defaults to zero; its wheel setting is under the top-right gear.
 6. Run **Refresh All** once while AltServer is reachable. Installation alone does not prove that refresh works.
 
-Use the SE IPA even if the SE is updated to a newer supported iOS version. It does not need the iPhone 17 extension. The original 2016 SE remains unsupported.
+Use the SE IPA even if the SE is updated to a newer supported iOS version. Keep its widget extension. On iOS 16, widget controls open the app; on iOS 17 and later they operate from the Home Screen. The original 2016 SE remains unsupported.
 
 ## 6. Install on iPhone 17
 
 1. Complete AltServer setup for the iPhone 17 on iOS 26 or later.
 2. Download and extract `KUSC-17-unsigned-ipa`, then place **`KUSC-17-unsigned.ipa`** in Files.
 3. With AltServer reachable, open **AltStore Classic → My Apps → +**, select the IPA, and install it.
-4. If AltStore offers to remove app extensions, **keep the Live Activity extension**. Removing it removes the custom Dynamic Island presentation. This build uses one app App ID plus one extension App ID; AltStore's own registrations and other apps also consume the account's quota. [AltStore App ID accounting](https://faq.altstore.io/altstore-classic/app-ids).
+4. If AltStore offers to remove app extensions, **keep the widget extension**. Removing it removes the Home Screen widgets and, on the iPhone 17 build, the custom Dynamic Island presentation. Each build uses one app App ID plus one extension App ID; AltStore's own registrations and other apps also consume the account's quota. [AltStore App ID accounting](https://faq.altstore.io/altstore-classic/app-ids).
 5. Open KUSC and start playback in the foreground. Allow Live Activities in the phone's KUSC settings if offered. Inspect the compact and expanded activity, then test Play/Pause and Live. Its exact placement and lifetime remain controlled by iOS.
 6. Run **Refresh All** once and verify that both AltStore and KUSC receive renewed expiration dates.
 
-The local Live Activity does not use APNs, an App Group, or a CarPlay entitlement. Free signing has no identified restricted-entitlement blocker in this source configuration; successful provisioning and widget behavior still need an actual installation. System media controls continue working independently of the custom activity. Platform limits are documented in [platform_limits.md](docs/platform_limits.md).
+The Home Screen widgets use an App Group shared with their containing app; AltStore provisions and re-signs both bundles. After installation, open KUSC once, then add any of the four entries from the Home Screen widget gallery. The Live Activity still uses local updates without APNs. Verify transport controls and metadata sharing on the installed phone, including after AltStore refresh. System media controls continue working independently. Widget details and device checks are in [home_screen_widgets.md](docs/home_screen_widgets.md).
 
 ## 7. Keep the existing build refreshed
 

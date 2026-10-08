@@ -91,6 +91,6 @@ No source review or unit-test result substitutes for these device checks.
 
 ## Free Windows/AltStore installation
 
-The ordinary app schemes contain no restricted entitlements. The public-repository GitHub workflow builds those two schemes unsigned, for subsequent AltStore signing; it excludes the optional CarPlay targets. The local Live Activity remains included and adds one extension App ID to the modern build. No App Groups or remote push capability is requested.
+The ordinary app schemes exclude the restricted CarPlay entitlement. Each embeds one Home Screen widget extension; the modern extension also hosts the local Live Activity. An App Group shares metadata and artwork with the matching app. CI packages an identity-free ad-hoc signature preserving that group capability for subsequent AltStore provisioning and signing. No remote push capability is requested. See [widget implementation and installation checks](home_screen_widgets.md).
 
 Seven-day renewal remains mandatory, with best-effort background refresh. Current AltStore Classic's minimum OS is separate from KUSC-SE's iOS 16 deployment target. See [the installation guide](../installation_guides.md) and [the current viability audit](windows_workflow_review.md) for the compatibility and signing details.
