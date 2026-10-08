@@ -19,6 +19,17 @@ Both app profiles embed one extension. The modern extension also hosts the exist
 
 ## Validation
 
+[Build 31](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37752808811) passed on October 8, 2026, from source `121b800016f8635c55002cf3c4815ed567775d09`, using Xcode 26.6 (17F113) and the iOS 26.5 SDK. Both device packages passed; 120 portable tests, 24 native audio tests, and 187 hosted plus nine UI tests per simulator profile passed. Both simulator profiles produced 41 validated native captures, including ten widget captures apiece. The widget intent metadata is present in both the app and extension binaries. This evidence does not replace the phone checks below.
+
+Verified IPA SHA-256:
+
+| Package | SHA-256 |
+| --- | --- |
+| KUSC-17 | `d0e4513f81759bee7280ce03e208d12be125945fa37c45e462d570a896235ac2` |
+| KUSC-SE | `ddc0ae19810e5f65dbaeb6d06c95bbd02149743fe692c4bbcfc37742bed6b633` |
+
+Artifact ZIP digests and local IPA checksums were verified. Windows checks cover the package structure, matching App Group identifiers, app/extension versions and device Mach-O platform. The full signature and entitlement audit ran on macOS CI; it was not substituted with a Windows signature check.
+
 Automated checks cover snapshot round trips, corrupt-file fallback, bounded content, stale-state expiry, profile isolation, explicit intent behavior, scheduled-start preservation, and native view captures for all layouts in light/dark plus missing art and large text. Captures use the actual shared widget views inside a silent app fixture; they do not prove SpringBoard hosting or signed App Group access. Device builds validate the embedded extension, matching group entitlement, arm64 platform and absence of an owner signing identity.
 
 Phone acceptance:
