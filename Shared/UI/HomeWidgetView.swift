@@ -7,6 +7,8 @@ enum HomeWidgetLayout: String, CaseIterable {
     case artwork = "KUSCArtworkWidget"
     case details = "KUSCDetailsWidget"
     case everything = "KUSCEverythingWidget"
+    case artworkOnly = "KUSCArtworkOnlyWidget"
+    case detailsOnly = "KUSCDetailsOnlyWidget"
 }
 
 /// Shared with native layout fixtures so the captured views are the widget views.
@@ -23,6 +25,13 @@ struct HomeWidgetView: View {
     var body: some View {
         Group {
             switch layout {
+            case .artworkOnly:
+                albumArtwork(cornerRadius: 0, outlined: false).ignoresSafeArea()
+            case .detailsOnly:
+                ViewThatFits(in: .vertical) {
+                    details(large: false)
+                    details(large: false).dynamicTypeSize(.large)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             case .playback:
                 GeometryReader { proxy in
                     control(size: min(proxy.size.width, proxy.size.height) * 0.78)
@@ -67,7 +76,7 @@ struct HomeWidgetView: View {
         }
         .foregroundStyle(ink)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .modifier(HomeWidgetBackground())
+        .modifier(HomeWidgetBackground(edgeToEdge: layout == .artworkOnly))
     }
 
     private func details(large: Bool) -> some View {
@@ -87,6 +96,10 @@ struct HomeWidgetView: View {
     }
 
     private var cover: some View {
+        albumArtwork(cornerRadius: 12, outlined: true)
+    }
+
+    private func albumArtwork(cornerRadius: CGFloat, outlined: Bool) -> some View {
         GeometryReader { proxy in
             Group {
                 if let data = snapshot.artwork, let image = UIImage(data: data) {
@@ -96,8 +109,10 @@ struct HomeWidgetView: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(ink.opacity(0.22), lineWidth: 1) }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay {
+                if outlined { RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(ink.opacity(0.22), lineWidth: 1) }
+            }
         }.accessibilityLabel(snapshot.artwork == nil ? "Album artwork unavailable" : "Album artwork")
     }
 
@@ -124,10 +139,11 @@ struct HomeWidgetView: View {
 }
 
 private struct HomeWidgetBackground: ViewModifier {
+    var edgeToEdge = false
     @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
         let color: Color = colorScheme == .dark ? .black : .white
         if #available(iOS 17.0, *) { content.containerBackground(for: .widget) { color } }
-        else { content.padding(16).background(color) }
+        else { content.padding(edgeToEdge ? 0 : 16).background(color) }
     }
 }

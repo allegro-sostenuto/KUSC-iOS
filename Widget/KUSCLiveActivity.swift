@@ -6,10 +6,8 @@ import UIKit
 
 @main struct KUSCLiveActivityBundle: WidgetBundle {
     var body: some Widget {
-        KUSCPlaybackWidget()
-        KUSCArtworkWidget()
-        KUSCDetailsWidget()
-        KUSCEverythingWidget()
+        KUSCControlWidgets().body
+        KUSCDisplayWidgets().body
         KUSCLiveActivity()
     }
 }

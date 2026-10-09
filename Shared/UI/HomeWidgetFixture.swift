@@ -5,6 +5,8 @@ import UIKit
 struct HomeWidgetFixture: View {
     let state: String
     private var layout: HomeWidgetLayout {
+        if state.contains("artwork-only") { return .artworkOnly }
+        if state.contains("details-only") { return .detailsOnly }
         if state.contains("artwork") { return .artwork }
         if state.contains("details") { return .details }
         if state.contains("everything") { return .everything }
@@ -34,8 +36,9 @@ struct HomeWidgetFixture: View {
             VStack(spacing: 24) {
                 Text("Widget layout fixture").font(.headline)
                 HomeWidgetView(snapshot: snapshot, date: Date(), layout: layout)
-                    .padding(16)
-                    .frame(width: layout == .playback ? small : width, height: height)
+                    .padding(layout == .artworkOnly ? 0 : 16)
+                    .frame(width: layout == .playback || layout == .artworkOnly ? small : width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
                     .background(dark ? Color.black : .white, in: RoundedRectangle(cornerRadius: 24))
                     .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(dark ? Color.white.opacity(0.3) : .black.opacity(0.2)) }
                 Text("Native widget view · synthetic metadata\nHome Screen installation is tested separately.")

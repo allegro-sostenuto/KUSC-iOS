@@ -95,7 +95,7 @@ Use the SE IPA even if the SE is updated to a newer supported iOS version. Keep 
 5. Open KUSC and start playback in the foreground. Allow Live Activities in the phone's KUSC settings if offered. Inspect the compact and expanded activity, then test Play/Pause and Live. Its exact placement and lifetime remain controlled by iOS.
 6. Run **Refresh All** once and verify that both AltStore and KUSC receive renewed expiration dates.
 
-The Home Screen widgets use an App Group shared with their containing app; AltStore provisions and re-signs both bundles. After installation, open KUSC once, then add any of the four entries from the Home Screen widget gallery. The Live Activity still uses local updates without APNs. Verify transport controls and metadata sharing on the installed phone, including after AltStore refresh. System media controls continue working independently. Widget details and device checks are in [home_screen_widgets.md](docs/home_screen_widgets.md).
+The Home Screen widgets use an App Group shared with their containing app; AltStore provisions and re-signs both bundles. After installation, open KUSC once, then add any of the six entries from the Home Screen widget gallery. The Live Activity still uses local updates without APNs. Verify transport controls and metadata sharing on the installed phone, including after AltStore refresh. System media controls continue working independently. Widget details and device checks are in [home_screen_widgets.md](docs/home_screen_widgets.md).
 
 ## 7. Keep the existing build refreshed
 

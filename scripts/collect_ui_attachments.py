@@ -19,6 +19,8 @@ CAPTURES = {
     "widget-playback", "widget-playback-dark", "widget-artwork", "widget-artwork-dark",
     "widget-details", "widget-details-dark", "widget-everything", "widget-everything-dark",
     "widget-everything-empty", "widget-details-large-text",
+    "widget-artwork-only", "widget-artwork-only-dark", "widget-artwork-only-empty",
+    "widget-details-only", "widget-details-only-dark", "widget-details-only-large-text",
 }
 
 

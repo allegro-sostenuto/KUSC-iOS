@@ -60,13 +60,45 @@ struct KUSCEverythingWidget: Widget {
     }
 }
 
-#if !MODERN
-@main struct KUSCHomeWidgetBundle: WidgetBundle {
+struct KUSCArtworkOnlyWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: HomeWidgetLayout.artworkOnly.rawValue, provider: KUSCWidgetProvider()) {
+            HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .artworkOnly)
+        }.configurationDisplayName("Album Art Only").description("Just the album cover, without playback controls.")
+            .supportedFamilies([.systemSmall])
+            .contentMarginsDisabled()
+    }
+}
+struct KUSCDetailsOnlyWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: HomeWidgetLayout.detailsOnly.rawValue, provider: KUSCWidgetProvider()) {
+            HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .detailsOnly)
+        }.configurationDisplayName("Music Details Only").description("Work, movement, composer and performers, without playback controls.")
+            .supportedFamilies([.systemMedium])
+    }
+}
+
+struct KUSCControlWidgets: WidgetBundle {
     var body: some Widget {
         KUSCPlaybackWidget()
         KUSCArtworkWidget()
         KUSCDetailsWidget()
         KUSCEverythingWidget()
+    }
+}
+
+struct KUSCDisplayWidgets: WidgetBundle {
+    var body: some Widget {
+        KUSCArtworkOnlyWidget()
+        KUSCDetailsOnlyWidget()
+    }
+}
+
+#if !MODERN
+@main struct KUSCHomeWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        KUSCControlWidgets().body
+        KUSCDisplayWidgets().body
     }
 }
 #endif

@@ -32,12 +32,14 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true)
         ]
         var regularSheetTitleHeights: [String: CGFloat] = [:]
-        for layout in ["playback", "artwork", "details", "everything"] {
+        for layout in ["playback", "artwork", "details", "everything", "artwork-only", "details-only"] {
             fixtures.append(CaptureFixture(name: "widget-" + layout, state: "widget-" + layout))
             fixtures.append(CaptureFixture(name: "widget-" + layout + "-dark", state: "widget-" + layout, dark: true))
         }
         fixtures.append(CaptureFixture(name: "widget-everything-empty", state: "widget-everything-empty"))
         fixtures.append(CaptureFixture(name: "widget-details-large-text", state: "widget-details", largeText: true))
+        fixtures.append(CaptureFixture(name: "widget-artwork-only-empty", state: "widget-artwork-only-empty", dark: true))
+        fixtures.append(CaptureFixture(name: "widget-details-only-large-text", state: "widget-details-only", largeText: true))
         for fixture in fixtures {
             XCTContext.runActivity(named: "Capture " + fixture.name) { _ in
                 let app = startFixture(fixture)
@@ -52,8 +54,13 @@ final class PlayerInteractionTests: XCTestCase {
                                   "The work title must remain visible below artwork at accessibility text sizes.")
                 }
                 if fixture.state.hasPrefix("widget-") {
-                    let label = fixture.state.contains("empty") ? "Play KUSC" : "Pause KUSC"
-                    XCTAssertTrue(app.buttons[label].isHittable, "Widget playback control must remain reachable")
+                    if fixture.state.contains("-only") {
+                        XCTAssertFalse(app.buttons["Play KUSC"].exists)
+                        XCTAssertFalse(app.buttons["Pause KUSC"].exists)
+                    } else {
+                        let label = fixture.state.contains("empty") ? "Play KUSC" : "Pause KUSC"
+                        XCTAssertTrue(app.buttons[label].isHittable, "Widget playback control must remain reachable")
+                    }
                     XCTAssertFalse(app.buttons["Live"].exists)
                 }
                 if fixture.state == "sleep" {
