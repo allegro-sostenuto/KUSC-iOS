@@ -97,14 +97,15 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentSchedulePowerControlsKeepSafeguardAndExposeDeletionRule() {
+    func testPersistentSchedulePowerControlsKeepSafeguardAndExposeExpiryRule() {
         let app = launchFixture("schedule-power")
         defer { app.terminate() }
         let persistent = app.switches["scheduled-battery-only"]
         XCTAssertEqual(persistent.value as? String, "1")
         XCTAssertEqual(app.switches["scheduled-allow-battery"].value as? String, "1")
         XCTAssertFalse(app.switches["scheduled-allow-battery"].isEnabled)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "delete this scheduled start")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@",
+            "10 minutes after the selected time", "Delete it here to cancel sooner")).firstMatch.exists)
         let threshold = app.descendants(matching: .any).matching(identifier: "scheduled-battery-threshold").firstMatch
         for _ in 0..<3 {
             if threshold.isHittable { break }
