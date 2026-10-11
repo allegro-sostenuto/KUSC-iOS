@@ -94,6 +94,7 @@ final class RollingAudioEngine {
     private var seekTargetDate: Date?
     private var cursor = ConfirmedPlaybackCursor()
     private var directMetadataClock = DirectMetadataClock()
+    private weak var metadataPlayerItem: AVPlayerItem?
     private var liveClock = LivePlaybackClock()
     private var advertisedEdge: Date?
     private var lastAcquisitionUptime: TimeInterval?
@@ -425,6 +426,10 @@ final class RollingAudioEngine {
     private func observeCurrentItem() {
         itemObservation = nil
         guard let item = player?.currentItem else { return }
+        if metadataPlayerItem !== item {
+            metadataPlayerItem = item
+            directMetadataClock = DirectMetadataClock()
+        }
         let activeGeneration = generation
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in

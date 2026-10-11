@@ -709,10 +709,11 @@ import UIKit
     private func ensureTicker() {
         if isScheduleTesting { return }
         guard ticker == nil else { return }
-        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
         ticker?.tolerance = 0.2
+        if let ticker { RunLoop.main.add(ticker, forMode: .common) }
     }
 
     private func tick() {
