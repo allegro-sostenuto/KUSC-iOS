@@ -13,7 +13,9 @@ Six separate gallery entries provide layouts with and without playback controls:
 
 No Home Screen widget contains Live. The existing Live Activity retains its controls. Dark backgrounds and button fills are black, with outlines for separation. The system can apply its own tinted or clear Home Screen appearance.
 
-The app publishes its heard-item metadata, transport intent and a JPEG thumbnail as one atomic App Group file. This includes delayed playback; the extension does not fetch an independent live title. Content changes reload all six kinds. While playback is requested, a 30-second heartbeat renews the snapshot; a timeline entry expires its playing flag after two minutes without renewal. WidgetKit controls actual delivery, so this is a stale-state mitigation rather than a real-time guarantee. Paused widgets retain the last heard metadata.
+The app publishes its heard-item metadata, transport intent and a JPEG thumbnail as one atomic App Group file. This includes delayed playback; the extension does not fetch an independent live title. Content changes request reloads of all six kinds immediately. While playback is requested, a 10-second heartbeat renews the snapshot and the provider requests another read after 15 seconds; a timeline entry expires its playing flag after two minutes without renewal. [WidgetKit controls actual delivery](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date), so this is a stale-state mitigation rather than a real-time guarantee. Paused widgets retain the last heard metadata.
+
+The app polls current station metadata every five seconds and publishes it before slower day-history requests finish. Direct playback advances a metadata-only clock from media time when programme dates disappear or freeze; absent any station date, it starts with an approximate live wall-clock anchor. Rewound audio always uses its retained audio position. Corrected inline artwork receives a new cache URL, and failed artwork loads can retry. Station publication delay and WidgetKit scheduling still affect visible timing.
 
 On iOS 17 and later, an `AudioPlaybackIntent` invokes the same explicit Play/Pause methods as the player, persists the updated snapshot before returning, and does not open the player interface. Repeated Play and repeated Pause keep their stated meaning even when another widget is stale. Pausing preserves scheduled starts and uses existing interruption recovery policy. On iOS 16, a widget link opens the corresponding app profile to apply that action. A widget Pause received during cold launch suppresses launch autoplay.
 
@@ -21,14 +23,14 @@ Both app profiles embed one extension. The modern extension also hosts the exist
 
 ## Validation
 
-[Build 32](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37881807342) passed on October 9, 2026, from source `69fe78add5e79dcbbf7e791a7f08e297a17acdae`, using Xcode 26.6 (17F113) and the iOS 26.5 SDK. Both device packages passed; 120 portable tests, 24 native audio tests, and 187 hosted plus nine UI tests per simulator profile passed. Both simulator profiles produced 47 validated native captures, including sixteen widget captures apiece. All six Home Screen widget types are linked into both packaged extensions. This evidence does not replace the phone checks below.
+[Build 35](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/38157185728) passed on October 12, 2026 (Asia/Shanghai), from source `5f59da3b6702f547bbca7e0bf0a86181d2529257`, using Xcode 26.6 (17F113) and the iOS 26.5 SDK. Both device packages passed; 123 portable tests, 25 native audio tests, and 198 hosted plus nine UI tests per simulator profile passed. Both simulator profiles produced 47 validated native captures, including sixteen widget captures apiece. This evidence does not replace the phone checks below.
 
 Verified IPA SHA-256:
 
 | Package | SHA-256 |
 | --- | --- |
-| KUSC-17 | `16b24721f9b282c2e6bc2c7bbbf57f2d1bc0f099ca8ea89c4ed43b95999aad58` |
-| KUSC-SE | `c039fab25c8308e8217cd1600e4c4547d4d802c8bf04aef67412b1cf2ec4ca00` |
+| KUSC-17 | `ad115c282cbadcaf3a0e317046c94246c30c952078164057ac75a513497cd1fa` |
+| KUSC-SE | `ecac5116013d1500c3d2ad3381abb816d2f16fb20e40ef5535d026703261d8f2` |
 
 Artifact ZIP digests and local IPA checksums were verified. Windows checks cover the package structure, matching App Group identifiers, app/extension versions and device Mach-O platform. The full signature and entitlement audit ran on macOS CI; it was not substituted with a Windows signature check.
 

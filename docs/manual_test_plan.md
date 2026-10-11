@@ -158,3 +158,13 @@ Installation/runtime entries below are **Not run**. CI results apply only to the
 | CarPlay boundary | Ordinary IPAs do not claim provisioned custom CarPlay templates | Not run |
 
 One successful background renewal is evidence of that event only; it does not establish guaranteed future renewal.
+
+## October 12 scheduled-start and metadata follow-up
+
+These physical checks remain unrun; automated policy, coordinator and native player-volume tests cover the corresponding code paths.
+
+1. Set a start two minutes ahead on Always speaker. Keep system volume fixed. At the target, audio should rise gradually over a full minute from its first ready playback. Repeat with a selected output, then with Rolling buffer Off and five minutes. Also repeat with the phone locked.
+2. To test delay, temporarily disconnect network around the target and restore it within the ten-minute grace period. Once audio becomes ready, it must still get all 60 seconds of fade. A late fade that crosses the grace deadline must finish normally.
+3. Leave a successful start playing until ten minutes after its target. Its schedule entry and scheduled-start status should disappear while audio continues. Repeat with a failed start and reopen after eleven minutes: the request must be gone and must not launch a new scheduled fade. Pause must still pause current audio.
+4. Observe an actual piece transition with the app open, then check the Home Screen widgets. Rewind across a known piece boundary: both must follow the heard piece, including artwork, and return to current metadata at Live. The app polls the station every five seconds; station publication and WidgetKit delivery can add delay.
+5. If the fade still jumps, start Playback Diagnostics before the target and copy the report after the jump. Record whether the phone was locked, the output, buffer setting and approximate time. The report includes schedule phase transitions and the gain delivered to the engine.

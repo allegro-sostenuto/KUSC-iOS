@@ -1,10 +1,18 @@
-# Scheduled-start update — 5 October 2026
+# Scheduled-start updates — 5–12 October 2026
 
-Build **29**, source `b5097ffd01dc8da3a5565fe4eb4cc14dd32f64ae`, passes [the CI workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37312008040). This revision follows the owner's build 26 reports about stale interruption state, silent standby stopping other apps, and pulsing dark-menu text.
+The original build **29**, source `b5097ffd01dc8da3a5565fe4eb4cc14dd32f64ae`, passed [its CI workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37312008040) after the owner's reports about stale interruption state, silent standby stopping other apps, and pulsing dark-menu text. The current follow-up is **build 35**, described below.
+
+## October 12 follow-up verification
+
+[Build 35](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/38157185728), source `5f59da3b6702f547bbca7e0bf0a86181d2529257`, passes both device packages, 123 portable tests, 25 focused native audio tests, and 198 hosted plus nine UI tests on each simulator profile. Each profile produces 47 validated captures. The regression tests exercise all output modes with delayed readiness, the full minute at the real AVPlayer/sample-buffer volume boundary, expiry while waiting/paused/playing/fading, completed-request relaunch, and the retained battery safeguard. Metadata tests cover missing/frozen programme dates, slow day-history responses, HTTP cache bypass and corrected inline artwork. Both downloaded IPAs match their artifact digests and embedded source revision; hashes are in [the widget/package report](home_screen_widgets.md).
+
+Build 34 passed the same production tests but failed one UI assertion per profile that still expected the obsolete manual-deletion wording. Build 35 changes that assertion to verify both automatic expiry and earlier deletion; the production source is unchanged from build 34. The audible phone fade and live WidgetKit delivery remain physical checks in [the test plan](manual_test_plan.md#october-12-scheduled-start-and-metadata-follow-up).
 
 ## Playback and scheduling
 
-Silent standby and the final minute of muted station preparation allow other apps to play. At the selected time, KUSC takes audio focus, applies the output policy, and fades in over ten seconds. The fade now starts at the selected time so that preparing KUSC does not stop another app early.
+Silent standby and the final minute of muted station preparation allow other apps to play. The October 11 follow-up extends the audible fade to a full 60 seconds, starting only after the selected time, session takeover, and fresh playback readiness. Late readiness receives the full minute as well; silent preparation cannot consume the fade.
+
+Requests now expire ten minutes after the selected time, including failed, notification-only and paused requests. Successful audio keeps playing; its battery safeguard and any remaining fade continue for that session. A request already consumed by playback is removed on process relaunch instead of automatically replaying. Waiting/stalled audio no longer keeps the “fading in” label. Expired notification taps cannot revive a request.
 
 | Mode | Automatic playback |
 |---|---|
@@ -17,7 +25,7 @@ Silent standby and the final minute of muted station preparation allow other app
 
 **Allow while unplugged** enables standby and scheduled playback on battery. Battery protection starts only while both unplugged and below X%. It stops after Y continuous minutes in that condition. Charging or recovery to the threshold resets the countdown; unknown readings restart observation. X cannot be below 25%. Y is adjustable from **1 to 20 minutes**, with 20 as the maximum and default; previously saved longer delays are clamped to 20. The timer uses monotonic uptime and remains active after automatic playback reaches normal volume.
 
-The speaker-only **Ignore everything except battery** option enables battery operation and retains the schedule through sleep timers, output changes, session interruptions and network failures. Manual Pause still wins. Explicit cancellation uses **Delete Scheduled Start**; battery protection may stop audio while leaving the request visible. Notification permission failure does not disarm this mode.
+The speaker-only **Ignore everything except battery** option enables battery operation and retains the schedule through sleep timers, output changes, session interruptions and network failures within its ten-minute grace window. Manual Pause still wins. Explicit early cancellation uses **Delete Scheduled Start**; the request clears automatically at expiry. Battery protection continues for audio it started. Notification permission failure does not disarm this mode.
 
 ## Reminder and menu
 
@@ -25,7 +33,7 @@ A reminder is requested two minutes before the start. Starts less than two minut
 
 The More button keeps one native UIKit menu while playback publishes updates, with a stable appearance and tint. Dark controls and cards remain pure black with borders. The native menu's text brightness has a temporal simulator check, alongside navigation to the delete button.
 
-## Verification
+## Original build 29 verification
 
 Xcode 26.6 (17F113), iPhoneOS SDK 26.5:
 
@@ -51,4 +59,4 @@ The added regression cases cover immediate manual Play, five-second retries and 
 
 Follow the October checklist in [manual_test_plan.md](manual_test_plan.md). Start with these reported failures: play another app before the target, disconnect headphones then press Play, pause before/after the target, and open the dark More menu during playback. For the reminder, schedule three minutes ahead and test its banner/action from a locked phone, another sheet, and a cold launch. Delete must remain a separate deliberate action.
 
-Real headphone, Bluetooth, USB/wired and AirPlay routing, audible fades, locked/background behavior, notification delivery and battery timing still require the owner's iPhone. iOS controls session availability and process execution: force-quit, termination, reboot or a powered-off phone prevent a guaranteed automatic start. A retained persistent request can recover when KUSC is relaunched, respecting its saved manual pause; battery observation restarts after process death. See [platform_limits.md](platform_limits.md).
+Real headphone, Bluetooth, USB/wired and AirPlay routing, audible fades, locked/background behavior, notification delivery and battery timing still require the owner's iPhone. iOS controls session availability and process execution: force-quit, termination, reboot or a powered-off phone prevent a guaranteed automatic start. An unconsumed persistent request can recover on relaunch only within its ten-minute grace window, respecting its saved manual pause; battery observation restarts after process death. Consumed and expired requests cannot restart. See [platform_limits.md](platform_limits.md).
