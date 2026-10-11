@@ -29,6 +29,7 @@ import Combine
 struct EngineSnapshot {
     let isPlaying: Bool
     let heardAt: Date
+    let metadataAt: Date?
     let window: BufferWindow?
     let isReady: Bool
     let live: Date
@@ -92,6 +93,7 @@ final class RollingAudioEngine {
     private var isSeeking = false
     private var seekTargetDate: Date?
     private var cursor = ConfirmedPlaybackCursor()
+    private var directMetadataClock = DirectMetadataClock()
     private var liveClock = LivePlaybackClock()
     private var advertisedEdge: Date?
     private var lastAcquisitionUptime: TimeInterval?
@@ -116,6 +118,7 @@ final class RollingAudioEngine {
 
     #if DEBUG
     var transportSessionForTesting: UUID { generation }
+    var backendVolumeForTesting: Float? { bufferedPlayer?.volume ?? player?.volume }
     var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
     /// Native XCTest fixture: exercise pending-seek ownership without fetching
     /// the station or requiring an AAC decoder to finish an asynchronous seek.
@@ -602,10 +605,16 @@ final class RollingAudioEngine {
         let sample = transportClock.sample
         let live = sample.window?.live ?? sample.heardAt ?? Date()
         let playing = shouldPlay && !transportIsSeeking && transportIsPlaying
+        let metadataAt: Date?
+        if bufferedPlayer != nil { metadataAt = sample.heardAt }
+        else {
+            metadataAt = directMetadataClock.update(station: player?.currentItem?.currentDate(),
+                seconds: player?.currentTime().seconds ?? .nan, now: Date(), advancing: playing)
+        }
         let downloaded = segments.last?.end
         let lag = advertisedEdge.flatMap { advertised in downloaded.map { max(0, advertised.timeIntervalSince($0)) } }
         onUpdate?(EngineSnapshot(isPlaying: playing,
-                                 heardAt: sample.heardAt ?? live, window: sample.window,
+                                 heardAt: sample.heardAt ?? live, metadataAt: metadataAt, window: sample.window,
                                  isReady: transportIsReady,
                                  live: live, hasAudio: transportHasAudio,
                                  isAtLiveEdge: sample.isAtLiveEdge,
@@ -689,6 +698,7 @@ final class RollingAudioEngine {
         isSeeking = false
         seekTargetDate = nil
         cursor = ConfirmedPlaybackCursor()
+        directMetadataClock = DirectMetadataClock()
         liveClock = LivePlaybackClock()
         advertisedEdge = nil
         lastAcquisitionUptime = nil

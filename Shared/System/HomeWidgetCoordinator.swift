@@ -27,7 +27,7 @@ import WidgetKit
         // Publish on content changes and keep a short lease alive during audio.
         // This bounds a stale Pause button after the process is force-quit.
         if let last = lastSnapshot, snapshot.hasSameContent(as: last),
-           !requested || snapshot.updatedAt.timeIntervalSince(last.updatedAt) < 30 { return }
+           !requested || snapshot.updatedAt.timeIntervalSince(last.updatedAt) < 10 { return }
         do {
             try store.write(snapshot)
             lastSnapshot = snapshot

@@ -7,6 +7,26 @@ import XCTest
 @testable import KUSC_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testFullMinuteGainReachesBothNativeBackendsWithoutAFullVolumeStartup() async throws {
+        let engine = RollingAudioEngine()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-gain-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        let now = Date()
+        let envelope = ScheduledGainEnvelope(target: now.addingTimeInterval(-300), readyAt: now, uptime: 100)
+        for buffered in [false, true] {
+            engine.volume = 0
+            if buffered { engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil) }
+            else { try await engine.start(url: files.segments[0], retentionMinutes: 0, playbackRequested: false) }
+            XCTAssertEqual(engine.backendVolumeForTesting, 0)
+            for elapsed in [0.0, 6.0, 30.0, 59.0, 60.0] {
+                engine.volume = envelope.gain(at: 100 + elapsed)
+                XCTAssertEqual(try XCTUnwrap(engine.backendVolumeForTesting), Float(elapsed / 60), accuracy: 0.0001)
+            }
+            engine.stop()
+        }
+    }
+
     private let source = URL(string: "https://example.invalid/kusc-test.m3u8")!
 
     private func fixedSegments(origin: Date, filenamePrefix: String) -> [AudioSegment] {

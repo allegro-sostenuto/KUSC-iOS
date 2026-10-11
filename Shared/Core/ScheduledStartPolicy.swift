@@ -141,8 +141,8 @@ public struct ScheduledGainEnvelope: Equatable {
     public let endUptime: TimeInterval
     public init(target: Date, readyAt: Date, uptime: TimeInterval) {
         let remaining = target.timeIntervalSince(readyAt)
-        startUptime = uptime + max(0, remaining - 10)
-        endUptime = remaining > 0 ? uptime + remaining : uptime + 10
+        startUptime = uptime + max(0, remaining)
+        endUptime = startUptime + 60
     }
     public func gain(at uptime: TimeInterval) -> Float {
         guard uptime > startUptime else { return 0 }
@@ -152,6 +152,9 @@ public struct ScheduledGainEnvelope: Equatable {
 }
 
 public enum ScheduledStartPolicy {
+    public static func hasExpired(target: Date, now: Date) -> Bool {
+        now >= target.addingTimeInterval(600)
+    }
     public static func shouldPrepare(target: Date, now: Date) -> Bool {
         now >= target.addingTimeInterval(-60)
     }

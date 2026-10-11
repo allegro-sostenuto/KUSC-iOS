@@ -112,38 +112,41 @@ final class ScheduleRegressionTests: XCTestCase {
         XCTAssertTrue(ScheduledStartPolicy.shouldPrepare(target: target, now: target.addingTimeInterval(-12)))
     }
 
-    func testOnTimeCapturedGainTraceHasFiftySilentSecondsAndTenSecondRamp() {
+    func testOnTimeCapturedGainTraceHasSilentPrerollAndFullMinuteRamp() {
         let envelope = ScheduledGainEnvelope(target: target, readyAt: target.addingTimeInterval(-60), uptime: 100)
-        let trace = (0...1800).map { envelope.gain(at: 100 + Double($0) / 30) }
-        XCTAssertTrue(trace.prefix(1501).allSatisfy { $0 == 0 })
-        XCTAssertGreaterThan(trace[1501], 0)
-        XCTAssertEqual(trace[1650], 0.5, accuracy: 0.0001)
-        XCTAssertEqual(trace[1800], 1)
-        XCTAssertGreaterThan(Set(trace.suffix(300)).count, 250, "The fade must not be a one-second staircase")
+        let trace = (0...3600).map { envelope.gain(at: 100 + Double($0) / 30) }
+        XCTAssertTrue(trace.prefix(1801).allSatisfy { $0 == 0 })
+        XCTAssertGreaterThan(trace[1801], 0)
+        XCTAssertEqual(trace[2700], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(trace[3600], 1)
+        XCTAssertGreaterThan(Set(trace.suffix(1800)).count, 1700, "The fade must not be a one-second staircase")
         XCTAssertTrue(zip(trace, trace.dropFirst()).allSatisfy { $0.0 <= $0.1 })
     }
 
-    func testShortLeadKeepsOriginalFadeAndTargetDeadlines() {
+    func testShortLeadStillWaitsForTargetThenFadesForOneMinute() {
         let envelope = ScheduledGainEnvelope(target: target, readyAt: target.addingTimeInterval(-20), uptime: 100)
         XCTAssertEqual(envelope.gain(at: 110), 0)
-        XCTAssertEqual(envelope.gain(at: 115), 0.5)
-        XCTAssertEqual(envelope.gain(at: 120), 1)
+        XCTAssertEqual(envelope.gain(at: 120), 0)
+        XCTAssertEqual(envelope.gain(at: 150), 0.5)
+        XCTAssertEqual(envelope.gain(at: 180), 1)
     }
 
-    func testReadinessInsideFadeStartsAtZeroAndUsesRemainingTime() {
+    func testFourSecondLeadCannotCompressTheFade() {
         let envelope = ScheduledGainEnvelope(target: target, readyAt: target.addingTimeInterval(-4), uptime: 100)
         XCTAssertEqual(envelope.gain(at: 100), 0)
-        XCTAssertEqual(envelope.gain(at: 102), 0.5)
-        XCTAssertEqual(envelope.gain(at: 104), 1)
+        XCTAssertEqual(envelope.gain(at: 104), 0)
+        XCTAssertEqual(envelope.gain(at: 134), 0.5)
+        XCTAssertEqual(envelope.gain(at: 164), 1)
     }
 
-    func testReadinessAtOrAfterTargetAndNotificationTapGetOnlyTenSecondFade() {
+    func testReadinessAtOrAfterTargetAlwaysGetsSixtySeconds() {
         for delay in [0.0, 1.0, 120.0, 3_600.0] {
             let envelope = ScheduledGainEnvelope(target: target, readyAt: target.addingTimeInterval(delay), uptime: 100)
             XCTAssertEqual(envelope.gain(at: 100), 0)
-            XCTAssertEqual(envelope.gain(at: 105), 0.5)
-            XCTAssertTrue(envelope.isComplete(at: 110))
-            XCTAssertEqual(envelope.gain(at: 110), 1)
+            XCTAssertEqual(envelope.gain(at: 130), 0.5)
+            XCTAssertFalse(envelope.isComplete(at: 159.999))
+            XCTAssertTrue(envelope.isComplete(at: 160))
+            XCTAssertEqual(envelope.gain(at: 160), 1)
         }
     }
 
@@ -151,11 +154,17 @@ final class ScheduleRegressionTests: XCTestCase {
         let envelope = ScheduledGainEnvelope(target: target, readyAt: target.addingTimeInterval(-5), uptime: 900)
         // The ready-to-target interval is anchored once. Later clock/time-zone
         // notifications do not replace this value while audio remains ready.
-        XCTAssertEqual(envelope.startUptime, 900)
-        XCTAssertEqual(envelope.endUptime, 905)
-        XCTAssertEqual(envelope.gain(at: 901), 0.2, accuracy: 0.0001)
-        XCTAssertEqual(envelope.gain(at: 904), 0.8, accuracy: 0.0001)
-        XCTAssertEqual(envelope.gain(at: 910), 1)
+        XCTAssertEqual(envelope.startUptime, 905)
+        XCTAssertEqual(envelope.endUptime, 965)
+        XCTAssertEqual(envelope.gain(at: 917), 0.2, accuracy: 0.0001)
+        XCTAssertEqual(envelope.gain(at: 953), 0.8, accuracy: 0.0001)
+        XCTAssertEqual(envelope.gain(at: 970), 1)
+    }
+
+    func testScheduleExpiresAtExactlyTenMinutes() {
+        XCTAssertFalse(ScheduledStartPolicy.hasExpired(target: target, now: target.addingTimeInterval(599.999)))
+        XCTAssertTrue(ScheduledStartPolicy.hasExpired(target: target, now: target.addingTimeInterval(600)))
+        XCTAssertTrue(ScheduledStartPolicy.hasExpired(target: target, now: target.addingTimeInterval(86_400)))
     }
 
     func testSleepAndPauseRemainAuthoritativeDuringScheduledFade() {

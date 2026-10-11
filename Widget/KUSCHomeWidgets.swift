@@ -22,7 +22,7 @@ struct KUSCWidgetProvider: TimelineProvider {
         if snapshot.playbackRequested && expires > now {
             entries.append(.init(date: expires, snapshot: snapshot))
         }
-        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(snapshot.requestingPlayback(at: now) ? 60 : 900))))
+        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(snapshot.requestingPlayback(at: now) ? 15 : 900))))
     }
 }
 

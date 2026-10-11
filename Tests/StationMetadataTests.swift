@@ -7,6 +7,63 @@ import XCTest
 #endif
 
 final class StationMetadataTests: XCTestCase {
+    func testDirectMetadataAdvancesWhenProgrammeDatesDisappearOrFreeze() {
+        let start = Date(timeIntervalSince1970: 1000)
+        var clock = DirectMetadataClock()
+        XCTAssertEqual(clock.update(station: start, seconds: 10, now: start, advancing: true), start)
+        XCTAssertEqual(clock.update(station: nil, seconds: 40, now: start.addingTimeInterval(600), advancing: true), start.addingTimeInterval(30))
+        XCTAssertEqual(clock.update(station: start, seconds: 70, now: start.addingTimeInterval(800), advancing: true), start.addingTimeInterval(60))
+        let corrected = start.addingTimeInterval(80)
+        XCTAssertEqual(clock.update(station: corrected, seconds: 71, now: corrected, advancing: true), corrected)
+    }
+
+    func testDirectMetadataWithoutDatesUsesMediaProgressAndHonorsPause() {
+        let start = Date(timeIntervalSince1970: 1000)
+        var clock = DirectMetadataClock()
+        XCTAssertNil(clock.update(station: nil, seconds: 0, now: start, advancing: false))
+        XCTAssertEqual(clock.update(station: nil, seconds: 4, now: start, advancing: true), start)
+        XCTAssertEqual(clock.update(station: nil, seconds: 14, now: start, advancing: true), start.addingTimeInterval(10))
+        XCTAssertEqual(clock.update(station: nil, seconds: 14, now: start.addingTimeInterval(600), advancing: false), start.addingTimeInterval(10))
+        XCTAssertEqual(clock.update(station: nil, seconds: 15, now: start, advancing: true), start.addingTimeInterval(11))
+        XCTAssertEqual(clock.update(station: nil, seconds: 0, now: start.addingTimeInterval(700), advancing: true), start.addingTimeInterval(700))
+    }
+
+    #if canImport(UIKit) && !canImport(KUSCCore)
+    @MainActor func testChangedInlineArtworkForTheSamePieceGetsANewCacheURL() throws {
+        let store = StationArtworkStore()
+        let id = "artwork-regression-\(UUID().uuidString)"
+        let first = Data([0xff, 0xd8, 0xff, 1])
+        let second = Data([0xff, 0xd8, 0xff, 2])
+        let a = try XCTUnwrap(store.resolve("data:image/jpeg;base64," + first.base64EncodedString(), itemID: id))
+        let b = try XCTUnwrap(store.resolve("data:image/jpeg;base64," + second.base64EncodedString(), itemID: id))
+        defer { try? FileManager.default.removeItem(at: a); try? FileManager.default.removeItem(at: b) }
+        XCTAssertNotEqual(a, b, "ArtworkCache must not reuse the previous image for a corrected station response")
+        XCTAssertEqual(try Data(contentsOf: b), second)
+        XCTAssertEqual(store.resolve("data:image/jpeg;base64," + second.base64EncodedString(), itemID: id), b)
+    }
+
+    @MainActor func testLiveMetadataPublishesBeforeSlowHistoryAndBypassesResponseCache() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MetadataResponseProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        MetadataResponseProtocol.current = try fixture("official-now-2026-09-19")
+        MetadataResponseProtocol.history = try fixture("official-combined-2026-09-19")
+        MetadataResponseProtocol.historyCompleted = false
+        MetadataResponseProtocol.requests = []
+        let service = MetadataService(session: session)
+        var receivedEarly = false
+        _ = try await service.fetch { items in
+            receivedEarly = !MetadataResponseProtocol.historyCompleted
+            XCTAssertFalse(items.isEmpty)
+        }
+        XCTAssertTrue(receivedEarly, "The /now result cannot wait for the day schedule")
+        XCTAssertTrue(MetadataResponseProtocol.requests.allSatisfy {
+            $0.cachePolicy == .reloadIgnoringLocalCacheData && $0.value(forHTTPHeaderField: "Cache-Control") == "no-cache"
+        })
+        XCTAssertEqual(StationConfiguration.metadataRefreshInterval, 5)
+    }
+    #endif
     private func fixture(_ name: String) throws -> Data {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -91,3 +148,32 @@ final class StationMetadataTests: XCTestCase {
         XCTAssertThrowsError(try StationMetadataParser.combined(Data("{truncated".utf8)))
     }
 }
+
+#if canImport(UIKit) && !canImport(KUSCCore)
+private final class MetadataResponseProtocol: URLProtocol {
+    static var current = Data()
+    static var history = Data()
+    static var historyCompleted = false
+    static var requests: [URLRequest] = []
+    private var delivery: DispatchWorkItem?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        // Serial main queue owns the stub's shared test state.
+        DispatchQueue.main.async { [self] in
+            Self.requests.append(request)
+            let isCurrent = request.url!.path.contains("/now")
+            let work = DispatchWorkItem { [self] in
+                if !isCurrent { Self.historyCompleted = true }
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+                    httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: isCurrent ? Self.current : Self.history)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            delivery = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (isCurrent ? 0 : 0.5), execute: work)
+        }
+    }
+    override func stopLoading() { DispatchQueue.main.async { [self] in delivery?.cancel() } }
+}
+#endif

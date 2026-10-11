@@ -116,7 +116,7 @@ struct ScheduledStartView: View {
                     .disabled(isScheduling)
             }
 
-            Text("Prepares silently 1 minute early while other apps can keep playing. At the selected time, KUSC takes over audio and fades in over 10 seconds.")
+            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, KUSC takes over and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -303,7 +303,7 @@ struct ScheduledStartView: View {
                         if enabled { allowOnBattery = true }
                     }
                 if batteryOnlyStop {
-                    Text("Stays armed through unplugging, output changes, interruptions, and connection failures. Pause silences the current audio without deleting the start. A future start still runs at its set time; afterward, Pause waits for Play. Sleep timers do not cancel it. To cancel it yourself, delete this scheduled start in KUSC.")
+                    Text("Stays armed through unplugging, output changes, interruptions, and connection failures until 10 minutes after the selected time. Pause silences current audio without deleting a future start; afterward, Pause waits for Play. Sleep timers do not cancel an armed start. Delete it here to cancel sooner.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

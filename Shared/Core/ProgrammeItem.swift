@@ -1,5 +1,29 @@
 import Foundation
 
+/// Metadata-only fallback for a direct live player whose playlist stops publishing
+/// programme dates. Advance the last station anchor with media time, not wall time.
+/// Buffered playback continues to use its confirmed retained-audio position.
+struct DirectMetadataClock {
+    private var stationDate: Date?
+    private var anchor: Date?
+    private var anchorSeconds: TimeInterval?
+    private(set) var position: Date?
+
+    mutating func update(station: Date?, seconds: TimeInterval, now: Date, advancing: Bool) -> Date? {
+        guard seconds.isFinite else { return position }
+        if let station, station != stationDate {
+            stationDate = station; anchor = station; anchorSeconds = seconds
+        } else if anchor == nil || anchorSeconds.map({ seconds < $0 }) == true {
+            guard advancing else { return position }
+            anchor = now; anchorSeconds = seconds
+        }
+        if let anchor, let anchorSeconds, advancing || position == nil {
+            position = anchor.addingTimeInterval(max(0, seconds - anchorSeconds))
+        }
+        return position
+    }
+}
+
 /// Station timestamps describe the audio clock, not the device's current wall clock.
 public struct ProgrammeItem: Identifiable, Codable, Equatable {
     public var id: String

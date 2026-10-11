@@ -11,8 +11,8 @@ enum StationConfiguration {
     static let websiteURL = URL(string: "https://www.classicalcalifornia.org")!
     static let metadataBaseURL = URL(string: "https://schedule.kusc.org/v3")!
     static let nowPlayingURL = metadataBaseURL.appendingPathComponent("songs/\(stationID)/now").appending(queryItems: [URLQueryItem(name: "includeImage", value: "true")])
-    static let metadataRefreshInterval: TimeInterval = 30
-    static let playlistRefreshInterval: TimeInterval = 60
+    static let metadataRefreshInterval: TimeInterval = 5
+    static let playlistRefreshInterval: TimeInterval = 20
     static let metadataRequestTimeout: TimeInterval = 15
     static let stationTimeZone = TimeZone(identifier: "America/Los_Angeles")!
 
