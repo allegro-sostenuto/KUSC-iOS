@@ -171,6 +171,10 @@ These physical checks remain unrun; automated policy, coordinator and native pla
 
 ## Pull-to-refresh
 
+Build 36 passed native gesture tests on both simulator profiles for both panels, short-pull cancellation, horizontal paging and paused landscape playback. Hosted tests verify forced history/artwork reload and preservation of cached data on failure. The checks below still require a phone, including the pull animation's feel and live station/WidgetKit delivery.
+
+The full workflow passed on attempt 2. The first standalone audio job timed out in the existing retained-successor readiness test; that test passed in both 200-test hosted suites and on an unchanged retry of the 25-test audio job. No audio-engine code changed for this feature.
+
 - On Now Playing, pull down slowly from the artwork while at the top. The native indicator should progressively reveal with the pull distance, retract on a short pull, and spin after a full pull is released until metadata/artwork refresh completes.
 - Swipe right to Programme and repeat at the top of that list. Normal scrolling farther down must not refresh until the top is reached. Horizontal paging and retained-audio scrubbing must still work.
 - Repeat in landscape, dark mode, large text, and while paused or listening behind Live. Refresh must preserve playback intent, listening position, sleep timers and scheduled starts; paused playback must stay paused. Refresh is also available as a VoiceOver action.
