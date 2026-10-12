@@ -41,7 +41,7 @@ final class MetadataService {
 
     /// The owner starts/stops polling with playback. No independent background polling task
     /// survives a stopped player. Partial failures keep usable station data available.
-    func fetch(onCurrent: ([ProgrammeItem]) -> Void = { _ in }) async throws -> [ProgrammeItem] {
+    func fetch(force: Bool = false, onCurrent: ([ProgrammeItem]) -> Void = { _ in }) async throws -> [ProgrammeItem] {
         let now = Date()
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = StationConfiguration.stationTimeZone
@@ -56,6 +56,7 @@ final class MetadataService {
         }
         days = days.filter { keys.contains($0.key) }
         let due = keys.filter { key in
+            if force { return true }
             guard let cache = days[key] else { return true }
             let interval: TimeInterval = key == today ? StationConfiguration.playlistRefreshInterval : 900
             return now.timeIntervalSince(cache.fetched) >= interval

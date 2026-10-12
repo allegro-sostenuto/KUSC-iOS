@@ -497,6 +497,28 @@ private struct RetainedAudioSlider: UIViewRepresentable {
     }
 }
 
+/// The native indicator follows pull distance, then stays spinning for the async
+/// operation. Keeping this on the content scroll views leaves transport gestures alone.
+struct PlayerRefreshModifier: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            refreshable(content).scrollBounceBehavior(.always, axes: .vertical)
+        } else {
+            refreshable(content)
+        }
+    }
+
+    private func refreshable(_ content: Content) -> some View {
+        content
+            .refreshable { await model.refreshMetadata() }
+            .accessibilityAction(named: Text("Refresh artwork and programme")) {
+                Task { await model.refreshMetadata() }
+            }
+    }
+}
+
 struct AudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()

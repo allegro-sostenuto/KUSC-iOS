@@ -287,6 +287,54 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testPullToRefreshBothPanelsPreservesPlaybackAndHorizontalPaging() {
+        let app = launchFixture("dark")
+        let scroll = app.scrollViews["now-playing-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        pull(scroll, distance: 25)
+        XCTAssertTrue(app.staticTexts["Native layout fixture"].exists,
+                      "A short pull must return without starting a refresh")
+        pull(scroll, distance: 240)
+        XCTAssertTrue(app.staticTexts["Refreshed layout fixture 1"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Pause"].exists, "Refresh must not pause audio")
+        let artwork = app.descendants(matching: .any).matching(identifier: "player-artwork").firstMatch
+        artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo:
+                artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        let programme = app.scrollViews["programme-scroll"]
+        XCTAssertTrue(programme.waitForExistence(timeout: 5), "Horizontal paging must still work")
+        pull(programme, distance: 240)
+        XCTAssertTrue(app.staticTexts["Refreshed programme fixture 2"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Pause"].exists)
+        app.buttons.matching(identifier: "Now Playing").firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Refreshed layout fixture 2"].waitForExistence(timeout: 5))
+        attach(app, named: "pull-refresh-both-panels-dark")
+    }
+
+    @MainActor
+    func testLandscapePullToRefreshKeepsPausedAudioPaused() {
+        let app = launchFixture("paused-buffer", landscape: true)
+        let scroll = app.scrollViews["now-playing-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        pull(scroll, distance: 240)
+        XCTAssertTrue(app.staticTexts["Refreshed layout fixture 1"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Play"].exists, "Refresh must not resume paused audio")
+        app.buttons["Programme"].tap()
+        let programme = app.scrollViews["programme-scroll"]
+        XCTAssertTrue(programme.waitForExistence(timeout: 5))
+        pull(programme, distance: 240)
+        XCTAssertTrue(app.staticTexts["Refreshed programme fixture 2"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Play"].exists)
+    }
+
+    @MainActor
+    private func pull(_ scroll: XCUIElement, distance: CGFloat) {
+        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: 20))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: distance)))
+    }
+
+    @MainActor
     private func launchFixture(_ state: String, landscape: Bool = false, largeText: Bool = false) -> XCUIApplication {
         let fixture = CaptureFixture(name: state, state: state, landscape: landscape, largeText: largeText)
         let app = startFixture(fixture)

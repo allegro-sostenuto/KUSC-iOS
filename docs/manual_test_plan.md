@@ -168,3 +168,10 @@ These physical checks remain unrun; automated policy, coordinator and native pla
 3. Leave a successful start playing until ten minutes after its target. Its schedule entry and scheduled-start status should disappear while audio continues. Repeat with a failed start and reopen after eleven minutes: the request must be gone and must not launch a new scheduled fade. Pause must still pause current audio.
 4. Observe an actual piece transition with the app open, then check the Home Screen widgets. Rewind across a known piece boundary: both must follow the heard piece, including artwork, and return to current metadata at Live. The app polls the station every five seconds; station publication and WidgetKit delivery can add delay.
 5. If the fade still jumps, start Playback Diagnostics before the target and copy the report after the jump. Record whether the phone was locked, the output, buffer setting and approximate time. The report includes schedule phase transitions and the gain delivered to the engine.
+
+## Pull-to-refresh
+
+- On Now Playing, pull down slowly from the artwork while at the top. The native indicator should progressively reveal with the pull distance, retract on a short pull, and spin after a full pull is released until metadata/artwork refresh completes.
+- Swipe right to Programme and repeat at the top of that list. Normal scrolling farther down must not refresh until the top is reached. Horizontal paging and retained-audio scrubbing must still work.
+- Repeat in landscape, dark mode, large text, and while paused or listening behind Live. Refresh must preserve playback intent, listening position, sleep timers and scheduled starts; paused playback must stay paused. Refresh is also available as a VoiceOver action.
+- Repeat without a network connection: the spinner must finish after the request timeout and retain the last usable details/artwork. Reconnect and pull again. Check that Home Screen widgets receive any changed heard-item data, subject to WidgetKit delivery.

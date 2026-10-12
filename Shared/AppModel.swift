@@ -62,6 +62,7 @@ import UIKit
     private let artworkCache = ArtworkCache()
     private var artworkTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
+    private var manualRefreshTask: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
     private var ticker: Timer?
     private var observers: [NSObjectProtocol] = []
@@ -121,6 +122,7 @@ import UIKit
     private var scheduleDiagnostics: [String] = []
     private var lastDiagnosticGain: Float = -1
     private var isUIFixture = ProcessInfo.processInfo.environment["KUSC_UI_STATE"] != nil
+    private var fixtureRefreshCount = 0
     private var boundaryGainTrace: [Float]?
     private var audioRecoveryTestConnections: Int?
     struct ScheduleTestEnvironment {
@@ -1283,7 +1285,41 @@ import UIKit
         #endif
     }
 
-    private func fetchMetadata() {
+    /// Shared by both panels. Wait for an existing poll before forcing fresh
+    /// history, so an older response cannot overwrite the manual refresh.
+    func refreshMetadata() async {
+        if let manualRefreshTask { await manualRefreshTask.value; return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            #if DEBUG
+            if isUIFixture {
+                // Deterministic gesture evidence without station access or audio.
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                fixtureRefreshCount += 1
+                currentItem?.work = "Refreshed layout fixture \(fixtureRefreshCount)"
+                programmeName = "Refreshed programme fixture \(fixtureRefreshCount)"
+                return
+            }
+            #endif
+            await metadataTask?.value
+            fetchMetadata(force: true)
+            await metadataTask?.value
+            await artworkTask?.value
+            // The station can correct an image without changing its remote URL.
+            // Keep the last usable image visible if this request fails.
+            if let url = currentItem?.artworkURL,
+               let image = await artworkCache.image(at: url, forceReload: true),
+               lastArtworkURL == url {
+                artwork = image
+                refreshSystemSurfaces()
+            }
+        }
+        manualRefreshTask = task
+        await task.value
+        manualRefreshTask = nil
+    }
+
+    private func fetchMetadata(force: Bool = false) {
         #if DEBUG
         guard !isUIFixture else { return }
         #endif
@@ -1294,7 +1330,7 @@ import UIKit
             guard let self else { return }
             defer { if metadataGeneration == generation { metadataTask = nil } }
             do {
-                let items = try await metadata.fetch { [weak self] items in
+                let items = try await metadata.fetch(force: force) { [weak self] items in
                     guard let self, !Task.isCancelled, self.metadataGeneration == generation else { return }
                     self.timeline.merge(items); self.resolveMetadata()
                 }

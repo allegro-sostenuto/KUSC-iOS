@@ -50,6 +50,8 @@ struct ProgrammeView: View {
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .accessibilityIdentifier("programme-scroll")
+        .modifier(PlayerRefreshModifier())
         .foregroundStyle(Color.kuscInk)
         .background(Color.kuscBackground)
     }

@@ -33,6 +33,7 @@ struct ContentView: View {
                             .frame(maxWidth: 560)
                             .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 60))
                     }
+                    .modifier(PlayerRefreshModifier())
                 } else if showingProgramme {
                     ProgrammeView()
                         .transition(.opacity)
@@ -141,6 +142,8 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity).padding(.horizontal, 32)
                 .padding(.top, 24).padding(.bottom, 16)
             }
+            .accessibilityIdentifier("now-playing-scroll")
+            .modifier(PlayerRefreshModifier())
             // Paging belongs to content only. Slider/control gestures never reach it.
             .simultaneousGesture(programmeGesture)
             anchoredControls(landscape: false, height: size.height)
@@ -157,6 +160,8 @@ struct ContentView: View {
                 ScrollView {
                     NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
                 }
+                .accessibilityIdentifier("now-playing-scroll")
+                .modifier(PlayerRefreshModifier())
                 .simultaneousGesture(programmeGesture)
                 anchoredControls(landscape: true, height: size.height)
                 pageIndicators

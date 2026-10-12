@@ -1,5 +1,8 @@
 import Foundation
 import XCTest
+#if canImport(UIKit) && !canImport(KUSCCore)
+import UIKit
+#endif
 #if canImport(KUSCCore)
 @testable import KUSCCore
 #else
@@ -62,6 +65,54 @@ final class StationMetadataTests: XCTestCase {
             $0.cachePolicy == .reloadIgnoringLocalCacheData && $0.value(forHTTPHeaderField: "Cache-Control") == "no-cache"
         })
         XCTAssertEqual(StationConfiguration.metadataRefreshInterval, 5)
+    }
+
+    @MainActor func testManualRefreshBypassesDayIntervalsAndKeepsHistoryOnFailure() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MetadataResponseProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel(); MetadataResponseProtocol.failRequests = false }
+        MetadataResponseProtocol.current = try fixture("official-now-2026-09-19")
+        MetadataResponseProtocol.history = try fixture("official-combined-2026-09-19")
+        MetadataResponseProtocol.requests = []
+        let service = MetadataService(session: session)
+        let original = try await service.fetch()
+        XCTAssertFalse(original.isEmpty)
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 4)
+        _ = try await service.fetch()
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 5, "Normal polls reuse fresh day history")
+        _ = try await service.fetch(force: true)
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 9, "Pull-to-refresh reloads all three days immediately")
+        MetadataResponseProtocol.failRequests = true
+        let retained = try await service.fetch(force: true)
+        XCTAssertEqual(Set(retained.map(\.id)), Set(original.map(\.id)))
+        XCTAssertNotNil(service.lastWarning)
+    }
+
+    @MainActor func testManualArtworkRefreshReloadsSameURLAndPreservesCacheOnFailure() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("refresh-\(UUID()).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        func picture(_ color: UIColor) throws -> Data {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+                color.setFill(); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+            }
+            return try XCTUnwrap(image.pngData())
+        }
+        try picture(.red).write(to: url)
+        let cache = ArtworkCache()
+        let original = await cache.image(at: url)
+        XCTAssertNotNil(original)
+        try picture(.blue).write(to: url)
+        let cached = await cache.image(at: url)
+        XCTAssertEqual(cached?.pngData(), original?.pngData())
+        let refreshed = await cache.image(at: url, forceReload: true)
+        XCTAssertNotNil(refreshed)
+        XCTAssertNotEqual(refreshed?.pngData(), original?.pngData())
+        try Data("invalid image".utf8).write(to: url)
+        let failed = await cache.image(at: url, forceReload: true)
+        XCTAssertNil(failed)
+        let preserved = await cache.image(at: url)
+        XCTAssertEqual(preserved?.pngData(), refreshed?.pngData())
     }
     #endif
     private func fixture(_ name: String) throws -> Data {
@@ -151,6 +202,7 @@ final class StationMetadataTests: XCTestCase {
 
 #if canImport(UIKit) && !canImport(KUSCCore)
 private final class MetadataResponseProtocol: URLProtocol {
+    static var failRequests = false
     static var current = Data()
     static var history = Data()
     static var historyCompleted = false
@@ -164,6 +216,10 @@ private final class MetadataResponseProtocol: URLProtocol {
             Self.requests.append(request)
             let isCurrent = request.url!.path.contains("/now")
             let work = DispatchWorkItem { [self] in
+                if Self.failRequests {
+                    client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+                    return
+                }
                 if !isCurrent { Self.historyCompleted = true }
                 client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
                     httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
