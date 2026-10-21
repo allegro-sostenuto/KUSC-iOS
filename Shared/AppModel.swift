@@ -640,6 +640,10 @@ import UIKit
                 guard !Task.isCancelled, connectionGeneration == generation else { return }
                 applyGain()
                 if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
+            } catch is CancellationError {
+                // A buffer-mode replacement can cancel preparation inside the
+                // engine without cancelling this coordinator task. Its newer
+                // connection owns playback; cancellation is not a stream error.
             } catch {
                 if !Task.isCancelled, connectionGeneration == generation { connectionFailed(error) }
             }

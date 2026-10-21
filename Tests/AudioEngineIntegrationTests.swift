@@ -51,6 +51,29 @@ import XCTest
         XCTAssertNil(engine.directURLForTesting)
     }
 
+    func testStoppingPendingBufferModeChangeDoesNotReportPlaybackFailure() async throws {
+        let began = expectation(description: "Mode replacement began preparing")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        var failures = 0
+        engine.onFailure = { _ in failures += 1 }
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, sourceURL: source)
+        engine.setRetention(minutes: 0)
+        await fulfillment(of: [began], timeout: 3)
+        let replacement = engine.retentionSwitchForTesting
+        engine.stop()
+        resume?.resume(returning: URL(fileURLWithPath: "/nonexistent/cancelled.aac"))
+        await replacement?.value
+        XCTAssertEqual(failures, 0)
+        XCTAssertNil(engine.directURLForTesting)
+    }
+
     func testFullMinuteGainReachesBothNativeBackendsWithoutAFullVolumeStartup() async throws {
         let engine = RollingAudioEngine()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-gain-\(UUID().uuidString)")

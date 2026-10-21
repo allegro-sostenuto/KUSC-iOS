@@ -128,13 +128,16 @@ final class RollingAudioEngine {
     var backendVolumeForTesting: Float? { bufferedPlayer?.volume ?? player?.volume }
     var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
     var directURLForTesting: URL? { (player?.currentItem?.asset as? AVURLAsset)?.url }
+    var retentionSwitchForTesting: Task<Void, Never>? { switchTask }
     /// Native XCTest fixture: exercise pending-seek ownership without fetching
     /// the station or requiring an AAC decoder to finish an asynchronous seek.
     func configureBufferedTransportForTesting(segments fixtures: [AudioSegment], pausedAt date: Date?,
                                               initialJoinPending: Bool = false,
+                                              sourceURL: URL? = nil,
                                               loadSamples: @escaping (URL) async throws -> BufferedAudioSamples = BufferedAudioSampleSource.load) {
         stopInternal(publish: false)
         retentionMinutes = 15
+        self.sourceURL = sourceURL
         segments = fixtures
         if let end = fixtures.last?.end {
             retention = BufferRetention.trim(fixtures, live: end, minutes: retentionMinutes)
@@ -365,7 +368,10 @@ final class RollingAudioEngine {
                 let wasPlaying = self.shouldPlay
                 do {
                     try await self.start(url: url, retentionMinutes: next, playbackRequested: wasPlaying)
+                } catch is CancellationError {
+                    // Stop or a newer mode switch owns the replacement now.
                 } catch {
+                    guard self.switchRequest == request, !Task.isCancelled else { return }
                     self.reportFailure(error, origin: "retention replacement")
                 }
                 if self.switchRequest == request { self.switchTask = nil }
