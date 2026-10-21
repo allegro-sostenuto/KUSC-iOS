@@ -53,9 +53,9 @@ import XCTest
 
     func testStoppingPendingBufferModeChangeDoesNotReportPlaybackFailure() async throws {
         let began = expectation(description: "Mode replacement began preparing")
-        var resume: CheckedContinuation<URL, Never>?
+        var resume: CheckedContinuation<URL, Error>?
         let engine = RollingAudioEngine(prepareDirectStream: { _ in
-            await withCheckedContinuation { continuation in
+            try await withCheckedThrowingContinuation { continuation in
                 resume = continuation
                 began.fulfill()
             }
@@ -68,7 +68,7 @@ import XCTest
         await fulfillment(of: [began], timeout: 3)
         let replacement = engine.retentionSwitchForTesting
         engine.stop()
-        resume?.resume(returning: URL(fileURLWithPath: "/nonexistent/cancelled.aac"))
+        resume?.resume(throwing: URLError(.cancelled))
         await replacement?.value
         XCTAssertEqual(failures, 0)
         XCTAssertNil(engine.directURLForTesting)

@@ -180,9 +180,16 @@ final class RollingAudioEngine {
                 let prepare = prepareDirectStream
                 let task = Task { try await prepare(url) }
                 directPreparationTask = task
-                preparedURL = try await withTaskCancellationHandler(operation: {
-                    try await task.value
-                }, onCancel: { task.cancel() })
+                do {
+                    preparedURL = try await withTaskCancellationHandler(operation: {
+                        try await task.value
+                    }, onCancel: { task.cancel() })
+                } catch {
+                    // URLSession can report URLError.cancelled rather than
+                    // CancellationError when its owning task is cancelled.
+                    if task.isCancelled || generation != activeGeneration { throw CancellationError() }
+                    throw error
+                }
                 try Task.checkCancellation()
                 guard generation == activeGeneration else { throw CancellationError() }
                 directPreparationTask = nil
