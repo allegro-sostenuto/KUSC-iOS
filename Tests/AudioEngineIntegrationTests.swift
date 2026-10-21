@@ -226,7 +226,8 @@ import XCTest
     }
 
     func testPauseBeforeRetentionSwitchKeepsReplacementPlaybackPaused() async throws {
-        let engine = RollingAudioEngine()
+        // This tests transport intent, not resolution of the placeholder host.
+        let engine = RollingAudioEngine(prepareDirectStream: { $0 })
         defer { engine.stop() }
         try await engine.start(url: source, retentionMinutes: 0)
         engine.setRetention(minutes: 5)
@@ -312,7 +313,7 @@ import XCTest
     }
 
     func testRapidRetentionReversalWhilePausedDoesNotRestartPlayback() async throws {
-        let engine = RollingAudioEngine()
+        let engine = RollingAudioEngine(prepareDirectStream: { $0 })
         defer { engine.stop() }
         try await engine.start(url: source, retentionMinutes: 0, playbackRequested: false)
         let originalSession = engine.transportSessionForTesting
