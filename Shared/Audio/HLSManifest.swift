@@ -12,6 +12,11 @@ struct HLSMediaSegment {
     let duration: TimeInterval
     let discontinuity: Bool
     let discontinuitySequence: Int64
+    var title: String? = nil
+    // Triton's observed pre-roll uses this exact playlist label, confirmed by
+    // cue_type=ad in the corresponding AAC ID3 metadata. Do not guess from
+    // missing music metadata, speech, or ordinary station automation labels.
+    var isMarkedAdvertisement: Bool { title == "Advertisement" }
     var end: Date? { start?.addingTimeInterval(duration) }
 }
 
@@ -38,6 +43,7 @@ struct HLSManifest {
         var nextDate: Date?
         var hasPendingExplicitDate = false
         var nextDuration: Double?
+        var nextTitle: String?
         var nextBandwidth: Int?
         var nextDiscontinuity = false
         var discontinuitySequence: Int64 = 0
@@ -78,11 +84,13 @@ struct HLSManifest {
                 // ordering. Discard inherited time, never that segment's own PDT.
                 if !hasPendingExplicitDate { nextDate = nil }
             } else if line.hasPrefix("#EXTINF:") {
-                let value = line.dropFirst("#EXTINF:".count).split(separator: ",", maxSplits: 1).first
+                let fields = line.dropFirst("#EXTINF:".count).split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+                let value = fields.first
                 guard let value, let duration = Double(value), duration.isFinite, duration > 0, duration <= 60 else {
                     throw AudioStreamError.unsupportedFormat("invalid HLS duration")
                 }
                 nextDuration = duration
+                nextTitle = fields.count > 1 ? String(fields[1]).trimmingCharacters(in: .whitespaces) : nil
             } else if line.hasPrefix("#EXT-X-KEY:"), !line.contains("METHOD=NONE") {
                 throw AudioStreamError.unsupportedFormat("encrypted HLS")
             } else if line.hasPrefix("#EXT-X-BYTERANGE:") || line.hasPrefix("#EXT-X-MAP:") {
@@ -101,10 +109,11 @@ struct HLSManifest {
                     segments.append(HLSMediaSegment(sequence: sequence, url: url,
                                                     start: nextDate, duration: duration,
                                                     discontinuity: nextDiscontinuity,
-                                                    discontinuitySequence: discontinuitySequence))
+                                                    discontinuitySequence: discontinuitySequence, title: nextTitle))
                     sequence += 1
                     nextDate = nextDate?.addingTimeInterval(duration)
                     nextDuration = nil
+                    nextTitle = nil
                     nextDiscontinuity = false
                     hasPendingExplicitDate = false
                 }

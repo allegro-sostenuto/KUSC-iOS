@@ -71,6 +71,9 @@ final class RollingAudioEngine {
     private var player: AVPlayer?
     private var bufferedPlayer: BufferedAudioRenderer?
     private var sourceURL: URL?
+    private var directMediaURL: URL?
+    private var directPreparationTask: Task<URL, Error>?
+    private let prepareDirectStream: (URL) async throws -> URL
     private var retentionMinutes = 0
     private var segments: [AudioSegment] = []
     private var retention = RetentionResult(retained: [], expired: [], window: nil)
@@ -112,7 +115,10 @@ final class RollingAudioEngine {
         FileManager.default.temporaryDirectory.appendingPathComponent("KUSC-RollingAudio", isDirectory: true)
     }
 
-    init() {
+    init(prepareDirectStream: @escaping (URL) async throws -> URL = { url in
+        try await HLSIngestor().resolveForDirectPlayback(url: url)
+    }) {
+        self.prepareDirectStream = prepareDirectStream
         // A process never restores buffered playback after termination.
         try? FileManager.default.removeItem(at: Self.bufferDirectory)
     }
@@ -121,6 +127,7 @@ final class RollingAudioEngine {
     var transportSessionForTesting: UUID { generation }
     var backendVolumeForTesting: Float? { bufferedPlayer?.volume ?? player?.volume }
     var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
+    var directURLForTesting: URL? { (player?.currentItem?.asset as? AVURLAsset)?.url }
     /// Native XCTest fixture: exercise pending-seek ownership without fetching
     /// the station or requiring an AAC decoder to finish an asynchronous seek.
     func configureBufferedTransportForTesting(segments fixtures: [AudioSegment], pausedAt date: Date?,
@@ -164,8 +171,26 @@ final class RollingAudioEngine {
         recordDiagnostic("start retention=\(self.retentionMinutes) requested=\(shouldPlay)")
 
         if self.retentionMinutes == 0 {
-            let item = AVPlayerItem(url: url)
-            item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            let preparedURL: URL
+            if url.scheme == "https", url.pathExtension.lowercased() == "m3u8" {
+                recordDiagnostic("direct preparing programme session")
+                let prepare = prepareDirectStream
+                let task = Task { try await prepare(url) }
+                directPreparationTask = task
+                preparedURL = try await withTaskCancellationHandler(operation: {
+                    try await task.value
+                }, onCancel: { task.cancel() })
+                try Task.checkCancellation()
+                guard generation == activeGeneration else { throw CancellationError() }
+                directPreparationTask = nil
+                recordDiagnostic("direct programme session prepared")
+            } else {
+                preparedURL = url
+            }
+            directMediaURL = preparedURL
+            connectionBegan = Date()
+            directNeedsLiveReload = false
+            let item = makeDirectItem(url: preparedURL)
             let direct = AVPlayer(playerItem: item)
             direct.automaticallyWaitsToMinimizeStalling = true
             install(direct)
@@ -225,10 +250,9 @@ final class RollingAudioEngine {
         recordDiagnostic("engine.play")
         if !hasStartedPlayback { connectionBegan = Date() }
         shouldPlay = true
-        if retentionMinutes == 0, directNeedsLiveReload, let url = sourceURL, let player {
+        if retentionMinutes == 0, directNeedsLiveReload, let url = directMediaURL ?? sourceURL, let player {
             // At zero retention resume must not expose AVPlayer's old live buffer.
-            let item = AVPlayerItem(url: url)
-            item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            let item = makeDirectItem(url: url)
             player.replaceCurrentItem(with: item)
             observeCurrentItem()
             connectionBegan = Date()
@@ -310,10 +334,9 @@ final class RollingAudioEngine {
             }
             wantsInitialLivePosition = false
             reposition(to: live)
-        } else if let url = sourceURL, let player {
+        } else if let url = directMediaURL ?? sourceURL, let player {
             wantsInitialLivePosition = false
-            let item = AVPlayerItem(url: url)
-            item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            let item = makeDirectItem(url: url)
             player.replaceCurrentItem(with: item)
             observeCurrentItem()
             connectionBegan = Date()
@@ -351,6 +374,13 @@ final class RollingAudioEngine {
             applyRetention()
             publish()
         }
+    }
+
+    private func makeDirectItem(url: URL) -> AVPlayerItem {
+        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPUserAgentKey: StationConfiguration.streamUserAgent])
+        let item = AVPlayerItem(asset: asset)
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        return item
     }
 
     private func install(_ newPlayer: AVPlayer) {
@@ -670,6 +700,8 @@ final class RollingAudioEngine {
         failed = true
         ingestTask?.cancel()
         ingestTask = nil
+        directPreparationTask?.cancel()
+        directPreparationTask = nil
         invalidatePendingSeek()
         player?.pause()
         bufferedPlayer?.pause()
@@ -682,6 +714,8 @@ final class RollingAudioEngine {
         seekGeneration.invalidate()
         ingestTask?.cancel()
         ingestTask = nil
+        directPreparationTask?.cancel()
+        directPreparationTask = nil
         monitorTask?.cancel()
         monitorTask = nil
         observations.removeAll()
@@ -696,6 +730,7 @@ final class RollingAudioEngine {
         bufferedPlayer?.stop()
         bufferedPlayer = nil
         sourceURL = nil
+        directMediaURL = nil
         segments.removeAll()
         retention = RetentionResult(retained: [], expired: [], window: nil)
         pausedAt = nil

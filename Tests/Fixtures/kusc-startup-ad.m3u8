@@ -1,0 +1,13 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-PROGRAM-DATE-TIME:2026-10-21T15:41:57.000Z
+#EXTINF:9.98458,Advertisement
+1.aac
+#EXTINF:9.98458,Advertisement
+2.aac
+#EXTINF:1.6254,Advertisement
+3.aac
+#EXTINF:9.98458,Leo Delibes - Lakme: Flower Duet
+4.aac

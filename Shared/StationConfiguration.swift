@@ -3,6 +3,7 @@ import Foundation
 /// Endpoints observed in the station's public player on 2026-09-19. See docs/endpoints.md.
 /// These are the station's own services and its designated audio CDN, never a metadata proxy.
 enum StationConfiguration {
+    static let streamUserAgent = "KUSCPrivate/1.0"
     static let name = "KUSC"
     static let stationID = "KUSC"
     static let audioURL = URL(string: "https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8")!

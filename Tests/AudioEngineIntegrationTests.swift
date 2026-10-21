@@ -7,6 +7,50 @@ import XCTest
 @testable import KUSC_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testDirectResumeAndLiveReusePreparedSessionWithoutRequestingAnotherPromo() async throws {
+        var resolutions = 0
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-direct-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let prepared = files.segments[0]
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            resolutions += 1
+            return prepared
+        })
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        engine.volume = 0.2
+        try await engine.start(url: source, retentionMinutes: 0, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+        engine.pause()
+        engine.play()
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        engine.goLive()
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        XCTAssertEqual(resolutions, 1)
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+    }
+
+    func testStopDuringDirectPreparationCannotInstallLatePlayer() async throws {
+        let began = expectation(description: "Stream preparation began")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        let task = Task { try await engine.start(url: source, retentionMinutes: 0) }
+        await fulfillment(of: [began], timeout: 3)
+        engine.stop()
+        resume?.resume(returning: URL(fileURLWithPath: "/nonexistent/late.aac"))
+        do {
+            try await task.value
+            XCTFail("Stopped preparation must not install or start audio")
+        } catch is CancellationError { }
+        XCTAssertNil(engine.directURLForTesting)
+    }
+
     func testFullMinuteGainReachesBothNativeBackendsWithoutAFullVolumeStartup() async throws {
         let engine = RollingAudioEngine()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-gain-\(UUID().uuidString)")

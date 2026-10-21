@@ -53,6 +53,8 @@ All URLs are centralized in `Shared/StationConfiguration.swift`. On 19 September
 
 The official [station listening page](https://www.classicalcalifornia.org/articles/how-to-listen-to-classical-california) publishes the AAC service; the station's web-player source identifies the metadata URLs. Full field mappings, sample responses, source links, and HTTP evidence are in [endpoints.md](docs/endpoints.md). The HLS format includes `EXT-X-PROGRAM-DATE-TIME`, allowing transport time to drive metadata lookup. Metadata failures never stop audio.
 
+Marked startup advertisements are withheld before either audio backend starts. The app keeps the same stream session and waits for its advertised promo segments to clear, so connecting may briefly be silent. Buffer Off also reuses that prepared session for Pause/resume and Live. Unmarked announcements and ads within an established broadcast remain part of the station audio; see the captured playlist evidence and limits in [endpoints.md](docs/endpoints.md#startup-promos-21-october-2026).
+
 ## Platform and source limits
 
 These limits affect the requested acceptance criteria and are not hidden behind inactive controls:

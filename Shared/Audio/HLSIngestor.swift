@@ -18,6 +18,24 @@ struct HLSAcquisitionFailure: Error {
 /// Its actor keeps parsing and disk writes off the UI actor. Each completed file is
 /// acknowledged by the player before another is fetched, bounding pending work.
 actor HLSIngestor {
+    func resolveForDirectPlayback(url: URL) async throws -> URL {
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+        return try await HLSStartupResolver.resolve(url, fetch: { target in
+            try await self.fetch(target, session: session, maximumSize: 1024 * 1024, diagnostic: { _ in })
+        }).url
+    }
+
+    private func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 35
+        configuration.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: configuration)
+    }
+
     func run(url: URL, directory: URL,
              status: @escaping @MainActor (HLSAcquisitionStatus) -> Void,
              diagnostic: @escaping @MainActor (String) -> Void,
@@ -25,33 +43,15 @@ actor HLSIngestor {
         var stage = "initialPlaylist"
         var activeSequence: Int64?
         do {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.urlCache = nil
-            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            configuration.timeoutIntervalForRequest = 20
-            configuration.timeoutIntervalForResource = 35
-            configuration.httpMaximumConnectionsPerHost = 2
-            let session = URLSession(configuration: configuration)
+            let session = makeSession()
             defer { session.invalidateAndCancel() }
 
-            var mediaURL = url
-            var initialManifest: HLSManifest?
-            for _ in 0..<4 {
-                let (data, responseURL) = try await fetch(mediaURL, session: session, maximumSize: 1024 * 1024, diagnostic: diagnostic)
-                stage = "parseInitialPlaylist"
-                let manifest = try HLSManifest.parse(data, baseURL: responseURL)
-                if let highest = manifest.variants.max(by: { $0.bandwidth < $1.bandwidth }) {
-                    mediaURL = highest.url
-                    stage = "variantPlaylist"
-                } else {
-                    mediaURL = responseURL
-                    initialManifest = manifest
-                    break
-                }
-            }
-            guard var manifest = initialManifest else {
-                throw AudioStreamError.unsupportedFormat("nested HLS playlists")
-            }
+            stage = "prepareProgramme"
+            let resolved = try await HLSStartupResolver.resolve(url, fetch: { target in
+                try await self.fetch(target, session: session, maximumSize: 1024 * 1024, diagnostic: diagnostic)
+            }, diagnostic: { event in await diagnostic(event) })
+            var mediaURL = resolved.url
+            var manifest = resolved.manifest
             var lastSequence: Int64?
             var lastEnd: Date?
             var lastNewAudio = Date()
@@ -179,7 +179,7 @@ actor HLSIngestor {
         await diagnostic("request begin host=\(url.host ?? "unknown")")
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("KUSCPrivate/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(StationConfiguration.streamUserAgent, forHTTPHeaderField: "User-Agent")
         let (incoming, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw AudioStreamError.disconnected }
         await diagnostic("response HTTP=\(response.statusCode) expectedBytes=\(response.expectedContentLength) headerElapsed=\(ProcessInfo.processInfo.systemUptime - began)")
