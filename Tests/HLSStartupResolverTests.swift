@@ -46,19 +46,24 @@ final class HLSStartupResolverTests: XCTestCase {
         let ad = try advertisement()
         let masterData = Data("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=96000\n\(media.absoluteString)\n".utf8)
         var requests: [URL] = []
+        var advances: [URL] = []
         var waits = 0
         let resolved = try await HLSStartupResolver.resolve(master, fetch: { url in
             requests.append(url)
             if url == self.master { return (masterData, self.master) }
             XCTAssertEqual(url, self.media)
-            return (waits == 0 ? ad : self.programme, self.media)
+            return (advances.isEmpty ? ad : self.programme, self.media)
+        }, advance: { url in
+            advances.append(url)
         }, wait: { seconds in
             XCTAssertGreaterThan(seconds, 0)
             XCTAssertLessThanOrEqual(seconds, 2)
             waits += 1
+            if waits > 3 { throw AudioStreamError.stalled }
         })
         XCTAssertEqual(requests, [master, media, media])
         XCTAssertEqual(waits, 1)
+        XCTAssertEqual(advances, [media.deletingLastPathComponent().appendingPathComponent("4.aac")])
         XCTAssertEqual(resolved.url, media)
         XCTAssertFalse(resolved.manifest.segments.contains(where: \.isMarkedAdvertisement))
         // Sliding away the only date tag must retain the verified music clock.
@@ -77,7 +82,9 @@ final class HLSStartupResolverTests: XCTestCase {
         #EXTINF:10,A work, with a comma
         3.aac
         """
-        let resolved = try await HLSStartupResolver.resolve(media, fetch: { _ in (Data(text.utf8), self.media) }, wait: { _ in
+        let resolved = try await HLSStartupResolver.resolve(media, fetch: { _ in (Data(text.utf8), self.media) }, advance: { _ in
+            XCTFail("A clean session needs no extra media request")
+        }, wait: { _ in
             XCTFail("Unmarked station content must not be withheld")
         })
         XCTAssertEqual(resolved.manifest.segments.last?.title, "A work, with a comma")
@@ -89,7 +96,7 @@ final class HLSStartupResolverTests: XCTestCase {
         var waits = 0
         let resolved = try await HLSStartupResolver.resolve(media, fetch: { _ in
             (waits == 0 ? Data(text.utf8) : self.programme, self.media)
-        }, wait: { _ in waits += 1 })
+        }, advance: { _ in XCTFail("Music before the final ad cannot advance beyond it") }, wait: { _ in waits += 1 })
         XCTAssertEqual(waits, 1)
         XCTAssertFalse(resolved.manifest.segments.contains(where: \.isMarkedAdvertisement))
     }
@@ -97,7 +104,7 @@ final class HLSStartupResolverTests: XCTestCase {
     func testStuckAdWindowFailsInsteadOfPlayingAnAdOrWaitingForever() async throws {
         let ad = try advertisement()
         do {
-            _ = try await HLSStartupResolver.resolve(media, maximumWait: 0, fetch: { _ in (ad, self.media) }, wait: { _ in XCTFail("Deadline already expired") })
+            _ = try await HLSStartupResolver.resolve(media, maximumWait: 0, fetch: { _ in (ad, self.media) }, advance: { _ in XCTFail("Deadline already expired") }, wait: { _ in XCTFail("Deadline already expired") })
             XCTFail("An uncleared ad window must not be returned")
         } catch AudioStreamError.unsupportedFormat(let detail) {
             XCTAssertEqual(detail, "startup advertisement did not clear")
@@ -107,8 +114,24 @@ final class HLSStartupResolverTests: XCTestCase {
     func testCancellationDuringWaitNeverHandsAnAdSessionToPlayer() async throws {
         let ad = try advertisement()
         do {
-            _ = try await HLSStartupResolver.resolve(media, fetch: { _ in (ad, self.media) }, wait: { _ in throw CancellationError() })
+            _ = try await HLSStartupResolver.resolve(media, fetch: { _ in (ad, self.media) }, advance: { _ in }, wait: { _ in throw CancellationError() })
             XCTFail("Cancellation must propagate")
         } catch is CancellationError { }
+    }
+
+    func testWaitsForProgrammeThenAdvancesEachSegmentAtMostOnce() async throws {
+        let ad = try advertisement()
+        let allAds = Data("#EXTM3U\n#EXTINF:10,Advertisement\n1.aac\n".utf8)
+        var polls = 0
+        var advances: [URL] = []
+        _ = try await HLSStartupResolver.resolve(media, fetch: { _ in
+            polls += 1
+            let data = polls == 1 ? allAds : (polls <= 3 ? ad : self.programme)
+            return (data, self.media)
+        }, advance: { advances.append($0) }, wait: { _ in
+            if polls > 5 { throw AudioStreamError.stalled }
+        })
+        XCTAssertEqual(polls, 4)
+        XCTAssertEqual(advances, [media.deletingLastPathComponent().appendingPathComponent("4.aac")])
     }
 }

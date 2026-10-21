@@ -23,6 +23,8 @@ actor HLSIngestor {
         defer { session.invalidateAndCancel() }
         return try await HLSStartupResolver.resolve(url, fetch: { target in
             try await self.fetch(target, session: session, maximumSize: 1024 * 1024, diagnostic: { _ in })
+        }, advance: { target in
+            _ = try await self.fetch(target, session: session, maximumSize: 2 * 1024 * 1024, diagnostic: { _ in })
         }).url
     }
 
@@ -49,6 +51,8 @@ actor HLSIngestor {
             stage = "prepareProgramme"
             let resolved = try await HLSStartupResolver.resolve(url, fetch: { target in
                 try await self.fetch(target, session: session, maximumSize: 1024 * 1024, diagnostic: diagnostic)
+            }, advance: { target in
+                _ = try await self.fetch(target, session: session, maximumSize: 2 * 1024 * 1024, diagnostic: diagnostic)
             }, diagnostic: { event in await diagnostic(event) })
             var mediaURL = resolved.url
             var manifest = resolved.manifest
