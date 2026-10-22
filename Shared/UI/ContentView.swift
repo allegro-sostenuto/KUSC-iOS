@@ -17,6 +17,7 @@ struct ContentView: View {
     private struct PanelTransition {
         let id = UUID()
         let switchesPanel: Bool
+        let direction: Int
     }
 
     private enum PlayerSheet: String, Identifiable {
@@ -36,7 +37,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
             VStack(spacing: 0) {
-                header(width: geometry.size.width)
+                header
                 if model.settings.minimalist {
                     ScrollView {
                         playbackControls(landscape: landscape)
@@ -46,6 +47,13 @@ struct ContentView: View {
                     .modifier(PlayerRefreshModifier())
                 } else {
                     panels(size: geometry.size)
+                    VStack(spacing: 0) {
+                        anchoredControls(landscape: landscape, height: geometry.size.height)
+                        pageIndicators(width: geometry.size.width)
+                    }
+                    .frame(maxWidth: landscape ? 560 : .infinity)
+                    .padding(.horizontal, landscape ? 32 : 0)
+                    .scrollDisabled(isSwipingPanel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,7 +113,7 @@ struct ContentView: View {
         #if DEBUG
         .onAppear {
             guard let fixture = UIFixture.state else { return }
-            showingProgramme = ["programme", "unavailable-programme"].contains(fixture)
+            showingProgramme = ["programme", "unavailable-programme", "reveal-programme-right"].contains(fixture)
             switch fixture {
             case "settings": sheet = .settings
             case "sleep": sheet = .sleep
@@ -118,17 +126,13 @@ struct ContentView: View {
         #endif
     }
 
-    private func header(width: CGFloat) -> some View {
+    private var header: some View {
         HStack(alignment: .center, spacing: 10) {
             if showingProgramme && !model.settings.minimalist {
-                Button {
-                    selectPanel(programme: false, width: width)
-                } label: {
-                    Text("Now Playing")
-                        .font(.subheadline).frame(minHeight: 44)
-                }
-                .buttonStyle(.plain).foregroundStyle(Color.kuscRed)
-                .accessibilityIdentifier("now-playing-header")
+                Text("Program")
+                    .font(.subheadline).frame(minHeight: 44)
+                    .foregroundStyle(Color.kuscRed)
+                    .accessibilityIdentifier("programme-header")
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 9) {
                     Text("KUSC").font(.system(size: 25, weight: .semibold)).tracking(-1.2)
@@ -149,41 +153,59 @@ struct ContentView: View {
 
     private func panels(size: CGSize) -> some View {
         let transitionID = panelTransition?.id
-        return ZStack {
-            if panelOffset != 0 || panelTransition != nil {
-                panel(programme: !showingProgramme, size: size)
-                    .transition(.identity)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+        return GeometryReader { viewport in
+            ZStack {
+                if isSwipingPanel {
+                    panel(programme: !showingProgramme, size: size, height: viewport.size.height)
+                        .transition(.identity)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                panel(programme: showingProgramme, size: size, height: viewport.size.height)
+                    .overlay(alignment: dividerDirection > 0 ? .leading : .trailing) {
+                        if isSwipingPanel {
+                            Rectangle().fill(Color.kuscSeparator).frame(width: 1)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .offset(x: panelOffset)
+                    .modifier(PanelOffsetCompletion(offset: panelOffset) {
+                        finishPanelTransition(id: transitionID)
+                    })
+                    .allowsHitTesting(panelTransition == nil)
             }
-            panel(programme: showingProgramme, size: size)
-                .offset(x: panelOffset)
-                .modifier(PanelOffsetCompletion(offset: panelOffset) {
-                    finishPanelTransition(id: transitionID)
-                })
-                .allowsHitTesting(panelTransition == nil)
+            .scrollDisabled(isSwipingPanel)
+            .coordinateSpace(name: "player-panels")
+            .clipped()
         }
-        .coordinateSpace(name: "player-panels")
-        .clipped()
         #if DEBUG
         .onAppear {
-            if UIFixture.state == "reveal-left" { panelOffset = -size.width * 0.44 }
-            if UIFixture.state == "reveal-right" { panelOffset = size.width * 0.44 }
+            guard let fixture = UIFixture.state else { return }
+            if fixture == "reveal-left" { panelOffset = -size.width * 0.44 }
+            if ["reveal-right", "reveal-programme-right"].contains(fixture) {
+                panelOffset = size.width * 0.44
+            }
         }
         #endif
     }
 
-    private func panel(programme: Bool, size: CGSize) -> some View {
+    private var isSwipingPanel: Bool {
+        panelSwipe.axis == .horizontal || panelOffset != 0 || panelTransition != nil
+    }
+
+    private var dividerDirection: Int {
+        // Keep the same edge while an abandoned drag animates back to zero.
+        panelTransition?.direction ?? (panelOffset >= 0 ? 1 : -1)
+    }
+
+    private func panel(programme: Bool, size: CGSize, height: CGFloat) -> some View {
         Group {
             if programme {
-                VStack(spacing: 0) {
-                    ProgrammeView()
-                        .simultaneousGesture(programmeGesture(width: size.width))
-                    anchoredControls(landscape: size.width > size.height, height: size.height)
-                    pageIndicators(width: size.width)
-                }
+                ProgrammeView()
+                    .simultaneousGesture(programmeGesture(width: size.width))
             } else if size.width > size.height {
-                landscapePlayer(size: size)
+                landscapePlayer(width: size.width, height: height)
             } else {
                 portrait(size: size)
             }
@@ -197,39 +219,31 @@ struct ContentView: View {
     private func portrait(size: CGSize) -> some View {
         let artworkSide = min(dynamicTypeSize.isAccessibilitySize ? 144 : 306,
                               size.width - 80, max(140, (size.height - 240) * 0.62))
-        return VStack(spacing: 0) {
+        return ScrollView {
+            VStack(spacing: 22) {
+                AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
+                NowPlayingMetadata(item: model.currentItem)
+            }
+            .frame(maxWidth: .infinity).padding(.horizontal, 32)
+            .padding(.top, 24).padding(.bottom, 16)
+        }
+        .accessibilityIdentifier("now-playing-scroll")
+        .modifier(PlayerRefreshModifier())
+        // Paging belongs to content only. Slider/control gestures never reach it.
+        .simultaneousGesture(programmeGesture(width: size.width))
+    }
+
+    private func landscapePlayer(width: CGFloat, height: CGFloat) -> some View {
+        let artworkSide = max(0, min(width * 0.34, height - 16))
+        return HStack(alignment: .center, spacing: 32) {
+            AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
+                .simultaneousGesture(programmeGesture(width: width))
             ScrollView {
-                VStack(spacing: 22) {
-                    AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
-                    NowPlayingMetadata(item: model.currentItem)
-                }
-                .frame(maxWidth: .infinity).padding(.horizontal, 32)
-                .padding(.top, 24).padding(.bottom, 16)
+                NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
             }
             .accessibilityIdentifier("now-playing-scroll")
             .modifier(PlayerRefreshModifier())
-            // Paging belongs to content only. Slider/control gestures never reach it.
-            .simultaneousGesture(programmeGesture(width: size.width))
-            anchoredControls(landscape: false, height: size.height)
-            pageIndicators(width: size.width)
-        }
-    }
-
-    private func landscapePlayer(size: CGSize) -> some View {
-        let artworkSide = max(96, min(size.width * 0.34, size.height - 84))
-        return HStack(alignment: .center, spacing: 32) {
-            AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
-                .simultaneousGesture(programmeGesture(width: size.width))
-            VStack(spacing: 0) {
-                ScrollView {
-                    NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
-                }
-                .accessibilityIdentifier("now-playing-scroll")
-                .modifier(PlayerRefreshModifier())
-                .simultaneousGesture(programmeGesture(width: size.width))
-                anchoredControls(landscape: true, height: size.height)
-                pageIndicators(width: size.width)
-            }
+            .simultaneousGesture(programmeGesture(width: width))
         }
         .padding(.horizontal, 32).padding(.bottom, 8)
     }
@@ -269,6 +283,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(programme ? "Programme" : "Now Playing")
+        .accessibilityIdentifier(programme ? "programme-page" : "now-playing-page")
         .accessibilityAddTraits(showingProgramme == programme ? [.isSelected] : [])
     }
 
@@ -303,7 +318,8 @@ struct ContentView: View {
             resetPanelDrag()
             return
         }
-        panelTransition = PanelTransition(switchesPanel: direction != nil)
+        panelTransition = PanelTransition(switchesPanel: direction != nil,
+                                          direction: direction ?? (panelOffset >= 0 ? 1 : -1))
         withAnimation(.easeOut(duration: reduceMotion ? 0.12 : 0.26)) {
             panelOffset = target
         }

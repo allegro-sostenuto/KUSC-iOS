@@ -31,9 +31,13 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "schedule-power", state: "schedule-power"),
             CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true),
             CaptureFixture(name: "reveal-left", state: "reveal-left"),
-            CaptureFixture(name: "reveal-right-dark", state: "reveal-right", dark: true)
+            CaptureFixture(name: "reveal-right-dark", state: "reveal-right", dark: true),
+            CaptureFixture(name: "reveal-left-landscape", state: "reveal-left", landscape: true),
+            CaptureFixture(name: "reveal-programme-right", state: "reveal-programme-right"),
+            CaptureFixture(name: "programme-dark", state: "programme", dark: true)
         ]
         var regularSheetTitleHeights: [String: CGFloat] = [:]
+        var restingFooterFrames: [Bool: [CGRect]] = [:]
         for layout in ["playback", "artwork", "details", "everything", "artwork-only", "details-only"] {
             fixtures.append(CaptureFixture(name: "widget-" + layout, state: "widget-" + layout))
             fixtures.append(CaptureFixture(name: "widget-" + layout + "-dark", state: "widget-" + layout, dark: true))
@@ -50,6 +54,22 @@ final class PlayerInteractionTests: XCTestCase {
                     XCTFail("Native UI did not become ready: \(fixture.name)")
                     attach(app, named: "failed-readiness-" + fixture.name)
                     return
+                }
+                if fixture.name == "live" || fixture.name == "landscape" {
+                    restingFooterFrames[fixture.landscape] = footerFrames(in: app)
+                }
+                if fixture.state.hasPrefix("reveal-") || fixture.name == "programme" || fixture.name == "programme-dark" {
+                    let actual = footerFrames(in: app)
+                    if let expected = restingFooterFrames[fixture.landscape] {
+                        for (frame, baseline) in zip(actual, expected) {
+                            XCTAssertEqual(frame.minX, baseline.minX, accuracy: 1, "Footer must not move during panel reveal")
+                            XCTAssertEqual(frame.minY, baseline.minY, accuracy: 1, "Footer must remain below both panels")
+                        }
+                    } else {
+                        XCTFail("Missing resting footer comparison")
+                    }
+                    XCTAssertEqual(app.buttons.matching(identifier: "Pause").count, 1)
+                    XCTAssertEqual(app.buttons.matching(identifier: "More controls").count, 1)
                 }
                 if fixture.largeText && fixture.state == "live" {
                     XCTAssertTrue(app.staticTexts["Native layout fixture"].isHittable,
@@ -95,6 +115,16 @@ final class PlayerInteractionTests: XCTestCase {
                 // portrait rectangle on some simulator versions.
                 attach(app, named: "capture-" + fixture.name, fixture: fixture)
             }
+        }
+    }
+
+    @MainActor
+    private func footerFrames(in app: XCUIApplication) -> [CGRect] {
+        let elements = [app.buttons["Pause"], app.buttons["Jump to live"], app.buttons["More controls"],
+                        app.staticTexts["Listening live"]]
+        return elements.map {
+            XCTAssertTrue($0.isHittable, "Fixed playback controls and status must stay visible")
+            return $0.frame
         }
     }
 
@@ -295,12 +325,41 @@ final class PlayerInteractionTests: XCTestCase {
             swipePanel(scroll, direction: direction)
             XCTAssertTrue(programme.waitForExistence(timeout: 5))
             XCTAssertFalse(nowPlaying.exists)
-            XCTAssertEqual(app.buttons["now-playing-header"].label, "Now Playing")
+            XCTAssertFalse(app.buttons["now-playing-header"].exists)
+            XCTAssertEqual(app.staticTexts["programme-header"].label, "Program")
+            XCTAssertFalse(app.buttons["Program"].exists, "Program is a heading, not a return button")
+            app.staticTexts["programme-header"].tap()
+            XCTAssertTrue(programme.exists, "Tapping the heading must not change panels")
             swipePanel(app.scrollViews["programme-scroll"], direction: direction)
             XCTAssertTrue(nowPlaying.waitForExistence(timeout: 5), "The same direction must also return to Now Playing")
             XCTAssertFalse(programme.exists)
             XCTAssertTrue(app.buttons["Pause"].isHittable)
         }
+    }
+
+    @MainActor
+    func testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt() {
+        // Hold the same partial-reveal state used for layout inspection, then
+        // try a real vertical drag. It must not scroll until the panel settles.
+        let app = launchFixture("reveal-programme-right")
+        defer { app.terminate() }
+        let scroll = app.scrollViews["programme-scroll"]
+        let title = app.staticTexts["Programme layout fixture"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        let initialY = title.frame.minY
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: scroll.frame.minY + 170))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -100)))
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            scroll.exists && abs(scroll.frame.minX) <= 1
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed)
+        XCTAssertEqual(title.frame.minY, initialY, accuracy: 1,
+                       "Vertical content must stay still while the panel is partially revealed")
+        let normalStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7))
+        normalStart.press(forDuration: 0.1, thenDragTo: normalStart.withOffset(CGVector(dx: 0, dy: -100)))
+        XCTAssertLessThan(title.frame.minY, initialY - 30, "Vertical scrolling must resume after settling")
+        XCTAssertTrue(app.buttons["Pause"].isHittable)
     }
 
     @MainActor
@@ -346,7 +405,7 @@ final class PlayerInteractionTests: XCTestCase {
         pull(programme, distance: 240)
         XCTAssertTrue(app.staticTexts["Refreshed programme fixture 2"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Pause"].exists)
-        app.buttons.matching(identifier: "Now Playing").firstMatch.tap()
+        app.buttons["now-playing-page"].tap()
         XCTAssertTrue(app.staticTexts["Refreshed layout fixture 2"].waitForExistence(timeout: 5))
         attach(app, named: "pull-refresh-both-panels-dark")
     }
@@ -359,7 +418,7 @@ final class PlayerInteractionTests: XCTestCase {
         pull(scroll, distance: 240)
         XCTAssertTrue(app.staticTexts["Refreshed layout fixture 1"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Play"].exists, "Refresh must not resume paused audio")
-        app.buttons["Programme"].tap()
+        app.buttons["programme-page"].tap()
         let programme = app.scrollViews["programme-scroll"]
         XCTAssertTrue(programme.waitForExistence(timeout: 5))
         pull(programme, distance: 240)
@@ -419,7 +478,7 @@ final class PlayerInteractionTests: XCTestCase {
         case "programme": marker = app.staticTexts["Programme layout fixture"]
         case "unavailable-programme": marker = app.staticTexts["Previous pieces are unavailable."]
         case "minimal": marker = app.buttons["Pause"]
-        case "reveal-left", "reveal-right": marker = app.buttons["Settings"]
+        case "reveal-left", "reveal-right", "reveal-programme-right": marker = app.buttons["Settings"]
         case "no-artwork": marker = app.buttons["Play"]
         case let state where state.hasPrefix("widget-"): marker = app.staticTexts["Widget layout fixture"]
         default: marker = app.buttons["More controls"]
@@ -455,7 +514,7 @@ final class PlayerInteractionTests: XCTestCase {
                 artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         XCTAssertTrue(app.staticTexts["Programme layout fixture"].waitForExistence(timeout: 5))
         attach(app, named: attachment + "-programme")
-        let nowPlaying = app.buttons.matching(identifier: "Now Playing").firstMatch
+        let nowPlaying = app.buttons["now-playing-page"]
         XCTAssertTrue(nowPlaying.isHittable)
         nowPlaying.tap()
         XCTAssertTrue(app.scrollViews["now-playing-scroll"].waitForExistence(timeout: 5),
