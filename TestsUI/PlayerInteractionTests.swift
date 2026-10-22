@@ -29,7 +29,9 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "sleep-dark", state: "sleep", dark: true),
             CaptureFixture(name: "schedule-output-dark", state: "schedule-output", dark: true),
             CaptureFixture(name: "schedule-power", state: "schedule-power"),
-            CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true)
+            CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true),
+            CaptureFixture(name: "reveal-left", state: "reveal-left"),
+            CaptureFixture(name: "reveal-right-dark", state: "reveal-right", dark: true)
         ]
         var regularSheetTitleHeights: [String: CGFloat] = [:]
         for layout in ["playback", "artwork", "details", "everything", "artwork-only", "details-only"] {
@@ -271,6 +273,37 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testEitherSwipeDirectionSwitchesBothPanelsAndShortDragCancels() {
+        let app = launchFixture("live")
+        defer { app.terminate() }
+        let nowPlaying = app.staticTexts["Native layout fixture"]
+        let programme = app.staticTexts["Programme layout fixture"]
+        for direction in [-1.0, 1.0] {
+            let scroll = app.scrollViews["now-playing-scroll"]
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: direction * 16, dy: 0)))
+            XCTAssertTrue(nowPlaying.isHittable, "A short drag must settle back to the current panel")
+            XCTAssertFalse(programme.exists, "The underneath panel must be hidden from accessibility")
+
+            swipePanel(scroll, direction: direction)
+            XCTAssertTrue(programme.waitForExistence(timeout: 5))
+            XCTAssertFalse(nowPlaying.exists)
+            XCTAssertEqual(app.buttons["now-playing-header"].label, "Now Playing")
+            swipePanel(app.scrollViews["programme-scroll"], direction: direction)
+            XCTAssertTrue(nowPlaying.waitForExistence(timeout: 5), "The same direction must also return to Now Playing")
+            XCTAssertFalse(programme.exists)
+            XCTAssertTrue(app.buttons["Pause"].isHittable)
+        }
+    }
+
+    @MainActor
+    private func swipePanel(_ panel: XCUIElement, direction: Double) {
+        let start = panel.coordinate(withNormalizedOffset: CGVector(dx: direction > 0 ? 0.2 : 0.8, dy: 0.25))
+        let end = panel.coordinate(withNormalizedOffset: CGVector(dx: direction > 0 ? 0.8 : 0.2, dy: 0.25))
+        start.press(forDuration: 0.1, thenDragTo: end)
+    }
+
+    @MainActor
     func testLandscapeSliderDoesNotNavigateProgramme() {
         let app = launchFixture("partial-buffer", landscape: true)
         let orientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -379,6 +412,7 @@ final class PlayerInteractionTests: XCTestCase {
         case "programme": marker = app.staticTexts["Programme layout fixture"]
         case "unavailable-programme": marker = app.staticTexts["Previous pieces are unavailable."]
         case "minimal": marker = app.buttons["Pause"]
+        case "reveal-left", "reveal-right": marker = app.buttons["Settings"]
         case "no-artwork": marker = app.buttons["Play"]
         case let state where state.hasPrefix("widget-"): marker = app.staticTexts["Widget layout fixture"]
         default: marker = app.buttons["More controls"]
