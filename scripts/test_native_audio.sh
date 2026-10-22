@@ -44,5 +44,6 @@ xcodebuild -project KUSC.xcodeproj -scheme KUSC-SE -configuration Debug \
     -only-testing:KUSCTests/BufferedAudioSampleSourceTests \
     -only-testing:KUSCTests/BufferedAudioRendererTests \
     -only-testing:KUSCTests/AudioEngineIntegrationTests \
+    -only-testing:KUSCTests/ScheduleModelBoundaryTests \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"

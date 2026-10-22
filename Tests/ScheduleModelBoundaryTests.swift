@@ -7,6 +7,79 @@ import UserNotifications
 /// AppModel actions and read the real RollingAudioEngine.volume boundary.
 /// The fixture launch environment prevents station networking and audio output.
 final class ScheduleModelBoundaryTests: XCTestCase {
+    @MainActor func testScheduleExpiryDuringStallKeepsSpeakerAndBatteryProtection() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(options: .init(batteryOnlyStop: true, lowBatteryMinutes: 1),
+                                           secondsUntilStart: 10, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(seconds: 10)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 599)
+        model.receiveScheduledSnapshotForTesting(ready: false)
+        model.advanceScheduleForTesting(seconds: 1)
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertTrue(model.scheduleStateForTesting.speakerSession, "A stalled completed start still owns its speaker session")
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(level: 0.24)
+        model.advanceScheduleForTesting(seconds: 59)
+        XCTAssertTrue(model.isPlaying)
+        model.advanceScheduleForTesting(seconds: 1)
+        XCTAssertFalse(model.isPlaying, "Expiry cannot remove battery protection during a temporary stall")
+    }
+
+    @MainActor func testStalledLateFadeGetsFullMinuteAfterScheduleExpires() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 10, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(seconds: 600)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 5)
+        model.receiveScheduledSnapshotForTesting(ready: false)
+        model.advanceScheduleForTesting(seconds: 5)
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 120)
+        model.simulateScheduledReadinessForTesting()
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 30)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.5, accuracy: 0.001)
+        model.advanceScheduleForTesting(seconds: 30)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+        XCTAssertNil(model.schedulePhase)
+    }
+
+    @MainActor func testStallAfterScheduleExpiryDoesNotConsumeRemainingFade() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: 10, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(seconds: 600)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 10)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        model.receiveScheduledSnapshotForTesting(ready: false)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 120)
+        model.simulateScheduledReadinessForTesting()
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 30)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.5, accuracy: 0.001)
+        model.pauseRemote()
+        model.advanceScheduleForTesting(seconds: 120)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.play()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1, "Explicit Play still overrides the old schedule's fade")
+    }
+
     @MainActor func testUnstartedScheduleExpiresAtTenMinutesAndCannotBeRevived() {
         let model = AppModel.shared
         model.configureScheduleForTesting(options: .init(batteryOnlyStop: true), secondsUntilStart: 10, environment: environment())

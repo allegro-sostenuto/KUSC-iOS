@@ -7,6 +7,37 @@ import XCTest
 @testable import KUSC_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testPlayDuringPausedBufferModePreparationUpdatesLatestIntent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-pending-play-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let began = expectation(description: "Direct replacement is preparing")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, sourceURL: source)
+        engine.volume = 0.2
+        engine.setRetention(minutes: 0)
+        await fulfillment(of: [began], timeout: 3)
+        let replacement = engine.retentionSwitchForTesting
+        engine.pause()
+        engine.play()
+        XCTAssertEqual(latest?.playbackRequested, true, "Play must be remembered before the new player exists")
+        resume?.resume(returning: files.segments[0])
+        await replacement?.value
+        XCTAssertEqual(latest?.playbackRequested, true)
+        XCTAssertEqual(engine.directURLForTesting, files.segments[0])
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+        engine.pause()
+        XCTAssertEqual(latest?.playbackRequested, false)
+    }
+
     func testDirectResumeAndLiveReusePreparedSessionWithoutRequestingAnotherPromo() async throws {
         var resolutions = 0
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-direct-\(UUID().uuidString)")
