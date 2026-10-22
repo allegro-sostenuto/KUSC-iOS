@@ -276,13 +276,15 @@ final class PlayerInteractionTests: XCTestCase {
     func testEitherSwipeDirectionSwitchesBothPanelsAndShortDragCancels() {
         let app = launchFixture("live")
         defer { app.terminate() }
-        let nowPlaying = app.staticTexts["Native layout fixture"]
+        let nowPlaying = app.scrollViews["now-playing-scroll"]
         let programme = app.staticTexts["Programme layout fixture"]
         for direction in [-1.0, 1.0] {
             let scroll = app.scrollViews["now-playing-scroll"]
+            let restingX = scroll.frame.minX
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: direction * 16, dy: 0)))
             XCTAssertTrue(nowPlaying.isHittable, "A short drag must settle back to the current panel")
+            XCTAssertEqual(scroll.frame.minX, restingX, accuracy: 1, "Cancellation must restore the resting position")
             XCTAssertFalse(programme.exists, "The underneath panel must be hidden from accessibility")
 
             swipePanel(scroll, direction: direction)
