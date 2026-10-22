@@ -283,6 +283,11 @@ final class PlayerInteractionTests: XCTestCase {
             let restingX = scroll.frame.minX
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: direction * 16, dy: 0)))
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                scroll.exists && abs(scroll.frame.minX - restingX) <= 1
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed,
+                           "Cancellation must finish its settling animation")
             XCTAssertTrue(nowPlaying.isHittable, "A short drag must settle back to the current panel")
             XCTAssertEqual(scroll.frame.minX, restingX, accuracy: 1, "Cancellation must restore the resting position")
             XCTAssertFalse(programme.exists, "The underneath panel must be hidden from accessibility")
@@ -453,6 +458,8 @@ final class PlayerInteractionTests: XCTestCase {
         let nowPlaying = app.buttons.matching(identifier: "Now Playing").firstMatch
         XCTAssertTrue(nowPlaying.isHittable)
         nowPlaying.tap()
+        XCTAssertTrue(app.scrollViews["now-playing-scroll"].waitForExistence(timeout: 5),
+                      "Wait for the animated return to finish before checking which panel is visible")
         XCTAssertFalse(app.staticTexts["Programme layout fixture"].exists)
         XCTAssertTrue(app.staticTexts["Native layout fixture"].exists)
     }
