@@ -40,6 +40,7 @@ struct HLSManifest {
         var variants: [HLSVariant] = []
         var segments: [HLSMediaSegment] = []
         var sequence: Int64 = 0
+        var hasMediaSequence = false
         var nextDate: Date?
         var hasPendingExplicitDate = false
         var nextDuration: Double?
@@ -57,7 +58,12 @@ struct HLSManifest {
                 nextBandwidth = attributes.first(where: { $0.hasPrefix("BANDWIDTH=") })
                     .flatMap { Int($0.dropFirst("BANDWIDTH=".count)) } ?? 0
             } else if line.hasPrefix("#EXT-X-MEDIA-SEQUENCE:") {
-                sequence = Int64(line.dropFirst("#EXT-X-MEDIA-SEQUENCE:".count)) ?? 0
+                guard !hasMediaSequence, segments.isEmpty,
+                      let value = Int64(line.dropFirst("#EXT-X-MEDIA-SEQUENCE:".count)), value >= 0 else {
+                    throw AudioStreamError.unsupportedFormat("invalid HLS media sequence")
+                }
+                sequence = value
+                hasMediaSequence = true
             } else if line.hasPrefix("#EXT-X-TARGETDURATION:") {
                 target = Double(line.dropFirst("#EXT-X-TARGETDURATION:".count)) ?? 10
                 guard target > 0, target <= 60 else { throw AudioStreamError.invalidAAC }
@@ -106,11 +112,14 @@ struct HLSManifest {
                     variants.append(HLSVariant(bandwidth: bandwidth, url: url))
                     nextBandwidth = nil
                 } else if let duration = nextDuration {
-                    segments.append(HLSMediaSegment(sequence: sequence, url: url,
+                    let (number, overflow) = sequence.addingReportingOverflow(Int64(segments.count))
+                    guard !overflow else {
+                        throw AudioStreamError.unsupportedFormat("HLS media sequence overflow")
+                    }
+                    segments.append(HLSMediaSegment(sequence: number, url: url,
                                                     start: nextDate, duration: duration,
                                                     discontinuity: nextDiscontinuity,
                                                     discontinuitySequence: discontinuitySequence, title: nextTitle))
-                    sequence += 1
                     nextDate = nextDate?.addingTimeInterval(duration)
                     nextDuration = nil
                     nextTitle = nil

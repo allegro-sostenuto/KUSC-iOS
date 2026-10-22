@@ -7,6 +7,32 @@ import UserNotifications
 /// AppModel actions and read the real RollingAudioEngine.volume boundary.
 /// The fixture launch environment prevents station networking and audio output.
 final class ScheduleModelBoundaryTests: XCTestCase {
+    @MainActor func testInterruptedScheduleExpiryKeepsSpeakerOnAutomaticResumeUntilManualPlay() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(options: .init(batteryOnlyStop: true),
+                                           secondsUntilStart: 10, environment: environment())
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(seconds: 10)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 599)
+        model.interruptScheduledAudioForTesting()
+        model.advanceScheduleForTesting(seconds: 1, activationFails: true)
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        model.advanceScheduleForTesting(seconds: 5, route: headphones, activationFails: false)
+        XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertTrue(model.scheduleStateForTesting.speakerSession)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        model.simulateScheduledReadinessForTesting()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 30)
+        model.runScheduledGainCallbackForTest()
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.5, accuracy: 0.001)
+        model.pauseRemote()
+        model.play()
+        XCTAssertFalse(model.scheduleStateForTesting.speakerSession, "Explicit Play releases the old schedule's route policy")
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
     @MainActor func testScheduleExpiryDuringStallKeepsSpeakerAndBatteryProtection() {
         let model = AppModel.shared
         model.configureScheduleForTesting(options: .init(batteryOnlyStop: true, lowBatteryMinutes: 1),

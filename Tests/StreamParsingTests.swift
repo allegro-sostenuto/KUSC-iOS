@@ -7,6 +7,22 @@ import XCTest
 #endif
 
 final class HLSManifestTests: XCTestCase {
+    func testMediaSequenceBoundaryCannotOverflowAndCrashThePlayer() throws {
+        let prefix = "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:\(Int64.max)\n#EXTINF:10,\nlast.aac\n"
+        XCTAssertEqual(try parse(prefix).segments.map(\.sequence), [Int64.max])
+        XCTAssertThrowsError(try parse(prefix + "#EXTINF:10,\noverflow.aac\n"))
+        let pair = "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:\(Int64.max - 1)\n#EXTINF:10,\none.aac\n#EXTINF:10,\ntwo.aac\n"
+        XCTAssertEqual(try parse(pair).segments.map(\.sequence), [Int64.max - 1, Int64.max])
+    }
+
+    func testInvalidOrRepeatedMediaSequencesAreRejectedInsteadOfResettingClock() {
+        for value in ["-1", "invalid", "9223372036854775808", ""] {
+            XCTAssertThrowsError(try parse("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:\(value)\n#EXTINF:10,\none.aac\n"))
+        }
+        XCTAssertThrowsError(try parse("#EXTM3U\n#EXTINF:10,\none.aac\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10,\ntwo.aac\n"))
+        XCTAssertThrowsError(try parse("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:4\n#EXT-X-MEDIA-SEQUENCE:4\n#EXTINF:10,\none.aac\n"))
+    }
+
     private let base = URL(string: "https://stream.example.test/live/playlist.m3u8")!
     private func parse(_ text: String, previous: HLSManifest? = nil) throws -> HLSManifest {
         try HLSManifest.parse(Data(text.utf8), baseURL: base, previous: previous)

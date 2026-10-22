@@ -256,7 +256,10 @@ final class RollingAudioEngine {
     }
 
     func play() {
-        guard player != nil || bufferedPlayer != nil, !failed else { return }
+        guard !failed, player != nil || bufferedPlayer != nil || directPreparationTask != nil else { return }
+        // A buffer-mode replacement can be awaiting its programme playlist
+        // without a player yet. Remember Play so preparation uses the latest
+        // transport intent, just as Pause already does.
         recordDiagnostic("engine.play")
         if !hasStartedPlayback { connectionBegan = Date() }
         shouldPlay = true

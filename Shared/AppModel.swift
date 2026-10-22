@@ -105,6 +105,8 @@ import UIKit
     // battery protection and any remaining minute of fade survive its removal.
     private var completedPlaybackOptions: ScheduledStartOptions?
     private var completedPlaybackFade: ScheduledGainEnvelope?
+    private var completedPlaybackNeedsFade = false
+    private var completedPlaybackUsesSpeaker = false
     private var completedPlaybackBattery = ScheduledBatteryGuard()
     // A future start releases a manual pause at its deadline. Once that time
     // has passed, only Play releases the pause (represented by distantFuture).
@@ -226,7 +228,8 @@ import UIKit
         guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
         ensureTicker()
-        completedPlaybackOptions = nil; completedPlaybackFade = nil
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
         // Play is fresh user intent, independent of automatic route/power policy
         // and of a possibly stale interruption notification. Ask iOS now.
         manualPlaybackOverridesSchedule = scheduleRequest != nil
@@ -278,7 +281,7 @@ import UIKit
         if interruptionRetryStarted == nil { interruptionRetryStarted = uptime }
         let interval: TimeInterval = uptime - interruptionRetryStarted! < 60 ? 5 : 15
         interruptionRetryAt = uptime + interval
-        do { try activateSession(forceSpeaker: false) }
+        do { try activateSession(forceSpeaker: completedPlaybackUsesSpeaker) }
         catch {
             state = .interrupted
             notice = "Waiting for iOS audio access. Play retries now; Pause cancels the retry."
@@ -680,6 +683,7 @@ import UIKit
         if acquisitionIsStale != snapshot.acquisitionIsStale { acquisitionIsStale = snapshot.acquisitionIsStale }
         if snapshot.isPlaying { bufferFailureMessage = nil }
         audioIsAdvancing = snapshot.isPlaying && !snapshot.isWaiting && !snapshot.isSeeking
+        if completedPlaybackNeedsFade { updateGains() }
         if scheduleOwnsPlayback && !scheduleReachedFullGain {
             if audioIsAdvancing && snapshot.isReady && !interruptionActive {
                 if scheduleEnvelope == nil {
@@ -795,7 +799,8 @@ import UIKit
         stopEverything(reason: .stoppedBySleepTimer); cancelSleep()
     }
     private func stopEverything(reason: PlaybackState) {
-        completedPlaybackOptions = nil; completedPlaybackFade = nil
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
         explicitPlayPending = false; interruptionRetryStarted = nil
         wantsPlayback = false; hasStartedEngine = false; pausedAt = nil; reconnectStarted = nil
         audioIsAdvancing = false; applyGain(); connectionGeneration = UUID()
@@ -991,6 +996,8 @@ import UIKit
 
     private func beginScheduledPlayback(_ request: ScheduledStartRequest) {
         guard scheduleRequest?.id == request.id, !scheduleOwnsPlayback, !interruptionActive else { return }
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
         scheduleOwnsPlayback = true
         scheduledHasAudioFocus = false
         scheduleGain = 0
@@ -1083,9 +1090,11 @@ import UIKit
     private func clearSchedule(stopOwnedPlayback: Bool, preservePlaybackSession: Bool = false) {
         let remainingFade = preservePlaybackSession ? scheduleEnvelope : nil
         let remainingGain = preservePlaybackSession ? scheduleGain : 1
+        let needsFade = preservePlaybackSession && !scheduleReachedFullGain
         if preservePlaybackSession {
             completedPlaybackOptions = scheduleRequest?.options
             completedPlaybackBattery = scheduledBattery
+            completedPlaybackUsesSpeaker = scheduledSpeakerRequired
         }
         if scheduleRequest != nil { recordScheduleDiagnostic("clear stopOwned=\(stopOwnedPlayback)") }
         scheduleGeneration.invalidate()
@@ -1108,7 +1117,9 @@ import UIKit
         scheduleBoundaryTimer?.invalidate(); scheduleBoundaryTimer = nil
         persistSchedule()
         completedPlaybackFade = remainingFade
+        completedPlaybackNeedsFade = needsFade
         scheduleGain = remainingGain; applyGain()
+        if needsFade { startGainDriver() }
         if state == .scheduledStandby { state = .idle }
         if speakerSessionActive && wantsPlayback && !preservePlaybackSession { try? activateSession(forceSpeaker: false) }
         releaseScheduledSessionIfIdle()
@@ -1118,7 +1129,9 @@ import UIKit
         guard let request = scheduleRequest,
               ScheduledStartPolicy.hasExpired(target: request.date, now: scheduleNow) else { return }
         let completed = scheduleDidStart
-        let keepPlaying = scheduleOwnsPlayback && completed && wantsPlayback && audioIsAdvancing
+        // Playback intent survives a temporary stall or interruption. Retiring
+        // the request must not drop its battery guard, route or unfinished fade.
+        let keepPlaying = scheduleOwnsPlayback && completed && wantsPlayback
         let stopPending = scheduleOwnsPlayback && !completed
         clearSchedule(stopOwnedPlayback: stopPending, preservePlaybackSession: keepPlaying)
         // Never leave a historical phase on the main player after retirement.
@@ -1250,9 +1263,21 @@ import UIKit
                 state = audioIsAdvancing ? .scheduledSilent : .buffering
             }
         }
-        if let envelope = completedPlaybackFade, wantsPlayback, !interruptionActive, audioIsAdvancing {
-            scheduleGain = envelope.gain(at: scheduleUptime)
-            if envelope.isComplete(at: scheduleUptime) { completedPlaybackFade = nil }
+        if completedPlaybackNeedsFade {
+            if wantsPlayback && !interruptionActive && audioIsAdvancing {
+                if completedPlaybackFade == nil {
+                    completedPlaybackFade = ScheduledGainEnvelope(target: now, readyAt: now, uptime: scheduleUptime)
+                }
+                if let envelope = completedPlaybackFade {
+                    scheduleGain = envelope.gain(at: scheduleUptime)
+                    if envelope.isComplete(at: scheduleUptime) {
+                        completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+                    }
+                }
+            } else {
+                // Waiting time cannot consume the promised audible minute.
+                completedPlaybackFade = nil; scheduleGain = 0
+            }
         }
         var sleepFading = false
         if !protectedSchedule, case .fade(let start, let end)? = sleepDecision, now >= start {
@@ -1261,7 +1286,7 @@ import UIKit
             if now >= end { finishSleep(); return }
         }
         applyGain()
-        if (!scheduleOwnsPlayback || scheduleReachedFullGain) && completedPlaybackFade == nil && !sleepFading { gainTimer?.invalidate(); gainTimer = nil }
+        if (!scheduleOwnsPlayback || scheduleReachedFullGain) && !completedPlaybackNeedsFade && !sleepFading { gainTimer?.invalidate(); gainTimer = nil }
     }
 
     private func applyGain() {
@@ -1400,7 +1425,8 @@ import UIKit
     private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
         let silentPreparation = scheduleOwnsPlayback && !scheduleUserInitiated && scheduledAt.map { scheduleNow < $0 } == true
         let mixing = mixWithOthers ?? silentPreparation
-        let useSpeaker = forceSpeaker ?? (!silentPreparation && scheduleOwnsPlayback && scheduledSpeakerRequired)
+        let useSpeaker = forceSpeaker ?? (!silentPreparation &&
+            ((scheduleOwnsPlayback && scheduledSpeakerRequired) || completedPlaybackUsesSpeaker))
         #if DEBUG
         if let environment = scheduleTestEnvironment {
             sessionActivationAttempts.append((useSpeaker, mixing))
