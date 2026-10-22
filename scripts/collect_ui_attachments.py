@@ -177,7 +177,7 @@ def collect(exported, destination):
                 failures.append(f"Invalid native logical frame: {name}: {frame}")
             else:
                 logical_orientation = "landscape" if logical_width > logical_height else "portrait"
-                expected = "landscape" if name in {"landscape", "minimal-landscape"} else "portrait"
+                expected = "landscape" if name in {"landscape", "minimal-landscape", "reveal-left-landscape"} else "portrait"
                 if (logical_orientation != expected or evidence.get("requestedOrientation") != expected):
                     failures.append(f"Wrong logical UI orientation for {name}: {frame}")
         captures.append({"capture": name, "file": target.name, "sha256": digest,

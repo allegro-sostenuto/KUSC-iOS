@@ -38,6 +38,7 @@ final class PlayerInteractionTests: XCTestCase {
         ]
         var regularSheetTitleHeights: [String: CGFloat] = [:]
         var restingFooterFrames: [Bool: [CGRect]] = [:]
+        var restingPanelX: [Bool: CGFloat] = [:]
         for layout in ["playback", "artwork", "details", "everything", "artwork-only", "details-only"] {
             fixtures.append(CaptureFixture(name: "widget-" + layout, state: "widget-" + layout))
             fixtures.append(CaptureFixture(name: "widget-" + layout + "-dark", state: "widget-" + layout, dark: true))
@@ -57,6 +58,16 @@ final class PlayerInteractionTests: XCTestCase {
                 }
                 if fixture.name == "live" || fixture.name == "landscape" {
                     restingFooterFrames[fixture.landscape] = footerFrames(in: app)
+                    restingPanelX[fixture.landscape] = app.scrollViews["now-playing-scroll"].frame.minX
+                }
+                if fixture.state.hasPrefix("reveal-") {
+                    let identifier = fixture.state == "reveal-programme-right" ? "programme-scroll" : "now-playing-scroll"
+                    let delta = app.scrollViews[identifier].frame.minX - (restingPanelX[fixture.landscape] ?? 0)
+                    if fixture.state == "reveal-left" {
+                        XCTAssertLessThan(delta, -50, "The capture must show a partial reveal even after rotation")
+                    } else {
+                        XCTAssertGreaterThan(delta, 50, "The capture must show the panel displaced from rest")
+                    }
                 }
                 if fixture.state.hasPrefix("reveal-") || fixture.name == "programme" || fixture.name == "programme-dark" {
                     let actual = footerFrames(in: app)

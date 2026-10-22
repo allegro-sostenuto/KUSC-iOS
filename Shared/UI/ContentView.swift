@@ -58,7 +58,12 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.kuscBackground.ignoresSafeArea())
-            .onChange(of: geometry.size) { _ in resetPanelDrag() }
+            .onChange(of: geometry.size) { _ in
+                resetPanelDrag()
+                #if DEBUG
+                applyPanelRevealFixture(width: geometry.size.width)
+                #endif
+            }
         }
         .foregroundStyle(Color.kuscInk)
         .tint(.kuscRed)
@@ -180,15 +185,21 @@ struct ContentView: View {
             .clipped()
         }
         #if DEBUG
-        .onAppear {
-            guard let fixture = UIFixture.state else { return }
-            if fixture == "reveal-left" { panelOffset = -size.width * 0.44 }
-            if ["reveal-right", "reveal-programme-right"].contains(fixture) {
-                panelOffset = size.width * 0.44
-            }
-        }
+        .onAppear { applyPanelRevealFixture(width: size.width) }
         #endif
     }
+
+    #if DEBUG
+    private func applyPanelRevealFixture(width: CGFloat) {
+        // XCTest rotates after launch. Reapply only the held layout fixture;
+        // real gestures still reset when the viewport changes dimensions.
+        guard let fixture = UIFixture.state else { return }
+        if fixture == "reveal-left" { panelOffset = -width * 0.44 }
+        if ["reveal-right", "reveal-programme-right"].contains(fixture) {
+            panelOffset = width * 0.44
+        }
+    }
+    #endif
 
     private var isSwipingPanel: Bool {
         panelSwipe.axis == .horizontal || panelOffset != 0 || panelTransition != nil
