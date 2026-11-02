@@ -124,13 +124,48 @@ final class StationPickerUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(dark: Bool = false) -> XCUIApplication {
+    func testAccessibilityLandscapeGridAndListKeepNamesAndReorderControlsReachable() {
+        let app = launch(largeText: true)
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        app.buttons["choose-station"].tap()
+        rotate(.landscapeRight, app: app)
+        app.buttons["stations-reorder"].tap()
+        for mode in ["grid", "list"] {
+            app.buttons["stations-mode-" + mode].tap()
+            // Reopening retains mode/order and returns the horizontal roll to
+            // its first row, so each presentation independently reaches the end.
+            app.buttons["Back to player"].tap()
+            app.buttons["choose-station"].tap()
+            app.buttons["stations-reorder"].tap()
+            reach("orpheus-russian-classical", app: app, horizontal: true)
+            let station = app.buttons["station-orpheus-russian-classical"]
+            let move = app.buttons["station-move-earlier-orpheus-russian-classical"]
+            let scroll = app.scrollViews["stations-horizontal-scroll"]
+            XCTAssertTrue(station.label.contains("Russian Classical Music"))
+            XCTAssertTrue(move.isHittable)
+            XCTAssertGreaterThanOrEqual(station.frame.minY, scroll.frame.minY - 1)
+            XCTAssertLessThanOrEqual(move.frame.maxY, scroll.frame.maxY + 1,
+                                     "The reorder footer must fit the short landscape viewport")
+            capture("stations-" + mode + "-landscape-accessibility3-reorder")
+            move.tap()
+            // Selecting and moving are separate actions even at large text.
+            app.buttons["Back to player"].tap()
+            XCTAssertTrue(app.buttons["choose-station"].label.contains("KUSC"))
+            XCTAssertTrue(app.buttons["Play"].isHittable)
+            app.buttons["choose-station"].tap()
+            app.buttons["stations-reorder"].tap()
+        }
+    }
+
+    @MainActor
+    private func launch(dark: Bool = false, largeText: Bool = false) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["PHILHARMONIC_UI_STATE"] = "paused-live"
         app.launchEnvironment["PHILHARMONIC_UI_ROTATION_DRIVER"] = "xctest"
         app.launchEnvironment["PHILHARMONIC_UI_RESET_STATIONS"] = "1"
         app.launchEnvironment["PHILHARMONIC_UI_DARK"] = dark ? "1" : "0"
+        app.launchEnvironment["PHILHARMONIC_UI_LARGE_TEXT"] = largeText ? "1" : "0"
         app.launch()
         XCTAssertTrue(app.buttons["choose-station"].waitForExistence(timeout: 5))
         return app
@@ -138,7 +173,7 @@ final class StationPickerUITests: XCTestCase {
 
     @MainActor
     private func reach(_ id: String, app: XCUIApplication, horizontal: Bool) {
-        for _ in 0..<12 {
+        for _ in 0..<32 {
             if app.buttons["station-" + id].isHittable { return }
             if horizontal { app.scrollViews["stations-horizontal-scroll"].swipeLeft() }
             else { app.scrollViews["stations-vertical-scroll"].swipeUp() }

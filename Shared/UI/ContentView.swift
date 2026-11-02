@@ -74,6 +74,9 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $choosingStation) {
             StationPickerView()
                 .environmentObject(model)
+                #if DEBUG
+                .modifier(UIFixtureTextSize())
+                #endif
                 .preferredColorScheme(colorScheme)
         }
         .sheet(item: $sheet, onDismiss: { model.clearScheduleManagementRequest() }) { selected in

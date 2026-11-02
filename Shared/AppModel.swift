@@ -73,6 +73,7 @@ import UIKit
     private var observers: [NSObjectProtocol] = []
     private var wantsPlayback = false
     private var hasStartedEngine = false
+    private var stationSelectionKeepsActivity = false
     private var pausedAt: Date?
     private var wasPlayingBeforeInterruption = false
     private var interruptionActive = false
@@ -242,6 +243,7 @@ import UIKit
     /// Retire the whole old session before publishing the new station identity.
     private func switchStation(_ id: String, reconnect: Bool = true) {
         guard let station = StationCatalog.station(id: id), station.id != selectedStation.id else { return }
+        stationSelectionKeepsActivity = stationSelectionKeepsActivity || hasStartedEngine
         stationGeneration = UUID(); connectionGeneration = UUID(); metadataGeneration = UUID()
         connectionTask?.cancel(); connectionTask = nil
         metadataTask?.cancel(); metadataTask = nil
@@ -590,6 +592,8 @@ import UIKit
          connectionGeneration, pausedAt, interruptionActive)
     }
 
+    var stationActivityVisibleForTesting: Bool { hasStartedEngine || stationSelectionKeepsActivity }
+
     func resetMediaServicesForTesting() { handleMediaServicesReset() }
     func endAudioInterruptionForTesting(shouldResume: Bool) { endInterruption(shouldResume: shouldResume) }
 
@@ -851,6 +855,7 @@ import UIKit
         stopEverything(reason: .stoppedBySleepTimer); cancelSleep()
     }
     private func stopEverything(reason: PlaybackState) {
+        stationSelectionKeepsActivity = false
         completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
         completedPlaybackUsesSpeaker = false
         explicitPlayPending = false; interruptionRetryStarted = nil
@@ -1478,7 +1483,8 @@ import UIKit
         default: surfaceStatus = statusText
         }
         liveActivity.update(item: currentItem, artwork: artwork, playing: isAudible,
-                            requested: isPlaying, status: surfaceStatus, visible: hasStartedEngine, station: selectedStation)
+                            requested: isPlaying, status: surfaceStatus,
+                            visible: hasStartedEngine || stationSelectionKeepsActivity, station: selectedStation)
         #endif
         NotificationCenter.default.post(name: .philharmonicPlaybackChanged, object: self)
     }

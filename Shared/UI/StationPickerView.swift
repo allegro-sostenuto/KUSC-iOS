@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct StationPickerView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .subheadline) private var stationTextScale: CGFloat = 15
     @State private var reordering = false
     @State private var draggedID: String?
 
@@ -23,7 +25,7 @@ struct StationPickerView: View {
                     }.padding(.horizontal, 20).padding(.bottom, 12)
                 }
                 Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
-                if reordering {
+                if reordering && !(landscape && dynamicTypeSize.isAccessibilitySize) {
                     Text("Drag a station, or use the arrows to move it earlier or later.")
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -51,7 +53,8 @@ struct StationPickerView: View {
                     .frame(width: 44, height: 44).philharmonicControlSurface(Circle())
             }
             .buttonStyle(.plain).accessibilityLabel("Back to player")
-            Text("Stations").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Text("Stations").font(.title2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             if landscape { displayControls; reorderButton }
         }.padding(.horizontal, 20).padding(.vertical, 8)
@@ -86,11 +89,18 @@ struct StationPickerView: View {
 
     private var reorderButton: some View {
         Button { reordering.toggle() } label: {
-            Label(reordering ? "Done" : "Reorder", systemImage: reordering ? "checkmark" : "arrow.up.arrow.down")
-                .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
-                .philharmonicControlSurface(Capsule())
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    Image(systemName: reordering ? "checkmark" : "arrow.up.arrow.down")
+                        .font(.system(size: 18, weight: .medium)).frame(width: 44, height: 44)
+                } else {
+                    Label(reordering ? "Done" : "Reorder", systemImage: reordering ? "checkmark" : "arrow.up.arrow.down")
+                        .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
+                }
+            }.philharmonicControlSurface(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(reordering ? "Done reordering" : "Reorder stations")
         .accessibilityIdentifier("stations-reorder")
     }
 
@@ -112,6 +122,14 @@ struct StationPickerView: View {
         let entriesPerPage = grid ? 2 : 1
         let stations = model.orderedStations
         let pageCount = (stations.count + entriesPerPage - 1) / entriesPerPage
+        // At accessibility sizes, let each row extend horizontally instead of
+        // forcing large names into a short landscape viewport. The same row
+        // still contains two grid entries or one list entry, all reachable by
+        // horizontal scrolling; text and the reorder footer stay untruncated.
+        let expandedCardWidth = 360 * max(1, stationTextScale / 15)
+        let pageWidth = dynamicTypeSize.isAccessibilitySize
+            ? max(size.width, expandedCardWidth * CGFloat(entriesPerPage) + (grid ? 16 : 0) + 40)
+            : size.width
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .center, spacing: 0) {
                 ForEach(0..<pageCount, id: \.self) { page in
@@ -125,7 +143,7 @@ struct StationPickerView: View {
                         }
                     }
                     .padding(.horizontal, 20).padding(.vertical, 12)
-                    .frame(width: size.width, height: size.height)
+                    .frame(width: pageWidth, height: size.height)
                     .accessibilityIdentifier("stations-page-\(page)")
                 }
             }

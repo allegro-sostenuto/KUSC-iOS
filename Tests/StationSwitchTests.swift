@@ -6,6 +6,29 @@ import UIKit
 /// Hosted coordinator boundaries. The fixture intercepts session activation and
 /// connection starts; these tests never contact a station or emit audio.
 final class StationSwitchTests: XCTestCase {
+    @MainActor func testPausedStationBrowsingPreservesOnlyAnExistingPlaybackActivity() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.finishScheduleForTesting()
+        model.selectStation("kusc")
+        model.selectStation("sr-p2")
+        XCTAssertFalse(model.stationActivityVisibleForTesting, "Browsing before any playback must not create an activity")
+
+        model.configureAudioRecoveryForTesting(playing: true)
+        model.pauseRemote()
+        XCTAssertTrue(model.stationActivityVisibleForTesting)
+        model.selectStation("radio-swiss-classic")
+        model.selectStation("wdr3")
+        model.selectStation("sr-p2")
+        XCTAssertTrue(model.stationActivityVisibleForTesting, "Paused selection replaces the existing activity's station instead of ending it")
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertFalse(model.isAudible)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
+
+        model.finishScheduleForTesting()
+        XCTAssertFalse(model.stationActivityVisibleForTesting, "A complete stop ends the retained playback activity")
+    }
+
     @MainActor func testRapidPausedSelectionClearsOldMetadataAndArtworkWithoutStartingAudio() {
         let (model, restore) = fixture(playing: false)
         defer { restore() }

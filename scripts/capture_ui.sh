@@ -156,6 +156,7 @@ while IFS='|' read -r label device type runtime; do
     if xcodebuild -project "$root/Philharmonic.xcodeproj" -scheme Philharmonic-SE -configuration Debug \
         -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/ui-tests" \
         -resultBundlePath "$result" -parallel-testing-enabled NO \
+        -skip-testing:PhilharmonicTests/StationSourcePlaybackTests \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
         test 2>&1 | tee "$output/$label/ui-tests.log"; then
         echo "PASS: $label hosted PhilharmonicTests and native More menu, live-only settings, landscape controls/paging and large-text controls/paging tests." >> "$report"

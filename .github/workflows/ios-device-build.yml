@@ -18,6 +18,11 @@ on:
         type: boolean
         default: false
         required: false
+      station_check:
+        description: Run v2 checks and captures without the historical screenshot sweep
+        type: boolean
+        default: false
+        required: false
   pull_request:
     paths-ignore:
       - '**.md'
@@ -38,7 +43,7 @@ concurrency:
 jobs:
   station-picker:
     name: Station switching and native picker checks
-    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check)
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -159,7 +164,7 @@ jobs:
 
   screenshots:
     name: Native ${{ matrix.profile }} simulator layout capture
-    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)
+    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && (inputs.build_only || inputs.station_check))
     runs-on: macos-26
     timeout-minutes: 35
     strategy:
