@@ -18,109 +18,362 @@ import UIKit
     @Published var scheduleDescription: String?
     @Published var notice: String?
     @Published var settings = AppSettings.load()
+    @Published private(set) var selectedStation = StationCatalog.defaultStation
+    @Published private(set) var stationPreferences = StationPreferences.load()
+    var orderedStations: [RadioStation] { stationPreferences.orderedIDs.compactMap { StationCatalog.station(id: $0) } }
+    var scheduledStation: RadioStation { StationCatalog.station(id: scheduleRequest?.stationID ?? selectedStation.id) ?? StationCatalog.defaultStation }
+    @Published private(set) var schedulePhase: ScheduledStartPhase?
+    @Published private(set) var scheduleManagementRequest: UUID?
+    @Published private(set) var currentOutputRoute = ObservedAudioRoute(ports: [])
+    @Published private(set) var acquisitionIsStale = false
+    @Published private(set) var bufferFailureMessage: String?
+    var diagnostics: PlaybackDiagnostics { engine.diagnostics }
+    var selectedAudioSource: StationAudioSource { settings.audioSource(for: selectedStation) }
 
-    var isPlaying: Bool { wantsPlayback && state.active }
+    // Transport exposes intent so Pause remains available while waiting or seeking.
+    var isPlaying: Bool { wantsPlayback }
+    var isAudible: Bool { audioIsAdvancing && wantsPlayback && !interruptionActive && engine.volume > 0 }
+    var transportClock: PlaybackTransportClock { engine.transportClock }
+    var currentOutputName: String { currentOutputRoute.ports.isEmpty ? "System output unavailable" : currentOutputRoute.name }
+    var scheduledOutput: ScheduledOutputPreference { scheduleRequest?.output ?? settings.scheduledOutputDefault ?? .speaker }
+    var scheduledOptions: ScheduledStartOptions { scheduleRequest?.options ?? settings.scheduledStartDefaults ?? .init() }
+    private var protectedSchedule: Bool { pendingProtectedSchedule || scheduleRequest?.requiresDeletionToCancel == true }
+    private var scheduledSpeakerRequired: Bool {
+        scheduleRequest != nil && (scheduleRequest?.output.mode == .speaker || scheduleUsingSpeakerFallback)
+    }
     var sleepActive: Bool { sleepDeadline != nil || pausedSleepRemaining != nil || sleepDecision != nil }
     var statusText: String {
         switch state {
         case .idle: return "Ready to play"
         case .connecting: return "Connecting…"
+        case .buffering: return acquisitionIsStale ? "Catching up to live…" : "Buffering…"
+        case .seeking: return "Seeking…"
+        case .interrupted: return "Audio interrupted"
         case .playingLive: return "Live"
-        case .playingDelayed: return "\(Int(max(0, (bufferWindow?.live ?? Date()).timeIntervalSince(heardAt)))) seconds behind live"
+        case .playingDelayed: return "Live"
         case .pausedLive, .pausedDelayed: return "Paused"
         case .reconnecting(let since): return "Reconnecting… \(min(60, Int(Date().timeIntervalSince(since)))) / 60 s"
         case .fadingOut: return "Sleep timer · fading out"
         case .scheduledStandby: return "Scheduled start · standby"
+        case .scheduledSilent: return "Scheduled start · playing silently"
+        case .scheduledFadeIn: return "Scheduled start · fading in"
         case .stoppedBySleepTimer: return "Stopped by sleep timer"
         }
     }
 
     private let engine = RollingAudioEngine()
-    private let metadata = MetadataService()
+    private var metadata = MetadataService()
+    private var stationGeneration = UUID()
     private var timeline = PlaybackTimeline()
     private let artworkCache = ArtworkCache()
     private var artworkTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
+    private var manualRefreshTask: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
     private var ticker: Timer?
     private var observers: [NSObjectProtocol] = []
-    private var appliedSettings = AppSettings.load()
     private var wantsPlayback = false
     private var hasStartedEngine = false
+    private var stationSelectionKeepsActivity = false
     private var pausedAt: Date?
     private var wasPlayingBeforeInterruption = false
     private var interruptionActive = false
+    private var interruptionRetryStarted: TimeInterval?
+    private var interruptionRetryAt: TimeInterval = 0
+    private var explicitPlayPending = false
+    private var manualPlaybackOverridesSchedule = false
+    private var manualPlaybackPrecedesStart = false
     private var reconnectStarted: Date?
     private var nextRetry = Date.distantPast
     private var lastMetadataFetch = Date.distantPast
+    private var metadataTimestamp: Date?
+    private var metadataGeneration = UUID()
     private var lastArtworkURL: URL?
+    private var lastArtworkAttempt = Date.distantPast
     private var sleepDeadline: Date?
     private var pausedSleepRemaining: TimeInterval?
     private var sleepDecision: SleepDecision?
     private var sleepRetryStarted: Date?
-    private var scheduledAt: Date?
+    private var scheduleRequest: ScheduledStartRequest?
+    private var scheduledAt: Date? { scheduleRequest?.date }
+    private var scheduleGeneration = ScheduleGeneration()
+    private var connectionGeneration = UUID()
+    private var scheduleOwnsPlayback = false
+    private var scheduleEnvelope: ScheduledGainEnvelope?
+    private var scheduleGain: Float = 1
+    private var sleepGain: Float = 1
+    private var audioIsAdvancing = false
+    private var scheduleUserInitiated = false
+    private var scheduleUsingSpeakerFallback = false
+    private var scheduleReachedFullGain = false
+    private var scheduleDidStart = false
+    // A resolved request cannot start audio again. Only the running session's
+    // battery protection and any remaining minute of fade survive its removal.
+    private var completedPlaybackOptions: ScheduledStartOptions?
+    private var completedPlaybackFade: ScheduledGainEnvelope?
+    private var completedPlaybackNeedsFade = false
+    private var completedPlaybackUsesSpeaker = false
+    private var completedPlaybackBattery = ScheduledBatteryGuard()
+    // A future start releases a manual pause at its deadline. Once that time
+    // has passed, only Play releases the pause (represented by distantFuture).
+    private var schedulePausedUntil: Date?
+    private var scheduleRetryUptime: TimeInterval = 0
+    private var scheduledBattery = ScheduledBatteryGuard()
+    private var speakerSessionActive = false
+    private var sessionMixesWithOthers = false
+    private var scheduledHasAudioFocus = false
+    private var pendingProtectedSchedule = false
+    private var gainTimer: Timer?
+    private var scheduleBoundaryTimer: Timer?
+    private var lastSurfacePlaying: Bool?
+    #if DEBUG
+    private var scheduleDiagnostics: [String] = []
+    private var lastDiagnosticGain: Float = -1
+    private var isUIFixture = ProcessInfo.processInfo.environment["PHILHARMONIC_UI_STATE"] != nil
+    private var fixtureRefreshCount = 0
+    private var boundaryGainTrace: [Float]?
+    private var audioRecoveryTestConnections: Int?
+    struct ScheduleTestEnvironment {
+        var now: Date
+        var uptime: TimeInterval
+        var plugged: Bool
+        var level: Double
+        var route: ObservedAudioRoute
+        var activationFails = false
+        var otherAudioPlaying = false
+    }
+    private var scheduleTestEnvironment: ScheduleTestEnvironment?
+    private var scheduleTestStandby = false
+    private var sessionActivationAttempts: [(speaker: Bool, mixing: Bool)] = []
+    #endif
     private var unpluggedAt: Date?
     private var notificationOnly = false
     private var launched = false
+    private var receivedWidgetCommand = false
+    private let homeWidgets = HomeWidgetCoordinator()
     private let standby = SilentStandby()
     private lazy var nowPlaying = NowPlayingController(play: { [weak self] in self?.play() },
         pause: { [weak self] in self?.pauseRemote() },
-        toggle: { [weak self] in guard let self else { return }; self.isPlaying ? self.pauseRemote() : self.play() })
+        toggle: { [weak self] in guard let self else { return }; self.isPlaying ? self.pauseRemote() : self.play() },
+        next: { [weak self] in self?.nextStation() }, previous: { [weak self] in self?.previousStation() })
     #if MODERN
     private let liveActivity = LiveActivityCoordinator()
     #endif
 
     private init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_RESET_STATIONS"] == "1" {
+            stationPreferences = StationPreferences()
+            stationPreferences.save()
+        }
+        #endif
+        selectedStation = StationCatalog.station(id: stationPreferences.selectedID) ?? StationCatalog.defaultStation
+        metadata = MetadataService(station: selectedStation)
         NotificationCoordinator.shared.install()
         engine.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
         engine.onFailure = { [weak self] error in self?.connectionFailed(error) }
         installAudioObservers()
         UIDevice.current.isBatteryMonitoringEnabled = true
-        if let date = UserDefaults.standard.object(forKey: "scheduledAt") as? Date, date > Date() {
-            scheduledAt = date
-        } else { UserDefaults.standard.removeObject(forKey: "scheduledAt") }
+        restoreScheduledRequest()
+        if scheduleRequest == nil, let date = UserDefaults.standard.object(forKey: "scheduledAt") as? Date, date > Date() {
+            let migrated = ScheduledStartRequest(date: date)
+            scheduleRequest = migrated
+            persistSchedule()
+            NotificationCoordinator.shared.cancel(requestID: migrated.id)
+            NotificationCoordinator.shared.replaceFallback(migrated, body: "Tap to start Philharmonic live.")
+        }
+        UserDefaults.standard.removeObject(forKey: "scheduledAt")
+        refreshCurrentOutput()
+        armScheduleBoundary()
         ensureTicker()
     }
 
     func launch() {
+        #if DEBUG
+        guard !isUIFixture else { return }
+        #endif
         guard !launched else { return }
         launched = true
         fetchMetadata()
-        if settings.autoplay { play() }
+        // Restore explicit scheduled intent before launch auto-play can defeat its
+        // route policy or turn a fallback notification into a full-volume start.
+        if settings.autoplay && scheduleRequest == nil && !receivedWidgetCommand { play() }
         evaluateSchedule()
+        refreshHomeWidgets()
+    }
+
+    func setPlaybackFromWidget(_ playing: Bool) {
+        receivedWidgetCommand = true
+        if playing { play() } else { pauseRemote() }
+        // Persist before the intent returns and WidgetKit requests its timeline.
+        refreshHomeWidgets()
+    }
+
+    func handleWidgetURL(_ url: URL) {
+        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "PhilharmonicURLScheme") as? String,
+              let playing = WidgetPlaybackLink.action(for: url, scheme: scheme) else { return }
+        handleStationPlaybackIntent(playing: playing, stationID: WidgetPlaybackLink.stationID(for: url))
+    }
+
+    func handleStationPlaybackIntent(playing: Bool?, stationID: String?) {
+        receivedWidgetCommand = true
+        guard stationID == nil || stationID == selectedStation.id else { refreshSystemSurfaces(); return }
+        setPlaybackFromWidget(playing ?? !isPlaying)
+    }
+
+    func handleStationLiveIntent(stationID: String?) {
+        receivedWidgetCommand = true
+        guard stationID == nil || stationID == selectedStation.id else { refreshSystemSurfaces(); return }
+        goLive()
+    }
+
+    func selectStation(_ id: String) { switchStation(id) }
+    func nextStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: 1)) }
+    func previousStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: -1)) }
+    func setStationDisplayMode(_ mode: StationDisplayMode) {
+        stationPreferences.displayMode = mode; stationPreferences.save()
+    }
+    func moveStation(_ id: String, by offset: Int) {
+        stationPreferences.move(id: id, by: offset); stationPreferences.save()
+    }
+    func moveStation(_ id: String, before destination: String) {
+        stationPreferences.move(id: id, before: destination); stationPreferences.save()
+    }
+
+    /// Selection is independent of playback intent and of an already saved start.
+    /// Retire the whole old session before publishing the new station identity.
+    private func switchStation(_ id: String, reconnect: Bool = true) {
+        guard let station = StationCatalog.station(id: id), station.id != selectedStation.id else { return }
+        stationSelectionKeepsActivity = stationSelectionKeepsActivity || hasStartedEngine
+        stationGeneration = UUID(); connectionGeneration = UUID(); metadataGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        metadataTask?.cancel(); metadataTask = nil
+        manualRefreshTask?.cancel(); manualRefreshTask = nil
+        artworkTask?.cancel(); artworkTask = nil
+        metadata.cancel()
+        hasStartedEngine = false; engine.stop(); audioIsAdvancing = false
+        reconnectStarted = nil; nextRetry = .distantPast
+        acquisitionIsStale = false; bufferFailureMessage = nil; bufferWindow = nil
+        pausedAt = nil; heardAt = Date(); metadataTimestamp = nil
+        timeline = PlaybackTimeline(); currentItem = nil; previousItems = []; upcomingItems = []
+        programmeName = nil; hostName = nil; artwork = nil; lastArtworkURL = nil
+        lastArtworkAttempt = .distantPast; lastMetadataFetch = .distantPast
+        selectedStation = station
+        stationPreferences.selectedID = station.id; stationPreferences.save()
+        metadata = MetadataService(station: station)
+        invalidateSleepEndpoint()
+        state = wantsPlayback ? .connecting : .pausedLive
+        refreshSystemSurfaces()
+        fetchMetadata()
+        if reconnect && wantsPlayback && !interruptionActive {
+            startConnection(preserveScheduledGain: true)
+        }
     }
 
     func updateSettings() {
-        settings.retentionMinutes = min(15, max(0, settings.retentionMinutes))
         settings.save()
-        if settings.retentionMinutes != appliedSettings.retentionMinutes {
-            engine.setRetention(minutes: settings.retentionMinutes)
-            if settings.retentionMinutes == 0 { bufferWindow = nil; pausedAt = nil }
-        }
-        appliedSettings = settings
+        engine.setRetention(minutes: 0)
+        bufferWindow = nil
+        bufferFailureMessage = nil
     }
 
+    func setAudioSource(_ sourceID: String, for stationID: String) {
+        guard let station = StationCatalog.station(id: stationID),
+              station.audioSources.contains(where: { $0.id == sourceID }),
+              settings.audioSource(for: station).id != sourceID else { return }
+        let previous = selectedAudioSource
+        settings.setAudioSource(sourceID, for: station)
+        settings.save()
+        guard selectedAudioSource != previous else { return }
+        let hadEngine = hasStartedEngine
+        stationSelectionKeepsActivity = stationSelectionKeepsActivity || hadEngine
+        connectionGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        hasStartedEngine = false; engine.stop(); audioIsAdvancing = false
+        reconnectStarted = nil; nextRetry = .distantPast
+        acquisitionIsStale = false; bufferWindow = nil; bufferFailureMessage = nil
+        if hadEngine { state = interruptionActive && wantsPlayback ? .interrupted : (wantsPlayback ? .connecting : .pausedLive) }
+        if wantsPlayback && !interruptionActive { startConnection(preserveScheduledGain: true) }
+        refreshSystemSurfaces()
+    }
+
+    func startPlaybackDiagnostics() {
+        let bundle = Bundle.main
+        let version = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "unknown"
+        let build = (bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "unknown"
+        let routeTypes = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.sorted().joined(separator: ",")
+        diagnostics.start(context: "Philharmonic \(version) build \(build); \(UIDevice.current.model); iOS \(UIDevice.current.systemVersion); retention=\(settings.retentionMinutes); resumeWherePaused=\(settings.resumeWherePaused); playbackRequested=\(wantsPlayback); outputTypes=[\(routeTypes)]")
+        engine.recordDiagnosticSnapshot()
+    }
+
+    func stopPlaybackDiagnostics() { diagnostics.stop() }
+
     func play() {
+        #if DEBUG
+        guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
+        #endif
         ensureTicker()
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
+        // Play is fresh user intent, independent of automatic route/power policy
+        // and of a possibly stale interruption notification. Ask iOS now.
+        manualPlaybackOverridesSchedule = scheduleRequest != nil
+        manualPlaybackPrecedesStart = scheduleRequest.map { scheduleNow < $0.date } ?? false
+        scheduleOwnsPlayback = false; scheduleEnvelope = nil; scheduledHasAudioFocus = false
+        schedulePausedUntil = nil; persistSchedule()
         if let remaining = pausedSleepRemaining {
             sleepDeadline = Date().addingTimeInterval(remaining); pausedSleepRemaining = nil
         }
         wantsPlayback = true
-        standby.stop()
-        engine.volume = 1
-        do { try activateSession() } catch { notice = error.localizedDescription; wantsPlayback = false; return }
+        stopStandby()
+        scheduleGain = 1; notice = nil
+        explicitPlayPending = true; interruptionActive = true
+        interruptionRetryStarted = scheduleUptime; interruptionRetryAt = scheduleUptime
+        applyGain()
+        retryInterruptedPlayback(immediately: true)
+    }
+
+    private func resumeCurrentAudio() {
         if hasStartedEngine, reconnectStarted == nil {
-            if let pausedAt, settings.resumeWherePaused, let window = bufferWindow {
-                engine.seek(to: ResumePolicy.target(mode: .wherePaused, pausedAt: pausedAt, window: window))
-            } else if pausedAt != nil { engine.goLive() }
+            if pausedAt != nil { engine.goLive() }
             self.pausedAt = nil
             engine.play()
             state = .connecting
         } else {
             reconnectStarted = nil
-            startConnection()
+            startConnection(preserveScheduledGain: true)
         }
         fetchMetadata()
+    }
+
+    private var otherAudioIsPlaying: Bool {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { return environment.otherAudioPlaying }
+        if audioRecoveryTestConnections != nil { return false }
+        #endif
+        return AVAudioSession.sharedInstance().isOtherAudioPlaying
+    }
+
+    private func retryInterruptedPlayback(immediately: Bool = false) {
+        guard interruptionActive, wantsPlayback, schedulePausedUntil == nil, !scheduleOwnsPlayback else { return }
+        // Automatic recovery must not take audio back from an app the user chose.
+        // Pressing Play explicitly requests focus even while another app plays.
+        guard explicitPlayPending || !otherAudioIsPlaying else { return }
+        let uptime = scheduleUptime
+        guard immediately || uptime >= interruptionRetryAt else { return }
+        if interruptionRetryStarted == nil { interruptionRetryStarted = uptime }
+        let interval: TimeInterval = uptime - interruptionRetryStarted! < 60 ? 5 : 15
+        interruptionRetryAt = uptime + interval
+        do { try activateSession(forceSpeaker: completedPlaybackUsesSpeaker) }
+        catch {
+            state = .interrupted
+            notice = "Waiting for iOS audio access. Play retries now; Pause cancels the retry."
+            return
+        }
+        interruptionActive = false; wasPlayingBeforeInterruption = false
+        explicitPlayPending = false; interruptionRetryStarted = nil
+        notice = nil; stopStandby(); applyGain()
+        resumeCurrentAudio()
     }
 
     @discardableResult func pauseFromApp() -> Bool {
@@ -129,15 +382,26 @@ import UIKit
     }
 
     func pauseRemote() {
+        explicitPlayPending = false; interruptionRetryStarted = nil
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
+        if let request = scheduleRequest {
+            schedulePausedUntil = scheduleNow < request.date ? request.date : .distantFuture
+            scheduleEnvelope = nil
+            persistSchedule()
+        }
+        if !sleepActive || protectedSchedule { gainTimer?.invalidate(); gainTimer = nil }
+        wantsPlayback = false
+        audioIsAdvancing = false; applyGain()
         if reconnectStarted != nil || state == .connecting {
             engine.stop(); hasStartedEngine = false; bufferWindow = nil
         }
-        wantsPlayback = false
         pausedAt = heardAt
         connectionTask?.cancel(); connectionTask = nil
+        connectionGeneration = UUID()
         reconnectStarted = nil
         engine.pause()
-        state = bufferWindow != nil && (bufferWindow!.live.timeIntervalSince(heardAt) > 12) ? .pausedDelayed : .pausedLive
+        state = .pausedLive
+        evaluateSchedule()
         refreshSystemSurfaces()
     }
 
@@ -153,12 +417,15 @@ import UIKit
                 case .retry: pausedSleepRemaining = 0
                 }
             }
-            sleepDeadline = nil; sleepDecision = nil; sleepRetryStarted = nil; engine.volume = 1
+            sleepDeadline = nil; sleepDecision = nil; sleepRetryStarted = nil; sleepGain = 1; applyGain()
         case .cancelTimer: cancelSleep()
         }
     }
 
     func goLive() {
+        if protectedSchedule { if scheduleOwnsPlayback { engine.goLive() }; return }
+        scheduleGeneration.invalidate()
+        if scheduleOwnsPlayback { clearSchedule(stopOwnedPlayback: false); scheduleGain = 1; applyGain() }
         if !hasStartedEngine { play(); return }
         if !wantsPlayback { play() }
         engine.goLive(); pausedAt = nil
@@ -166,11 +433,10 @@ import UIKit
     }
 
     func seek(to date: Date) {
-        guard let window = bufferWindow, window.contains(date) else { return }
-        engine.seek(to: date); heardAt = window.clamped(date)
-        if !wantsPlayback { pausedAt = heardAt }
-        resolveMetadata(); invalidateSleepEndpoint()
+        // Ignore obsolete seek actions without changing playback or schedules.
     }
+
+    func canSeek(to date: Date) -> Bool { false }
 
     func startSleep(minutes: Int) {
         ensureTicker()
@@ -182,54 +448,302 @@ import UIKit
     }
     func cancelSleep() {
         sleepDeadline = nil; pausedSleepRemaining = nil; sleepDecision = nil; sleepRetryStarted = nil
-        sleepDescription = nil; engine.volume = 1
+        sleepDescription = nil; sleepGain = 1; applyGain()
         if state == .fadingOut { state = wantsPlayback ? .playingLive : .pausedLive }
     }
 
-    func scheduleStart(at date: Date) async throws {
+    func scheduleStart(at date: Date, output: ScheduledOutputPreference = .speaker,
+                       options: ScheduledStartOptions = .init()) async throws {
         guard StandbyPolicy.isValidSchedule(date, now: Date()) else { throw ScheduleError.outsideWindow }
-        try await NotificationCoordinator.shared.schedule(at: date)
+        guard output.mode != .selected || output.route?.isIdentifiable == true else { throw ScheduleError.missingOutput }
+        clearSchedule(stopOwnedPlayback: true)
+        let generation = scheduleGeneration.begin()
+        let request = ScheduledStartRequest(date: date, output: output, options: options, stationID: selectedStation.id)
+        pendingProtectedSchedule = request.requiresDeletionToCancel
+        do { try await NotificationCoordinator.shared.schedule(request) }
+        catch {
+            if !request.requiresDeletionToCancel {
+                if scheduleGeneration.accepts(generation) { pendingProtectedSchedule = false }
+                throw error
+            }
+            // Notification permission is not an extra stop condition for the
+            // explicit battery-only policy. Audio still needs an executing app.
+            if scheduleGeneration.accepts(generation) { notice = "Start armed. Enable notifications for a backup reminder." }
+        }
+        guard scheduleGeneration.accepts(generation) else {
+            NotificationCoordinator.shared.cancel(requestID: request.id); return
+        }
         ensureTicker()
-        scheduledAt = date; notificationOnly = false; unpluggedAt = nil
-        UserDefaults.standard.set(date, forKey: "scheduledAt")
+        scheduleRequest = request; notificationOnly = false; unpluggedAt = nil
+        pendingProtectedSchedule = false
+        settings.scheduledStartDefaults = options; settings.scheduledOutputDefault = output; settings.save()
+        persistSchedule(); armScheduleBoundary()
         evaluateSchedule()
     }
     func cancelSchedule() {
-        scheduledAt = nil; unpluggedAt = nil; notificationOnly = false
-        scheduleDescription = nil; standby.stop()
-        UserDefaults.standard.removeObject(forKey: "scheduledAt")
-        NotificationCoordinator.shared.cancelPending()
-        if state == .scheduledStandby { state = .idle }
+        clearSchedule(stopOwnedPlayback: true)
     }
-    func startFromNotification() {
-        let alreadyPlaying = isPlaying
-        cancelSchedule()
-        if !alreadyPlaying { play(); engine.goLive() }
+    func openScheduleCancellation(requestID: UUID?) {
+        guard let requestID, scheduleRequest?.id == requestID else { return }
+        if scheduleDescription == nil, let request = scheduleRequest {
+            scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+        }
+        scheduleManagementRequest = UUID()
+    }
+    func clearScheduleManagementRequest() { scheduleManagementRequest = nil }
+    func startFromNotification(requestID: UUID? = nil) {
+        resolveExpiredSchedule()
+        guard let request = scheduleRequest, request.id == requestID else { return }
+        if schedulePausedUntil != nil { switchStation(request.stationID, reconnect: false); play(); return }
+        if scheduleOwnsPlayback { return } // Duplicate delivery cannot restart an envelope.
+        if wantsPlayback && protectedSchedule { evaluateSchedule(); return }
+        if wantsPlayback { clearSchedule(stopOwnedPlayback: false); return }
+        guard !interruptionActive else { notice = "Wait for the audio interruption to end, then tap Play."; return }
+        notificationOnly = false
+        scheduleUserInitiated = true // A notification tap is explicit foreground playback intent.
+        guard schedulePowerPermits(now: Date()) else { scheduleFallback("The scheduled start is stopped by its power settings."); return }
+        beginScheduledPlayback(request)
     }
     func onForeground() {
+        #if DEBUG
+        guard !isUIFixture else { return }
+        #endif
         tick(); if hasStartedEngine || currentItem == nil { fetchMetadata() }
     }
 
-    private func startConnection() {
+    #if DEBUG
+    /// Used only by deterministic screenshot launches; no session or player starts.
+    func configureUIFixturePlayback(active: Bool) {
+        isUIFixture = true
+        ticker?.invalidate(); ticker = nil
+        scheduleBoundaryTimer?.invalidate(); scheduleBoundaryTimer = nil
+        wantsPlayback = active
+        audioIsAdvancing = false
+    }
+    func configureUIFixtureOutputUnavailable() {
+        currentOutputRoute = ObservedAudioRoute(ports: [])
+    }
+    func configureScheduleReminderFixture() {
+        precondition(isUIFixture)
+        let request = ScheduledStartRequest(date: Date().addingTimeInterval(300), output: .speaker,
+                                            options: .init(batteryOnlyStop: true))
+        scheduleRequest = request
+        scheduleDescription = "Starts in 5 minutes · Always iPhone speaker"
+        openScheduleCancellation(requestID: request.id)
+    }
+
+    /// Hosted XCTest exercises the real coordinator/engine gain boundary without
+    /// starting an AVPlayer, changing the audio session, or contacting the station.
+    func configureScheduledGainBoundaryTest(schedule: Float, sleep: Float) {
+        precondition(isUIFixture, "Boundary tests require the isolated UI fixture launch environment")
+        finishScheduleForTesting()
+        ticker?.invalidate(); ticker = nil
+        gainTimer?.invalidate(); gainTimer = nil
+        scheduleTestEnvironment = .init(now: Date(), uptime: ProcessInfo.processInfo.systemUptime,
+            plugged: true, level: 1, route: .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")]))
+        scheduleRequest = ScheduledStartRequest(date: scheduleNow.addingTimeInterval(60))
+        scheduleOwnsPlayback = true
+        scheduleEnvelope = nil
+        wantsPlayback = true
+        hasStartedEngine = false
+        audioIsAdvancing = false
+        scheduleGain = schedule
+        sleepGain = sleep
+        boundaryGainTrace = []
+        applyGain()
+    }
+
+    var scheduledGainBoundaryState: (gain: Float, wantsPlayback: Bool, ownsPlayback: Bool, hasSchedule: Bool, trace: [Float]) {
+        (engine.volume, wantsPlayback, scheduleOwnsPlayback, scheduleRequest != nil, boundaryGainTrace ?? [])
+    }
+
+    func runScheduledGainCallbackForTest() {
+        precondition(isUIFixture)
+        updateGains()
+    }
+
+    func configurePausedDiagnosticFailureForTesting() {
+        precondition(isUIFixture)
+        wantsPlayback = false
+        state = .pausedLive
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        let segments: [AudioSegment] = (0..<2).map { (index: Int) -> AudioSegment in
+            let url = URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac")
+            let start = anchor.addingTimeInterval(TimeInterval(index) * 10)
+            let end = start.addingTimeInterval(10)
+            return AudioSegment(url: url, start: start, end: end, byteCount: 100)
+        }
+        engine.configureBufferedTransportForTesting(segments: segments, pausedAt: anchor.addingTimeInterval(4))
+        startPlaybackDiagnostics()
+        engine.failForDiagnosticsTesting(AudioStreamError.unsupportedFormat("diagnostic fixture failure"))
+    }
+
+    /// Exercise coordinator recovery without contacting the station or activating
+    /// the system audio session. The real engine is still invalidated on reset.
+    func configureAudioRecoveryForTesting(playing: Bool, interrupted: Bool = false,
+                                          scheduled: Bool = false) {
+        precondition(isUIFixture)
+        cancelSchedule(); cancelSleep()
+        stopEverything(reason: .idle)
+        ticker?.invalidate(); ticker = nil
+        gainTimer?.invalidate(); gainTimer = nil
+        audioRecoveryTestConnections = 0
+        wantsPlayback = playing
+        hasStartedEngine = true
+        interruptionActive = interrupted
+        wasPlayingBeforeInterruption = interrupted && playing
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        heardAt = anchor
+        pausedAt = playing ? nil : anchor
+        bufferWindow = BufferWindow(oldest: anchor.addingTimeInterval(-60), live: anchor.addingTimeInterval(20))
+        transportClock.configureUIFixture(.init(heardAt: anchor, window: bufferWindow))
+        state = interrupted ? .interrupted : (playing ? .playingDelayed : .pausedDelayed)
+        if scheduled {
+            scheduleRequest = ScheduledStartRequest(date: Date().addingTimeInterval(60))
+            scheduleOwnsPlayback = playing
+            scheduleGain = playing ? 0.4 : 1
+        }
+        boundaryGainTrace = []
+        applyGain()
+    }
+
+    var audioRecoveryStateForTesting: (started: Bool, connections: Int, engineGeneration: UUID,
+                                       connectionGeneration: UUID, pausedAt: Date?, interrupted: Bool) {
+        (hasStartedEngine, audioRecoveryTestConnections ?? 0, engine.transportSessionForTesting,
+         connectionGeneration, pausedAt, interruptionActive)
+    }
+
+    var stationActivityVisibleForTesting: Bool { hasStartedEngine || stationSelectionKeepsActivity }
+
+    func resetMediaServicesForTesting() { handleMediaServicesReset() }
+    func endAudioInterruptionForTesting(shouldResume: Bool) { endInterruption(shouldResume: shouldResume) }
+
+    func finishAudioRecoveryForTesting() {
+        interruptionActive = false
+        wasPlayingBeforeInterruption = false
+        cancelSchedule(); cancelSleep()
+        stopEverything(reason: .idle)
+        ticker?.invalidate(); ticker = nil
+        audioRecoveryTestConnections = nil
+        boundaryGainTrace = nil
+    }
+
+    func configureScheduleForTesting(output: ScheduledOutputPreference = .speaker,
+                                     options: ScheduledStartOptions = .init(allowOnBattery: true),
+                                     secondsUntilStart: TimeInterval = 120,
+                                     environment: ScheduleTestEnvironment) {
+        precondition(isUIFixture)
+        finishAudioRecoveryForTesting()
+        scheduleTestEnvironment = environment
+        sessionActivationAttempts = []
+        audioRecoveryTestConnections = 0
+        scheduleRequest = .init(date: environment.now.addingTimeInterval(secondsUntilStart), output: output, options: options, stationID: selectedStation.id)
+        currentOutputRoute = environment.route
+        notificationOnly = false
+        evaluateSchedule()
+    }
+    func advanceScheduleForTesting(seconds: TimeInterval = 0, plugged: Bool? = nil, level: Double? = nil,
+                                   route: ObservedAudioRoute? = nil, activationFails: Bool? = nil,
+                                   otherAudioPlaying: Bool? = nil) {
+        scheduleTestEnvironment?.now.addTimeInterval(seconds)
+        if let environment = scheduleTestEnvironment { scheduleTestEnvironment?.uptime = environment.uptime + seconds }
+        if let plugged { scheduleTestEnvironment?.plugged = plugged }
+        if let level { scheduleTestEnvironment?.level = level }
+        if let activationFails { scheduleTestEnvironment?.activationFails = activationFails }
+        if let otherAudioPlaying { scheduleTestEnvironment?.otherAudioPlaying = otherAudioPlaying }
+        if let route {
+            scheduleTestEnvironment?.route = route
+            handleRouteChange(reason: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue)
+        }
+        retryInterruptedPlayback()
+        evaluateSchedule()
+    }
+    func simulateScheduledReadinessForTesting() {
+        receiveScheduledSnapshotForTesting(ready: true)
+    }
+    func receiveScheduledSnapshotForTesting(ready: Bool) {
+        receive(.init(isPlaying: ready, heardAt: scheduleNow, metadataAt: nil, window: nil,
+            isReady: ready, live: scheduleNow, hasAudio: true, isAtLiveEdge: true,
+            playbackRequested: wantsPlayback, isWaiting: !ready, isSeeking: false, pendingSeekAt: nil,
+            hasConfirmedPosition: false, downloadedEdge: nil, advertisedEdge: nil,
+            acquisitionLag: nil, acquisitionIsStale: false, sampledAt: scheduleUptime))
+    }
+    func interruptScheduledAudioForTesting() { beginInterruption() }
+    func failScheduledConnectionForTesting() {
+        connectionFailed(SilentStandby.StandbyError.failed)
+        reconnectStarted = Date().addingTimeInterval(-61)
+        tick()
+    }
+    func finishScheduleForTesting() {
+        finishAudioRecoveryForTesting()
+        scheduleTestEnvironment = nil
+        scheduleTestStandby = false
+    }
+    func reloadScheduleForTesting() {
+        precondition(scheduleTestEnvironment != nil)
+        persistSchedule()
+        stopEverything(reason: .idle); stopStandby()
+        scheduleRequest = nil; scheduleOwnsPlayback = false; schedulePausedUntil = nil
+        scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 1
+        notificationOnly = false
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
+        restoreScheduledRequest()
+        evaluateSchedule()
+    }
+    var scheduleStateForTesting: (exists: Bool, owned: Bool, standby: Bool, notificationOnly: Bool,
+                                   lowSince: TimeInterval?, fullGain: Bool, speakerSession: Bool) {
+        (scheduleRequest != nil, scheduleOwnsPlayback, standbyIsRunning, notificationOnly,
+         scheduledBattery.lowSince, scheduleReachedFullGain, speakerSessionActive)
+    }
+    var sessionStateForTesting: (mixing: Bool, attempts: Int, exclusiveAttempts: Int) {
+        (sessionMixesWithOthers, sessionActivationAttempts.count, sessionActivationAttempts.filter { !$0.mixing }.count)
+    }
+    var scheduleIDForTesting: UUID? { scheduleRequest?.id }
+    #endif
+
+    private func startConnection(preserveScheduledGain: Bool = false) {
+        #if DEBUG
+        guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
+        #endif
+        bufferFailureMessage = nil
         connectionTask?.cancel()
+        let generation = UUID(); connectionGeneration = generation
+        let source = selectedAudioSource
+        if scheduleOwnsPlayback && !preserveScheduledGain { scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         if reconnectStarted == nil { state = .connecting }
         hasStartedEngine = true
+        #if DEBUG
+        if let connections = audioRecoveryTestConnections {
+            audioRecoveryTestConnections = connections + 1
+            return
+        }
+        #endif
         connectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             do {
-                try await engine.start(url: StationConfiguration.audioURL, retentionMinutes: settings.retentionMinutes)
-                guard !Task.isCancelled else { return }
-                if wantsPlayback { engine.play() } else { engine.pause() }
+                try await engine.start(url: source.url, retentionMinutes: 0)
+                guard !Task.isCancelled, connectionGeneration == generation else { return }
+                applyGain()
+                if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
+            } catch is CancellationError {
+                // A buffer-mode replacement can cancel preparation inside the
+                // engine without cancelling this coordinator task. Its newer
+                // connection owns playback; cancellation is not a stream error.
             } catch {
-                if !Task.isCancelled { connectionFailed(error) }
+                if !Task.isCancelled, connectionGeneration == generation { connectionFailed(error) }
             }
         }
     }
 
     private func connectionFailed(_ error: Error) {
+        // Engine failures normally freeze the report before this callback clears
+        // their state. Startup failures can arrive directly from startConnection.
+        diagnostics.captureFailure(error, origin: "model.connectionFailed")
         guard wantsPlayback else {
             hasStartedEngine = false; engine.stop(); bufferWindow = nil; return
         }
+        audioIsAdvancing = false
+        if scheduleOwnsPlayback { scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         let now = Date()
         if reconnectStarted == nil { reconnectStarted = now }
         state = .reconnecting(since: reconnectStarted!)
@@ -238,43 +752,91 @@ import UIKit
     }
 
     private func receive(_ snapshot: EngineSnapshot) {
-        heardAt = snapshot.heardAt; bufferWindow = snapshot.window
-        if snapshot.isPlaying {
+        if snapshot.hasConfirmedPosition {
+            heardAt = snapshot.heardAt
+            if !wantsPlayback { pausedAt = snapshot.heardAt }
+        }
+        if bufferWindow != snapshot.window { bufferWindow = snapshot.window }
+        if acquisitionIsStale != snapshot.acquisitionIsStale { acquisitionIsStale = snapshot.acquisitionIsStale }
+        if snapshot.isPlaying { bufferFailureMessage = nil }
+        audioIsAdvancing = snapshot.isPlaying && !snapshot.isWaiting && !snapshot.isSeeking
+        if completedPlaybackNeedsFade { updateGains() }
+        if scheduleOwnsPlayback && !scheduleReachedFullGain {
+            if audioIsAdvancing && snapshot.isReady && !interruptionActive {
+                if scheduleEnvelope == nil {
+                    if !snapshot.hasConfirmedPosition { recordScheduleDiagnostic("audio ready; station timestamp unavailable") }
+                }
+                updateGains()
+            } else {
+                scheduleEnvelope = nil; scheduleGain = 0; applyGain()
+                if wantsPlayback && !interruptionActive && schedulePausedUntil == nil {
+                    setSchedulePhase(.preparing)
+                    state = snapshot.isReady ? .buffering : .connecting
+                }
+            }
+        }
+        if interruptionActive && wantsPlayback {
+            state = .interrupted
+        } else if snapshot.isPlaying {
             if reconnectStarted != nil { invalidateSleepEndpoint() }
             reconnectStarted = nil
-            if sleepDecision != nil, case .fade = sleepDecision! { state = .fadingOut }
-            else if wantsPlayback { state = snapshot.isAtLiveEdge ? .playingLive : .playingDelayed }
+            if wantsPlayback && (!scheduleOwnsPlayback || scheduleReachedFullGain) {
+                if snapshot.isSeeking { state = .seeking }
+                else if snapshot.isWaiting || snapshot.acquisitionIsStale { state = .buffering }
+                else if sleepGain < 1 { state = .fadingOut }
+                else { state = .playingLive }
+            }
+        } else if wantsPlayback && reconnectStarted == nil && (!scheduleOwnsPlayback || scheduleReachedFullGain) {
+            state = snapshot.isSeeking ? .seeking : (snapshot.isReady ? .buffering : .connecting)
         }
-        resolveMetadata()
+        if let date = snapshot.metadataAt { metadataTimestamp = date; resolveMetadata() }
+        else { refreshSystemSurfaces() }
     }
 
     private func ensureTicker() {
+        if isScheduleTesting { return }
         guard ticker == nil else { return }
-        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
         ticker?.tolerance = 0.2
+        if let ticker { RunLoop.main.add(ticker, forMode: .common) }
     }
 
     private func tick() {
         let now = Date()
-        if let started = reconnectStarted {
+        resolveExpiredSchedule()
+        evaluateCompletedPlaybackBattery()
+        retryInterruptedPlayback()
+        if let started = reconnectStarted, !interruptionActive {
             objectWillChange.send()
-            if ReconnectPolicy(startedAt: started).decision(at: now) == .stop { stopEverything(reason: .idle) }
+            if ReconnectPolicy(startedAt: started).decision(at: now) == .stop {
+                if protectedSchedule {
+                    waitForScheduledAudio("Waiting for the station; this start remains armed.", retryAfter: 15)
+                }
+                else if scheduleOwnsPlayback { scheduleFallback("The station could not connect. Tap to try Philharmonic again.") }
+                else { stopEverything(reason: .idle) }
+            }
             else if now >= nextRetry {
                 nextRetry = .distantFuture
                 startConnection()
             }
         }
-        if hasStartedEngine, now.timeIntervalSince(lastMetadataFetch) >= (sleepRetryStarted == nil ? 30 : 5) { fetchMetadata() }
+        if hasStartedEngine, now.timeIntervalSince(lastMetadataFetch) >= StationConfiguration.metadataRefreshInterval { fetchMetadata() }
         evaluateSleep(now: now)
         evaluateSchedule()
+        refreshHomeWidgets()
         if !hasStartedEngine && !sleepActive && scheduledAt == nil && reconnectStarted == nil {
             ticker?.invalidate(); ticker = nil
         }
     }
 
     private func evaluateSleep(now: Date) {
+        if protectedSchedule {
+            if sleepActive { sleepDescription = "Sleep timer ignored while the persistent scheduled start is active" }
+            sleepGain = 1
+            return
+        }
         if let remaining = pausedSleepRemaining {
             sleepDescription = "Sleep timer paused · \(Int(ceil(remaining / 60))) min"; return
         }
@@ -298,121 +860,829 @@ import UIKit
             if now >= end { finishSleep() }
         case .fade(let start, let end):
             sleepDescription = now < start ? "Sleep at next transition" : "Sleep timer · fading out"
-            if now >= start { state = .fadingOut; engine.volume = Float(SleepPolicy.gain(at: now, fadeStart: start, fadeEnd: end)) }
+            if now >= start { state = .fadingOut; startGainDriver(); updateGains() }
             if now >= end { finishSleep() }
         case .retry:
             sleepDescription = "Sleep timer · checking transition"
         }
     }
     private func invalidateSleepEndpoint() {
-        if sleepDeadline.map({ $0 <= Date() }) == true { sleepDecision = nil; sleepRetryStarted = nil; engine.volume = 1 }
+        if sleepDeadline.map({ $0 <= Date() }) == true { sleepDecision = nil; sleepRetryStarted = nil; sleepGain = 1; applyGain() }
     }
     private func finishSleep() {
-        cancelSleep(); stopEverything(reason: .stoppedBySleepTimer)
+        guard !protectedSchedule else { return }
+        // Stop before resetting envelopes; cancellation must never expose one full-volume frame.
+        if scheduleOwnsPlayback && schedulePausedUntil == nil { clearSchedule(stopOwnedPlayback: true) }
+        stopEverything(reason: .stoppedBySleepTimer); cancelSleep()
     }
     private func stopEverything(reason: PlaybackState) {
+        stationSelectionKeepsActivity = false
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
+        explicitPlayPending = false; interruptionRetryStarted = nil
         wantsPlayback = false; hasStartedEngine = false; pausedAt = nil; reconnectStarted = nil
+        audioIsAdvancing = false; applyGain(); connectionGeneration = UUID()
         connectionTask?.cancel(); connectionTask = nil
         metadataTask?.cancel(); metadataTask = nil
+        metadataGeneration = UUID()
         artworkTask?.cancel(); artworkTask = nil
         engine.stop(); bufferWindow = nil; state = reason
         refreshSystemSurfaces()
-        if scheduledAt == nil { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        if scheduledAt == nil && !isScheduleTesting { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 
     private func evaluateSchedule() {
-        guard let date = scheduledAt else { return }
-        let now = Date()
-        // Validate the power/grace boundary before executing a due start, even if the
-        // timer tick coincides exactly with the 10-minute or 30-percent boundary.
-        let device = UIDevice.current
-        let plugged = device.batteryState == .charging || device.batteryState == .full
-        if standby.running {
-            if case .notificationOnly = StandbyPolicy.update(now: now, isPluggedIn: plugged,
-                batteryLevel: Double(device.batteryLevel), unpluggedAt: unpluggedAt, wasStandingBy: true) {
-                standby.stop(); notificationOnly = true
-                if state == .scheduledStandby { state = .idle }
+        #if DEBUG
+        guard !isUIFixture || scheduleTestEnvironment != nil else { return }
+        #endif
+        resolveExpiredSchedule()
+        evaluateCompletedPlaybackBattery()
+        guard let request = scheduleRequest else { return }
+        let now = scheduleNow
+        let dueForPreparation = ScheduledStartPolicy.shouldPrepare(target: request.date, now: now)
+        if manualPlaybackOverridesSchedule {
+            if manualPlaybackPrecedesStart && now >= request.date {
+                manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
+            } else {
+                if (interruptionActive || !wantsPlayback) && now < request.date { maintainMixingStandby() }
+                scheduleDescription = now < request.date
+                    ? "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+                    : "Saved start · manual playback"
+                return
             }
         }
-        if now >= date {
-            let automatic = standby.running
-            let alreadyPlaying = isPlaying
-            scheduledAt = nil; scheduleDescription = nil; standby.stop()
-            UserDefaults.standard.removeObject(forKey: "scheduledAt")
-            if !StandbyPolicy.shouldStartScheduled(alreadyPlaying: alreadyPlaying) {
-                NotificationCoordinator.shared.cancelPending(); return
-            }
-            if automatic && !interruptionActive {
-                play(); engine.goLive()
-            }
-            // Retain delivered/pending fallback notification for notification-only or failed standby.
+        if notificationOnly {
+            setSchedulePhase(.notificationOnly)
+            scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · tap notification to play · \(request.output.summary)"
             return
         }
-        if isPlaying { standby.stop(); scheduleDescription = "Scheduled · \(date.formatted(date: .omitted, time: .shortened))"; return }
-        if interruptionActive { standby.stop(); return }
-        if !notificationOnly {
-            let decision = StandbyPolicy.update(now: now, isPluggedIn: plugged,
-                batteryLevel: Double(device.batteryLevel), unpluggedAt: unpluggedAt, wasStandingBy: standby.running)
-            switch decision {
-            case .standby(let unplugged):
-                unpluggedAt = unplugged
-                do { try activateSession(); try standby.start(); state = .scheduledStandby }
-                catch { notificationOnly = true; standby.stop(); notice = "Automatic standby unavailable; scheduled notification remains active." }
-            case .notificationOnly:
-                standby.stop(); notificationOnly = true
-                if state == .scheduledStandby { state = .idle }
+        guard schedulePowerPermits(now: now) else {
+            scheduleFallback("The scheduled start stopped because of its power settings. Tap to try again when power permits."); return
+        }
+        if let until = schedulePausedUntil {
+            if now < until {
+                setSchedulePhase(.paused)
+                scheduleDescription = now < request.date
+                    ? "Paused · start at \(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+                    : "Paused · tap Play to resume · \(request.output.summary)"
+                // Keep future intent alive without restarting the paused stream.
+                if now < request.date, !standbyIsRunning {
+                    maintainMixingStandby()
+                } else if now >= request.date { stopStandby() }
+                return
+            }
+            schedulePausedUntil = nil; scheduleOwnsPlayback = false
+            persistSchedule()
+        }
+        if wantsPlayback && !scheduleOwnsPlayback {
+            if dueForPreparation && request.output.mode == .currentOutput { clearSchedule(stopOwnedPlayback: false); return }
+            if !dueForPreparation {
+                if interruptionActive { maintainMixingStandby() } else { stopStandby() }
+                setSchedulePhase(.waiting)
+                scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+                return
             }
         }
-        scheduleDescription = "\(date.formatted(date: .omitted, time: .shortened)) · \(standby.running ? "automatic standby" : "tap notification to play")"
+        if interruptionActive {
+            guard request.output.mode != .currentOutput || request.survivesInterruption || scheduleUsingSpeakerFallback else {
+                scheduleFallback("An audio interruption prevented the scheduled start. Tap to start when it ends."); return
+            }
+            // Some route/suspension interruptions have no matching .ended event.
+            // A successful public session activation is the permission to resume;
+            // calls that still own audio reject it, leaving the request armed.
+            guard scheduleUptime >= scheduleRetryUptime else { return }
+            scheduleRetryUptime = scheduleUptime + 5
+            do { try activateSession(forceSpeaker: now >= request.date && scheduledSpeakerRequired,
+                                     mixWithOthers: now < request.date) }
+            catch { return }
+            interruptionActive = false; wasPlayingBeforeInterruption = false
+            scheduleRetryUptime = 0
+            if scheduleOwnsPlayback {
+                if hasStartedEngine { engine.play() } else { startConnection() }
+            }
+        }
+        guard scheduleUptime >= scheduleRetryUptime else { return }
+        if scheduleOwnsPlayback {
+            if wantsPlayback && !scheduleDidStart && now >= request.date && selectedStation.id != request.stationID {
+                // Browsing during silent preparation cannot retarget a saved
+                // start. Pause, power, route and interruption policy run first.
+                switchStation(request.stationID, reconnect: false)
+                scheduleEnvelope = nil; scheduleGain = 0; applyGain()
+                startConnection()
+            }
+            guard validateScheduledRoute(request) else { return }
+            updateGains(); return
+        }
+        if dueForPreparation {
+            beginScheduledPlayback(request)
+        } else if wantsPlayback {
+            stopStandby()
+            setSchedulePhase(.waiting)
+        } else {
+            do {
+                if !standbyIsRunning {
+                    // Pin speaker only when real scheduled audio starts. Setting
+                    // up a future start must not reroute current system audio.
+                    try activateSession(forceSpeaker: false, mixWithOthers: true); try startStandby()
+                }
+                state = .scheduledStandby; setSchedulePhase(.standby)
+            } catch {
+                if request.survivesInterruption { waitForScheduledAudio("Waiting for audio; scheduled start remains armed.") }
+                else { scheduleFallback("Automatic standby is unavailable. Tap to start Philharmonic live.") }
+            }
+        }
+        if scheduleRequest != nil, !notificationOnly {
+            scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · \(request.output.summary)"
+        }
     }
 
-    private func fetchMetadata() {
+    private func schedulePowerPermits(now: Date) -> Bool {
+        guard let request = scheduleRequest else { return true }
+        let power = schedulePower
+        if request.output.mode != .currentOutput {
+            if scheduledBattery.shouldStop(uptime: scheduleUptime, plugged: power.plugged,
+                                           level: power.level, options: request.options) { return false }
+            return power.plugged || request.options.allowOnBattery
+        }
+        // Preserve the original behavior only for legacy current-output requests.
+        if scheduleUserInitiated { return true }
+        switch StandbyPolicy.update(now: now, isPluggedIn: power.plugged, batteryLevel: power.level,
+                                   unpluggedAt: unpluggedAt, wasStandingBy: standbyIsRunning || scheduleOwnsPlayback) {
+        case .standby(let since): unpluggedAt = since; return true
+        case .notificationOnly: return false
+        }
+    }
+
+    private var scheduleNow: Date {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { return environment.now }
+        #endif
+        return Date()
+    }
+    private var scheduleUptime: TimeInterval {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { return environment.uptime }
+        #endif
+        return ProcessInfo.processInfo.systemUptime
+    }
+    private var schedulePower: (plugged: Bool, level: Double) {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { return (environment.plugged, environment.level) }
+        #endif
+        let device = UIDevice.current
+        return (device.batteryState == .charging || device.batteryState == .full, Double(device.batteryLevel))
+    }
+    private var isScheduleTesting: Bool {
+        #if DEBUG
+        return scheduleTestEnvironment != nil || audioRecoveryTestConnections != nil
+        #else
+        return false
+        #endif
+    }
+    private var standbyIsRunning: Bool {
+        #if DEBUG
+        if scheduleTestEnvironment != nil { return scheduleTestStandby }
+        #endif
+        return standby.running
+    }
+    private func startStandby() throws {
+        #if DEBUG
+        if scheduleTestEnvironment != nil { scheduleTestStandby = true; return }
+        #endif
+        try standby.start()
+    }
+    private func stopStandby() {
+        #if DEBUG
+        scheduleTestStandby = false
+        #endif
+        standby.stop()
+    }
+
+    private func maintainMixingStandby() {
+        guard !standbyIsRunning, scheduleUptime >= scheduleRetryUptime else { return }
+        do {
+            try activateSession(forceSpeaker: false, mixWithOthers: true)
+            try startStandby()
+        } catch { scheduleRetryUptime = scheduleUptime + 5 }
+    }
+
+    private func waitForScheduledAudio(_ message: String, retryAfter: TimeInterval = 5) {
+        guard scheduleRequest != nil else { return }
+        scheduleGain = 0; applyGain()
+        if scheduleOwnsPlayback { stopEverything(reason: .idle) }
+        scheduleOwnsPlayback = false; scheduleReachedFullGain = false; scheduleEnvelope = nil
+        scheduledHasAudioFocus = false
+        stopStandby()
+        scheduleRetryUptime = scheduleUptime + retryAfter
+        setSchedulePhase(.waiting); scheduleDescription = message
+        recordScheduleDiagnostic(message)
+        ensureTicker()
+    }
+
+    private func beginScheduledPlayback(_ request: ScheduledStartRequest) {
+        guard scheduleRequest?.id == request.id, !scheduleOwnsPlayback, !interruptionActive else { return }
+        switchStation(request.stationID, reconnect: false)
+        completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+        completedPlaybackUsesSpeaker = false
+        scheduleOwnsPlayback = true
+        scheduledHasAudioFocus = false
+        scheduleGain = 0
+        // Gain reaches the player before session activation, reconnect, or play.
+        applyGain()
+        let preparingSilently = scheduleNow < request.date && !scheduleUserInitiated
+        do { try activateSession(forceSpeaker: !preparingSilently && scheduledSpeakerRequired,
+                                 mixWithOthers: preparingSilently) }
+        catch {
+            if request.survivesInterruption { waitForScheduledAudio("Waiting for iPhone audio; scheduled start remains armed.") }
+            else { scheduleFallback("Philharmonic could not activate audio. Tap to try again.") }
+            return
+        }
+        guard validateScheduledRoute(request) else { return }
+        scheduleOwnsPlayback = true; scheduleEnvelope = nil; scheduleReachedFullGain = false
+        wantsPlayback = true; pausedAt = nil; reconnectStarted = nil
+        connectionTask?.cancel(); engine.stop(); hasStartedEngine = false
+        applyGain(); stopStandby()
+        setSchedulePhase(.preparing)
+        ensureTicker(); startGainDriver(); startConnection(); fetchMetadata()
+    }
+
+    private func validateScheduledRoute(_ request: ScheduledStartRequest) -> Bool {
+        // Silent preloading must neither reroute accessories nor interrupt another app.
+        if scheduleNow < request.date && !scheduleUserInitiated { return true }
+        refreshCurrentOutput()
+        if request.output.mode == .selected && request.output.fallback == .speaker,
+           request.output.route?.matches(currentOutputRoute) != true {
+            scheduleUsingSpeakerFallback = true
+        }
+        if !scheduledHasAudioFocus {
+            // Preroll readiness belongs to the mixable session. Wait for a fresh
+            // engine sample after takeover before starting the audible fade.
+            audioIsAdvancing = false
+            do { try activateSession(forceSpeaker: scheduledSpeakerRequired) }
+            catch { waitForScheduledAudio("Waiting for audio; scheduled start remains armed."); return false }
+            scheduledHasAudioFocus = true
+            refreshCurrentOutput()
+        }
+        if scheduledSpeakerRequired {
+            guard !currentOutputRoute.isBuiltInSpeaker else { return true }
+            scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false; applyGain()
+            engine.pause()
+            do { try activateSession(forceSpeaker: true) }
+            catch { waitForScheduledAudio("Waiting for the iPhone speaker; scheduled start remains armed."); return false }
+            refreshCurrentOutput()
+            guard currentOutputRoute.isBuiltInSpeaker else {
+                waitForScheduledAudio("Waiting for the iPhone speaker; scheduled start remains armed.")
+                return false
+            }
+            if scheduleOwnsPlayback && wantsPlayback { engine.play() }
+            return true
+        }
+        guard request.output.permits(currentOutputRoute) else {
+            scheduleGain = 0; applyGain()
+            let name = request.output.route?.name ?? "Audio output"
+            scheduleFallback("\(name) is unavailable or no longer selected. Choose an output, then tap Play.")
+            return false
+        }
+        return true
+    }
+
+    func refreshCurrentOutput() {
+        #if DEBUG
+        if let environment = scheduleTestEnvironment { currentOutputRoute = environment.route; return }
+        #endif
+        let route = ObservedAudioRoute(ports: AVAudioSession.sharedInstance().currentRoute.outputs.map {
+            .init(uid: $0.uid, type: $0.portType.rawValue, name: $0.portName)
+        })
+        if currentOutputRoute != route { currentOutputRoute = route }
+    }
+
+    private func scheduleFallback(_ message: String) {
+        guard let request = scheduleRequest else { return }
+        recordScheduleDiagnostic("fallback \(message)")
+        scheduleGain = 0; applyGain()
+        let owned = scheduleOwnsPlayback || request.requiresDeletionToCancel
+        scheduleOwnsPlayback = false; scheduleEnvelope = nil; scheduleUserInitiated = false
+        notificationOnly = true; stopStandby(); setSchedulePhase(.notificationOnly)
+        persistSchedule()
+        if owned { stopEverything(reason: .idle) }
+        else if state == .scheduledStandby { state = .idle }
+        scheduleGain = 1; applyGain()
+        releaseScheduledSessionIfIdle()
+        notice = message
+        scheduleDescription = "\(request.date.formatted(date: .omitted, time: .shortened)) · tap notification to play · \(request.output.summary)"
+        if !isScheduleTesting { NotificationCoordinator.shared.replaceFallback(request, body: message) }
+    }
+
+    private func clearSchedule(stopOwnedPlayback: Bool, preservePlaybackSession: Bool = false) {
+        let remainingFade = preservePlaybackSession ? scheduleEnvelope : nil
+        let remainingGain = preservePlaybackSession ? scheduleGain : 1
+        let needsFade = preservePlaybackSession && !scheduleReachedFullGain
+        if preservePlaybackSession {
+            completedPlaybackOptions = scheduleRequest?.options
+            completedPlaybackBattery = scheduledBattery
+            completedPlaybackUsesSpeaker = scheduledSpeakerRequired
+        }
+        if scheduleRequest != nil { recordScheduleDiagnostic("clear stopOwned=\(stopOwnedPlayback)") }
+        scheduleGeneration.invalidate()
+        pendingProtectedSchedule = false
+        let owned = scheduleOwnsPlayback || (scheduleRequest?.requiresDeletionToCancel == true && wantsPlayback)
+        if owned && stopOwnedPlayback {
+            scheduleGain = 0; applyGain()
+            stopEverything(reason: .idle)
+        }
+        if let request = scheduleRequest { NotificationCoordinator.shared.cancel(requestID: request.id) }
+        scheduleRequest = nil; scheduleOwnsPlayback = false; scheduleEnvelope = nil
+        scheduledBattery = ScheduledBatteryGuard(); scheduleUsingSpeakerFallback = false
+        scheduleReachedFullGain = false; scheduleRetryUptime = 0; schedulePausedUntil = nil
+        scheduleDidStart = false
+        scheduledHasAudioFocus = false
+        manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
+        scheduleUserInitiated = false; unpluggedAt = nil; notificationOnly = false
+        scheduleDescription = nil; schedulePhase = nil; stopStandby()
+        scheduleManagementRequest = nil
+        scheduleBoundaryTimer?.invalidate(); scheduleBoundaryTimer = nil
+        persistSchedule()
+        completedPlaybackFade = remainingFade
+        completedPlaybackNeedsFade = needsFade
+        scheduleGain = remainingGain; applyGain()
+        if needsFade { startGainDriver() }
+        if state == .scheduledStandby { state = .idle }
+        if speakerSessionActive && wantsPlayback && !preservePlaybackSession { try? activateSession(forceSpeaker: false) }
+        releaseScheduledSessionIfIdle()
+    }
+
+    private func resolveExpiredSchedule() {
+        guard let request = scheduleRequest,
+              ScheduledStartPolicy.hasExpired(target: request.date, now: scheduleNow) else { return }
+        let completed = scheduleDidStart
+        // Playback intent survives a temporary stall or interruption. Retiring
+        // the request must not drop its battery guard, route or unfinished fade.
+        let keepPlaying = scheduleOwnsPlayback && completed && wantsPlayback
+        let stopPending = scheduleOwnsPlayback && !completed
+        clearSchedule(stopOwnedPlayback: stopPending, preservePlaybackSession: keepPlaying)
+        // Never leave a historical phase on the main player after retirement.
+        if !wantsPlayback { state = hasStartedEngine ? .pausedLive : .idle }
+        else if interruptionActive { state = .interrupted }
+        else if !audioIsAdvancing { state = .buffering }
+        else { state = .playingLive }
+        notice = completed ? "Scheduled start completed." : "Scheduled start expired without playing."
+        refreshSystemSurfaces()
+    }
+
+    private func evaluateCompletedPlaybackBattery() {
+        guard wantsPlayback, let options = completedPlaybackOptions else { return }
+        let power = schedulePower
+        if completedPlaybackBattery.shouldStop(uptime: scheduleUptime, plugged: power.plugged,
+                                               level: power.level, options: options) {
+            stopEverything(reason: .idle)
+            releaseScheduledSessionIfIdle()
+            notice = "Playback stopped by the scheduled start’s battery safeguard."
+        }
+    }
+
+    private func releaseScheduledSessionIfIdle() {
+        guard !wantsPlayback else { return }
+        if !isScheduleTesting {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            if speakerSessionActive { try? session.setCategory(.playback, mode: .default, policy: .longFormAudio) }
+        }
+        speakerSessionActive = false
+        sessionMixesWithOthers = false
+    }
+
+    private func persistSchedule() {
+        UserDefaults.standard.set(scheduleRequest != nil && scheduleDidStart, forKey: "scheduledDidStart.v3")
+        UserDefaults.standard.set(notificationOnly && scheduleRequest != nil, forKey: "scheduledNotificationOnly.v2")
+        UserDefaults.standard.set(scheduleRequest == nil ? nil : schedulePausedUntil, forKey: "scheduledPauseUntil.v2")
+        if let request = scheduleRequest, let data = try? JSONEncoder().encode(request) {
+            UserDefaults.standard.set(data, forKey: "scheduledStart.v2")
+        } else { UserDefaults.standard.removeObject(forKey: "scheduledStart.v2") }
+    }
+
+    private func restoreScheduledRequest() {
+        guard let data = UserDefaults.standard.data(forKey: "scheduledStart.v2"),
+              let request = try? JSONDecoder().decode(ScheduledStartRequest.self, from: data) else { return }
+        scheduleRequest = request
+        scheduleDidStart = UserDefaults.standard.bool(forKey: "scheduledDidStart.v3")
+        if ScheduledStartPolicy.hasExpired(target: request.date, now: scheduleNow) || scheduleDidStart {
+            // A process restart cannot restore an audible session or replay a
+            // consumed start. Old unstarted requests also expire before launch.
+            clearSchedule(stopOwnedPlayback: false)
+            return
+        }
+        schedulePausedUntil = UserDefaults.standard.object(forKey: "scheduledPauseUntil.v2") as? Date
+        // A saved manual pause takes precedence over persistent auto-recovery.
+        notificationOnly = (schedulePausedUntil == nil && !request.requiresDeletionToCancel && request.date <= scheduleNow)
+            || UserDefaults.standard.bool(forKey: "scheduledNotificationOnly.v2")
+    }
+
+    private func armScheduleBoundary() {
+        scheduleBoundaryTimer?.invalidate()
+        guard let request = scheduleRequest else { return }
+        let id = request.id
+        let timer = Timer(fire: max(Date(), request.date.addingTimeInterval(-60)), interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.scheduleRequest?.id == id else { return }
+                self.evaluateSchedule()
+            }
+        }
+        timer.tolerance = 0.01
+        RunLoop.main.add(timer, forMode: .common)
+        scheduleBoundaryTimer = timer
+    }
+
+    private func setSchedulePhase(_ phase: ScheduledStartPhase) {
+        if schedulePhase != phase {
+            schedulePhase = phase
+            recordScheduleDiagnostic("phase=\(phase.rawValue)")
+        }
+    }
+
+    private func startGainDriver() {
+        if isScheduleTesting { return }
+        guard gainTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateGains() }
+        }
+        timer.tolerance = 0.002
+        RunLoop.main.add(timer, forMode: .common)
+        gainTimer = timer
+    }
+
+    private func updateGains() {
+        let now = scheduleNow
+        resolveExpiredSchedule()
+        if scheduleOwnsPlayback, let request = scheduleRequest {
+            if !scheduleDidStart && selectedStation.id != request.stationID {
+                scheduleGain = 0; applyGain(); return
+            }
+            guard schedulePowerPermits(now: now) else {
+                scheduleFallback("The scheduled start stopped because of its power settings."); return
+            }
+            if schedulePausedUntil != nil { applyGain(); return }
+            if interruptionActive { scheduleGain = 0; applyGain(); return }
+            guard validateScheduledRoute(request) else { return }
+            if !scheduleReachedFullGain, scheduleEnvelope == nil, audioIsAdvancing {
+                if now >= request.date {
+                    // Every output gets sixty audible seconds. A delayed wake,
+                    // route handoff or stream readiness must not consume the ramp.
+                    scheduleEnvelope = ScheduledGainEnvelope(target: now, readyAt: now, uptime: scheduleUptime)
+                    scheduleDidStart = true; persistSchedule()
+                    startGainDriver()
+                }
+            }
+            if scheduleReachedFullGain { scheduleGain = 1 }
+            else if let envelope = scheduleEnvelope, audioIsAdvancing {
+                let uptime = scheduleUptime
+                scheduleGain = envelope.gain(at: uptime)
+                setSchedulePhase(scheduleGain > 0 ? .fading : .silent)
+                let newState: PlaybackState = scheduleGain > 0 ? .scheduledFadeIn : .scheduledSilent
+                if state != newState { state = newState }
+                if envelope.isComplete(at: uptime) {
+                    scheduleReachedFullGain = true; scheduleEnvelope = nil
+                    setSchedulePhase(.playing)
+                    scheduleDescription = "Playing · \(request.output.summary)"
+                    NotificationCoordinator.shared.cancel(requestID: request.id)
+                    state = .playingLive
+                }
+            } else {
+                scheduleGain = 0
+                setSchedulePhase(audioIsAdvancing ? .silent : .preparing)
+                state = audioIsAdvancing ? .scheduledSilent : .buffering
+            }
+        }
+        if completedPlaybackNeedsFade {
+            if wantsPlayback && !interruptionActive && audioIsAdvancing {
+                if completedPlaybackFade == nil {
+                    completedPlaybackFade = ScheduledGainEnvelope(target: now, readyAt: now, uptime: scheduleUptime)
+                }
+                if let envelope = completedPlaybackFade {
+                    scheduleGain = envelope.gain(at: scheduleUptime)
+                    if envelope.isComplete(at: scheduleUptime) {
+                        completedPlaybackFade = nil; completedPlaybackNeedsFade = false
+                    }
+                }
+            } else {
+                // Waiting time cannot consume the promised audible minute.
+                completedPlaybackFade = nil; scheduleGain = 0
+            }
+        }
+        var sleepFading = false
+        if !protectedSchedule, case .fade(let start, let end)? = sleepDecision, now >= start {
+            sleepFading = true
+            sleepGain = Float(SleepPolicy.gain(at: now, fadeStart: start, fadeEnd: end))
+            if now >= end { finishSleep(); return }
+        }
+        applyGain()
+        if (!scheduleOwnsPlayback || scheduleReachedFullGain) && !completedPlaybackNeedsFade && !sleepFading { gainTimer?.invalidate(); gainTimer = nil }
+    }
+
+    private func applyGain() {
+        engine.volume = ScheduledStartPolicy.composedGain(schedule: scheduleGain, sleep: protectedSchedule ? 1 : sleepGain,
+                                                        muted: !wantsPlayback || interruptionActive)
+        #if DEBUG
+        boundaryGainTrace?.append(engine.volume)
+        if scheduleOwnsPlayback && abs(lastDiagnosticGain - engine.volume) >= 0.025 {
+            lastDiagnosticGain = engine.volume
+            recordScheduleDiagnostic("scheduleGain=\(scheduleGain) sleepGain=\(sleepGain) effective=\(engine.volume)")
+        }
+        #endif
+        let playing = isAudible
+        if lastSurfacePlaying != playing { lastSurfacePlaying = playing; refreshSystemSurfaces() }
+    }
+
+    private func recordScheduleDiagnostic(_ event: String) {
+        diagnostics.record("schedule id=\(scheduleRequest?.id.uuidString ?? "none") phase=\(schedulePhase?.rawValue ?? "none") gain=\(engine.volume) \(event)")
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-PhilharmonicAudioDiagnostics") else { return }
+        let entry = "schedule=\(scheduleRequest?.id.uuidString ?? "none") uptime=\(ProcessInfo.processInfo.systemUptime) wall=\(Date().timeIntervalSince1970) target=\(scheduledAt?.timeIntervalSince1970 ?? 0) route=\(currentOutputRoute.ports.map { $0.type + ":" + $0.uid }.joined(separator: ",")) \(event)"
+        scheduleDiagnostics.append(entry)
+        if scheduleDiagnostics.count > 512 { scheduleDiagnostics.removeFirst(scheduleDiagnostics.count - 512) }
+        NSLog("Philharmonic schedule %@", entry)
+        #endif
+    }
+
+    /// Shared by both panels. Wait for an existing poll before forcing fresh
+    /// history, so an older response cannot overwrite the manual refresh.
+    func refreshMetadata() async {
+        if let manualRefreshTask { await manualRefreshTask.value; return }
+        let sessionID = stationGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            #if DEBUG
+            if isUIFixture {
+                // Deterministic gesture evidence without station access or audio.
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard !Task.isCancelled, stationGeneration == sessionID else { return }
+                fixtureRefreshCount += 1
+                currentItem?.work = "Refreshed layout fixture \(fixtureRefreshCount)"
+                programmeName = "Refreshed programme fixture \(fixtureRefreshCount)"
+                return
+            }
+            #endif
+            await metadataTask?.value
+            guard !Task.isCancelled, stationGeneration == sessionID else { return }
+            fetchMetadata(force: true)
+            await metadataTask?.value
+            await artworkTask?.value
+            guard !Task.isCancelled, stationGeneration == sessionID else { return }
+            // The station can correct an image without changing its remote URL.
+            // Keep the last usable image visible if this request fails.
+            if let url = currentItem?.artworkURL,
+               let image = await artworkCache.image(at: url, forceReload: true),
+               !Task.isCancelled, stationGeneration == sessionID, lastArtworkURL == url {
+                artwork = image
+                refreshSystemSurfaces()
+            }
+        }
+        manualRefreshTask = task
+        await task.value
+        if stationGeneration == sessionID { manualRefreshTask = nil }
+    }
+
+    private func fetchMetadata(force: Bool = false) {
+        #if DEBUG
+        guard !isUIFixture else { return }
+        #endif
         guard metadataTask == nil else { return }
         lastMetadataFetch = Date()
+        let generation = UUID(); metadataGeneration = generation
+        let service = metadata
         metadataTask = Task { [weak self] in
             guard let self else { return }
-            defer { metadataTask = nil }
+            defer { if metadataGeneration == generation { metadataTask = nil } }
             do {
-                let items = try await metadata.fetch()
-                guard !Task.isCancelled else { return }
+                let items = try await service.fetch(force: force) { [weak self] items in
+                    guard let self, !Task.isCancelled, self.metadataGeneration == generation else { return }
+                    self.timeline.merge(items); self.resolveMetadata()
+                }
+                guard !Task.isCancelled, metadataGeneration == generation else { return }
                 timeline.merge(items); resolveMetadata()
             } catch { /* Metadata failure never interrupts audio or clears the last known item. */ }
         }
     }
     private func resolveMetadata() {
-        let context = timeline.context(at: heardAt)
-        currentItem = context.current
-        let programme = metadata.programme(at: heardAt)
-        programmeName = programme?.name ?? currentItem?.programme
-        hostName = programme?.host ?? currentItem?.host
-        previousItems = context.previous; upcomingItems = context.upcoming
+        let date = metadataTimestamp ?? (hasStartedEngine ? heardAt : Date())
+        let context = timeline.context(at: date)
+        if currentItem != context.current { currentItem = context.current }
+        let programme = metadata.programme(at: date)
+        let name = programme?.name ?? currentItem?.programme
+        let host = programme?.host ?? currentItem?.host
+        if programmeName != name { programmeName = name }
+        if hostName != host { hostName = host }
+        if previousItems != context.previous { previousItems = context.previous }
+        if upcomingItems != context.upcoming { upcomingItems = context.upcoming }
         let url = currentItem?.artworkURL
         if url != lastArtworkURL {
-            lastArtworkURL = url; artworkTask?.cancel(); artwork = nil
+            lastArtworkURL = url; artworkTask?.cancel(); artworkTask = nil; artwork = nil
+            lastArtworkAttempt = .distantPast
+        }
+        if artwork == nil, artworkTask == nil, Date().timeIntervalSince(lastArtworkAttempt) >= 5 {
             if let url {
+                lastArtworkAttempt = Date()
+                let sessionID = stationGeneration
                 artworkTask = Task { [weak self] in
                     guard let self else { return }
                     let image = await artworkCache.image(at: url)
-                    guard !Task.isCancelled, lastArtworkURL == url else { return }
-                    artwork = image; refreshSystemSurfaces()
+                    guard !Task.isCancelled, stationGeneration == sessionID, lastArtworkURL == url else { return }
+                    artworkTask = nil; artwork = image; refreshSystemSurfaces()
                 }
             }
         }
         refreshSystemSurfaces()
     }
     private func refreshSystemSurfaces() {
-        nowPlaying.update(item: currentItem, artwork: artwork, playing: isPlaying)
+        nowPlaying.update(item: currentItem, artwork: artwork, playing: isAudible, station: selectedStation)
+        refreshHomeWidgets()
         #if MODERN
-        liveActivity.update(item: currentItem, artwork: artwork, playing: isPlaying, visible: hasStartedEngine)
+        let surfaceStatus: String?
+        switch state {
+        case .playingLive: surfaceStatus = nil
+        case .playingDelayed: surfaceStatus = nil
+        case .reconnecting: surfaceStatus = "Reconnecting…"
+        default: surfaceStatus = statusText
+        }
+        liveActivity.update(item: currentItem, artwork: artwork, playing: isAudible,
+                            requested: isPlaying, status: surfaceStatus,
+                            visible: hasStartedEngine || stationSelectionKeepsActivity, station: selectedStation)
         #endif
-        NotificationCenter.default.post(name: .kuscPlaybackChanged, object: self)
+        NotificationCenter.default.post(name: .philharmonicPlaybackChanged, object: self)
     }
 
-    private func activateSession() throws {
-        let audio = AVAudioSession.sharedInstance()
-        try audio.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
-        try audio.setActive(true)
+    private func refreshHomeWidgets() {
+        #if DEBUG
+        guard !isUIFixture else { return }
+        #endif
+        homeWidgets.update(item: currentItem, programme: programmeName, host: hostName,
+                           artwork: artwork, requested: isPlaying, station: selectedStation)
     }
+
+    private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
+        let silentPreparation = scheduleOwnsPlayback && !scheduleUserInitiated && scheduledAt.map { scheduleNow < $0 } == true
+        let mixing = mixWithOthers ?? silentPreparation
+        let useSpeaker = forceSpeaker ?? (!silentPreparation &&
+            ((scheduleOwnsPlayback && scheduledSpeakerRequired) || completedPlaybackUsesSpeaker))
+        #if DEBUG
+        if let environment = scheduleTestEnvironment {
+            sessionActivationAttempts.append((useSpeaker, mixing))
+            if environment.activationFails { throw SilentStandby.StandbyError.failed }
+            if useSpeaker {
+                scheduleTestEnvironment?.route = .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")])
+            }
+            speakerSessionActive = useSpeaker
+            sessionMixesWithOthers = mixing
+            refreshCurrentOutput()
+            return
+        }
+        if audioRecoveryTestConnections != nil { return }
+        #endif
+        let audio = AVAudioSession.sharedInstance()
+        if useSpeaker {
+            // Public speaker override requires playAndRecord. No input tap,
+            // recorder, or microphone data is used by Philharmonic.
+            if audio.category != .playAndRecord {
+                try audio.setCategory(.playAndRecord, mode: .default, policy: .default, options: [.defaultToSpeaker])
+            }
+            try audio.setActive(true)
+            speakerSessionActive = true
+            if !audio.currentRoute.outputs.allSatisfy({ $0.portType == .builtInSpeaker }) || audio.currentRoute.outputs.isEmpty {
+                try audio.overrideOutputAudioPort(.speaker)
+            }
+        } else {
+            let options: AVAudioSession.CategoryOptions = mixing ? [.mixWithOthers] : []
+            if audio.category != .playback || audio.categoryOptions != options || speakerSessionActive {
+                try audio.setCategory(.playback, mode: .default,
+                                      policy: mixing ? .default : .longFormAudio, options: options)
+            }
+            speakerSessionActive = false
+            try audio.setActive(true)
+        }
+        sessionMixesWithOthers = mixing
+    }
+
+    private func handleMediaServicesReset() {
+        // A reset invalidates the media objects even while paused. Do not leave
+        // an obsolete renderer available for the next Play or interruption end.
+        connectionGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        hasStartedEngine = false
+        reconnectStarted = nil
+        audioIsAdvancing = false
+        scheduledHasAudioFocus = false
+        if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false }
+        applyGain()
+        engine.stop(); stopStandby()
+        pausedAt = nil
+        bufferWindow = nil
+        acquisitionIsStale = false
+        if wantsPlayback && !interruptionActive {
+            do { try activateSession(); startConnection() }
+            catch { connectionFailed(error) }
+        } else if interruptionActive && wantsPlayback {
+            state = .interrupted
+        } else if state == .pausedDelayed {
+            state = .pausedLive
+        }
+        refreshSystemSurfaces()
+    }
+
+    private func endInterruption(shouldResume: Bool) {
+        if explicitPlayPending {
+            retryInterruptedPlayback(immediately: true)
+            return
+        }
+        interruptionActive = false
+        if schedulePausedUntil != nil {
+            wasPlayingBeforeInterruption = false
+            evaluateSchedule(); return
+        }
+        if let request = scheduleRequest, !notificationOnly,
+           request.survivesInterruption || scheduleUsingSpeakerFallback {
+            let resumeOrdinaryAudio = wasPlayingBeforeInterruption && wantsPlayback && !scheduleOwnsPlayback
+                && (manualPlaybackOverridesSchedule || scheduleNow < request.date)
+            wasPlayingBeforeInterruption = false; scheduleRetryUptime = 0
+            if scheduleOwnsPlayback {
+                guard schedulePowerPermits(now: scheduleNow) else {
+                    scheduleFallback("The scheduled start stopped because of its power settings."); return
+                }
+                do {
+                    try activateSession(forceSpeaker: scheduleNow >= request.date && scheduledSpeakerRequired,
+                                        mixWithOthers: scheduleNow < request.date)
+                    guard validateScheduledRoute(request) else { return }
+                    applyGain()
+                    if hasStartedEngine, reconnectStarted == nil { engine.play() }
+                    else { reconnectStarted = nil; startConnection() }
+                } catch { waitForScheduledAudio("Waiting for audio; scheduled start remains armed.") }
+            } else {
+                if resumeOrdinaryAudio {
+                    if shouldResume {
+                        interruptionActive = true
+                        retryInterruptedPlayback(immediately: true)
+                    } else { wantsPlayback = false; applyGain() }
+                }
+                evaluateSchedule()
+            }
+            return
+        }
+        if wasPlayingBeforeInterruption && wantsPlayback && shouldResume {
+            interruptionActive = true
+            retryInterruptedPlayback(immediately: true)
+            invalidateSleepEndpoint()
+        } else if wasPlayingBeforeInterruption {
+            pauseRemote()
+        }
+        wasPlayingBeforeInterruption = false
+    }
+
+    private func beginInterruption() {
+        wasPlayingBeforeInterruption = wantsPlayback
+        interruptionActive = true
+        explicitPlayPending = false; scheduledHasAudioFocus = false
+        interruptionRetryStarted = scheduleUptime; interruptionRetryAt = scheduleUptime + 5
+        if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false }
+        applyGain(); engine.pause(); stopStandby()
+        audioIsAdvancing = false
+        if wantsPlayback { state = .interrupted }
+        if schedulePausedUntil != nil { return }
+        if let request = scheduleRequest, (scheduleOwnsPlayback || !wasPlayingBeforeInterruption) {
+            if request.survivesInterruption || scheduleUsingSpeakerFallback
+                || (request.output.mode != .currentOutput && scheduleNow < request.date) {
+                scheduleDescription = "Waiting for audio · \(request.output.summary)"
+                setSchedulePhase(.waiting); scheduleRetryUptime = scheduleUptime + 5
+            } else {
+                scheduleFallback("An audio interruption prevented the scheduled start. Tap to try again when it ends.")
+                wasPlayingBeforeInterruption = false
+            }
+        }
+    }
+
+    private func handleRouteChange(reason: UInt) {
+        let previous = currentOutputRoute
+        refreshCurrentOutput()
+        if schedulePausedUntil != nil { return }
+        if interruptionActive {
+            if !previous.matches(currentOutputRoute) { retryInterruptedPlayback(immediately: true) }
+            return
+        }
+        if scheduleOwnsPlayback, let request = scheduleRequest, !interruptionActive {
+            // Category/override notifications with the same output must not restart
+            // the fade or produce volume dips. Mute before fixing a changed route.
+            if !previous.matches(currentOutputRoute) {
+                scheduledHasAudioFocus = false
+                scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false; applyGain()
+            }
+            guard validateScheduledRoute(request) else { return }
+        }
+        guard reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue,
+              wantsPlayback, !interruptionActive else { return }
+        do { try activateSession(); applyGain(); engine.play() }
+        catch {
+            if scheduleOwnsPlayback && scheduledSpeakerRequired { waitForScheduledAudio("Waiting for the iPhone speaker.") }
+            else { connectionFailed(error) }
+        }
+    }
+
     private func installAudioObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
@@ -422,34 +1692,45 @@ import UIKit
             Task { @MainActor in
                 guard let self else { return }
                 if kind == .began {
-                    self.wasPlayingBeforeInterruption = self.wantsPlayback
-                    self.interruptionActive = true; self.engine.pause(); self.standby.stop()
+                    self.beginInterruption()
                 } else {
-                    self.interruptionActive = false
-                    if self.wasPlayingBeforeInterruption && self.wantsPlayback && AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
-                        try? self.activateSession(); self.engine.play(); self.invalidateSleepEndpoint()
-                    } else if self.wasPlayingBeforeInterruption {
-                        self.pauseRemote()
-                    }
-                    self.wasPlayingBeforeInterruption = false
+                    self.endInterruption(shouldResume: AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume))
                 }
             }
         })
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] n in
             let reason = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             Task { @MainActor in
-                guard let self, reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue,
-                      self.wantsPlayback, !self.interruptionActive else { return }
-                try? self.activateSession(); self.engine.play()
+                guard let self else { return }
+                self.handleRouteChange(reason: reason)
             }
         })
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in guard let self, self.wantsPlayback else { return }; try? self.activateSession(); self.startConnection() }
+            Task { @MainActor in
+                self?.handleMediaServicesReset()
+            }
+        })
+        for name in [UIDevice.batteryStateDidChangeNotification, UIDevice.batteryLevelDidChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.evaluateSchedule() }
+            })
+        }
+        observers.append(center.addObserver(forName: UIApplication.significantTimeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                // Active gain ramps keep their monotonic deadline through clock changes.
+                self.armScheduleBoundary(); self.evaluateSchedule()
+            }
         })
     }
     enum ScheduleError: LocalizedError {
-        case outsideWindow
-        var errorDescription: String? { "Choose a future time within the next 24 hours." }
+        case outsideWindow, missingOutput
+        var errorDescription: String? {
+            switch self {
+            case .outsideWindow: return "Choose a future time within the next 24 hours."
+            case .missingOutput: return "Select and confirm an audio output before scheduling."
+            }
+        }
     }
 }
-extension Notification.Name { static let kuscPlaybackChanged = Notification.Name("KUSCPlaybackChanged") }
+extension Notification.Name { static let philharmonicPlaybackChanged = Notification.Name("PhilharmonicPlaybackChanged") }

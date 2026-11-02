@@ -16,20 +16,24 @@ final class MetadataService {
     }
 
     private let session: URLSession
+    private let station: RadioStation
     private let artwork = StationArtworkStore()
     private var days: [String: DayCache] = [:]
     private var artworkByID: [String: URL] = [:]
     private(set) var lastWarning: String?
 
-    init() {
+    init(session suppliedSession: URLSession? = nil, station: RadioStation = StationCatalog.defaultStation) {
+        self.station = station
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = StationConfiguration.metadataRequestTimeout
         configuration.timeoutIntervalForResource = StationConfiguration.metadataRequestTimeout + 5
         configuration.httpMaximumConnectionsPerHost = 4
         configuration.urlCache = URLCache(memoryCapacity: 2 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
         configuration.httpCookieStorage = nil
-        session = URLSession(configuration: configuration)
+        session = suppliedSession ?? URLSession(configuration: configuration)
     }
+
+    func cancel() { session.invalidateAndCancel() }
 
     func programme(at timestamp: Date) -> StationProgramme? {
         days.values.flatMap(\.programmes).first { timestamp >= $0.start && timestamp < $0.end }
@@ -41,10 +45,23 @@ final class MetadataService {
 
     /// The owner starts/stops polling with playback. No independent background polling task
     /// survives a stopped player. Partial failures keep usable station data available.
-    func fetch() async throws -> [ProgrammeItem] {
+    func fetch(force: Bool = false, onCurrent: ([ProgrammeItem]) -> Void = { _ in }) async throws -> [ProgrammeItem] {
+        try Task.checkCancellation()
+        switch station.metadataCapability {
+        case .stationOnly: return []
+        case .hrt, .srP2:
+            let url = station.metadataCapability == .hrt ? BroadcastMetadataParser.hrtURL : BroadcastMetadataParser.srP2URL
+            let data = try await Self.download(url, session: session).get()
+            try Task.checkCancellation()
+            let items = station.metadataCapability == .hrt
+                ? try BroadcastMetadataParser.hrt(data) : try BroadcastMetadataParser.srP2(data)
+            onCurrent(items)
+            return items
+        case .kusc: break
+        }
         let now = Date()
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = StationConfiguration.stationTimeZone
+        calendar.timeZone = TimeZone(identifier: station.timeZoneIdentifier) ?? StationConfiguration.stationTimeZone
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -56,6 +73,7 @@ final class MetadataService {
         }
         days = days.filter { keys.contains($0.key) }
         let due = keys.filter { key in
+            if force { return true }
             guard let cache = days[key] else { return true }
             let interval: TimeInterval = key == today ? StationConfiguration.playlistRefreshInterval : 900
             return now.timeIntervalSince(cache.fetched) >= interval
@@ -65,25 +83,37 @@ final class MetadataService {
         async let dayResponses = Self.downloadDays(due, session: session)
         var failure: Error?
         var success = false
+        var current: StationMetadataRecord?
+        do {
+            let data = try await nowResponse.get()
+            current = try StationMetadataParser.now(data, programmes: days.values.flatMap(\.programmes))
+            if let current {
+                // A slow day-history request must not hold the new title/artwork.
+                onCurrent(assemble(days.values.flatMap(\.records) + [current], now: now))
+            }
+            success = true
+        } catch { failure = error }
         for response in await dayResponses {
+            try Task.checkCancellation()
             do {
                 let parsed = try StationMetadataParser.combined(response.result.get())
                 days[response.key] = DayCache(records: parsed.records, programmes: parsed.programmes, fetched: now)
                 success = true
             } catch { failure = error }
         }
-        let programmes = days.values.flatMap(\.programmes)
         var records = days.values.flatMap(\.records)
-        do {
-            let data = try await nowResponse.get()
-            if let current = try StationMetadataParser.now(data, programmes: programmes) {
-                records.append(current)
-            }
-            success = true
-        } catch { failure = error }
+        if var current {
+            let programme = programme(at: current.item.start)
+            current.item.programme = programme?.name
+            current.item.host = programme?.host
+            records.append(current)
+        }
         lastWarning = failure?.localizedDescription
         if !success && records.isEmpty, let failure { throw failure }
+        return assemble(records, now: now)
+    }
 
+    private func assemble(_ records: [StationMetadataRecord], now: Date) -> [ProgrammeItem] {
         var byID: [String: ProgrammeItem] = [:]
         for record in records {
             var item = record.item
@@ -117,9 +147,10 @@ final class MetadataService {
 
     private nonisolated static func download(_ url: URL, session: URLSession) async -> Result<Data, Error> {
         do {
-            var request = URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData,
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
                                      timeoutInterval: StationConfiguration.metadataRequestTimeout)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json, application/xml, text/xml", forHTTPHeaderField: "Accept")
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw StationMetadataError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -133,13 +164,13 @@ final class MetadataService {
 /// Artwork is supplied inline by the station. Its declared MIME type can be wrong (the
 /// observed "image/png" payload was JPEG), so select the extension from the file signature.
 /// Sixteen files, at most 1 MiB each, no persistent listening history and no backup.
-private final class StationArtworkStore {
+final class StationArtworkStore {
     private let directory: URL?
     private var resolved: [String: URL] = [:]
 
     init() {
         if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            var location = caches.appendingPathComponent("KUSCStationArtwork", isDirectory: true)
+            var location = caches.appendingPathComponent("PhilharmonicStationArtwork", isDirectory: true)
             try? FileManager.default.createDirectory(at: location, withIntermediateDirectories: true)
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
@@ -154,7 +185,6 @@ private final class StationArtworkStore {
             // An artwork URL explicitly supplied by the station is authoritative.
             return url
         }
-        if let existing = resolved[itemID], FileManager.default.fileExists(atPath: existing.path) { return existing }
         guard let directory, source.hasPrefix("data:image/"), source.utf8.count <= 1_400_000,
               let comma = source.firstIndex(of: ","), source[..<comma].hasSuffix(";base64"),
               let data = Data(base64Encoded: String(source[source.index(after: comma)...])),
@@ -165,7 +195,9 @@ private final class StationArtworkStore {
         else if signature == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] { suffix = "png" }
         else { return nil }
         // Stable filename only; this checksum is not used for security.
-        let hash = itemID.utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
+        let hash = data.reduce(itemID.utf8.reduce(UInt64(14695981039346656037)) {
+            ($0 ^ UInt64($1)) &* 1099511628211
+        }) { ($0 ^ UInt64($1)) &* 1099511628211 }
         let url = directory.appendingPathComponent(String(hash, radix: 16)).appendingPathExtension(suffix)
         do {
             if !FileManager.default.fileExists(atPath: url.path) { try data.write(to: url, options: .atomic) }

@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>PhilharmonicAppGroup</key>
+    <string>group.$(PHILHARMONIC_BUNDLE_PREFIX).$(PHILHARMONIC_PROFILE).widgets</string>
+    <key>PhilharmonicURLScheme</key>
+    <string>kusc-$(PHILHARMONIC_PROFILE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>KUSC Live</string>
+	<string>Philharmonic Widgets</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

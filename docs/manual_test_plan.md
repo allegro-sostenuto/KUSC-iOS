@@ -1,8 +1,27 @@
 # KUSC manual acceptance and device test plan
 
-**Execution status: Not run.** No signed iOS build, iPhone, iOS simulator, CarPlay head unit, or Xcode runtime was available during development. Every actual-device check below remains **Not run**. Source review and pure policy tests do not establish an audio, UI, background, hardware-route, or provisioning pass.
+> Live-only scope (2 November 2026): delayed-playback checks below are retired. Use the upgrade, pause/live-resume and no-seek checklist in [live_only_2026-11-02.md](live_only_2026-11-02.md); retain the other playback, scheduling, widget and platform checks. Historical buffer acceptance criteria do not gate this release.
+
+**Physical-device execution status: Not run.** The local Windows editing host has no signed iOS build, iPhone, CarPlay head unit, or Xcode runtime. Native builds and simulator checks run separately in macOS CI; their exact results are recorded in `update_2026-09-20.md`. Every actual-device check below remains **Not run**. Source review, policy tests and simulator layouts do not establish an audible continuity, background, hardware-route, or provisioning pass.
 
 ## Test records
+
+### October scheduled-start acceptance (new modes)
+
+Run on the physical iPhone 17 with the new build, initially foregrounded and then locked, with the debugger detached. These checks are not yet executed locally.
+
+1. Schedule **Always speaker** three minutes ahead while headphones are connected. Disconnect/reconnect them during standby and during the fade. The start remains listed, real audio stays silent until the fade, and playback uses the phone speaker. Repeat with Bluetooth and wired/USB audio; also check an AirPlay route if available.
+2. Schedule **Selected output**, confirm the actual output, and keep it selected. It plays there. Change or disconnect it, testing both fallbacks separately: **Notify only** remains silent; **Use iPhone speaker** switches to the speaker even if another accessory becomes the system output.
+3. Enable **Allow while unplugged**, then unplug with battery above X%. Standby must continue beyond 20 minutes. It must also be possible to create a start while already unplugged. Disable the option in a separate run; unplugging then leaves notification-only fallback.
+4. To exercise the battery safeguard without draining below 25%, choose X above the current battery (for example 80% while at 60%), Y = 1 minute, and stay unplugged. It continues for 59 seconds and stops at 60 seconds or the next tick, including after the start has reached normal volume. Plugging in before expiry resets the whole countdown. Also test Y = 20 minutes at the 19:59 / 20:00 boundary. High battery must never start the countdown. The threshold cannot go below 25%; delay is adjustable from 1 to 20 minutes and cannot exceed 20. Older saved delays above 20 must reopen as 20.
+5. Enable **Ignore everything except battery** and schedule a few minutes ahead while listening. Pause from the app, headphones and Lock Screen must silence audio and keep the schedule. Play before the deadline must work. Pause again and leave it paused: the scheduled start still runs at its set time. Also pause during the final minute of preparation; it must remain silent until Play or the target. After the target, Pause must stay paused through route changes, interruption recovery and elapsed time until Play, preserving rewind history. Repeat with the persistent option off and with selected-output mode. Force-quit after pausing, reopen, and verify Play works while the schedule remains visible; a pause after the target must not resume automatically on relaunch. Separately test sleep timers, network loss over a minute and calls: persistent mode ignores sleep cancellation and retries failures, but never overrides a manual pause. iOS may withhold audio during calls.
+6. Delete the persistent start during standby, preparation, fading, and full-volume playback. Audio stops and late callbacks, route events and notification taps do not restart it. Create a replacement start and verify old callbacks cannot remove it.
+7. Disable notifications, enable persistent speaker mode, and schedule again. The app warns that the backup reminder is unavailable but keeps the start armed. Force-quit/reboot remains outside an automatic-playback guarantee; reopen Philharmonic and verify the retained persistent request can recover.
+8. With a future start armed, play audio in another app for several minutes, including the final minute. KUSC must remain silent and must not repeatedly stop the other app. At the selected time Philharmonic takes over and fades in over ten seconds. Repeat for always-speaker and selected-output modes, with KUSC foregrounded and then locked.
+9. Disconnect headphones and press Play after an interruption. Playback must attempt immediately; change output and try again. When iOS denies activation, observe retries at five-second intervals for the first minute, then fifteen seconds. Press Pause during retry: audio and retries stop while the saved schedule remains. Repeat without a schedule. An active call can legitimately deny activation.
+10. Schedule at least three minutes ahead with notifications allowed. At T minus two minutes, tap the reminder body, then repeat with its Tap to cancel action. Both must open the app at the bottom of Scheduled Start with Delete Scheduled Start visible and reachable; the schedule must still exist until Delete is pressed. Repeat from a cold launch, locked phone, and another open sheet. For a start less than two minutes away, expect an immediate reminder. Replacing/deleting a start must remove its old pending reminders; stale delivered reminders must not affect a replacement.
+11. Open the dark More menu while playback and the progress bar update. Watch for at least fifteen seconds: text brightness must remain stable, all three actions work, and reopening it remains stable. Repeat in minimalist mode and after switching light/dark appearance.
+12. Check the speaker/output/fallback and power cards in light/dark appearance, large text, and on SE. Dark card/control surfaces remain black with borders; controls and the primary action remain reachable by scrolling.
 
 Create a separate record for each device and build. Record the device model and generation, OS version and build, app scheme and build identifier, signing profile expiration, network, connected audio route, battery percentage, charging state, and whether the debugger was attached. Include observed behavior, timestamps, screenshots where useful, and device/Xcode logs for failures. A failed or blocked test must retain that status and its reason; do not mark it passed because a related unit test passed.
 
@@ -37,7 +56,7 @@ Numbers correspond to the supplied specification's 38 acceptance criteria. “Wi
 | 12 | Inspect portrait at standard text size. Confirm artwork, title/movement, composer, performers, retained range, and controls in the specified hierarchy. Long names wrap and remain scrollable. | Not run | Not run |
 | 13 | Swipe right over the normal information region. Programme content replaces that region. Swipe left or use the back chevron to restore now playing. Vertical scrolling must not switch panels. | Not run | Not run |
 | 14 | With sufficient published station context, show five previous and ten upcoming items relative to the heard timestamp. If the station provides fewer, show available real items and a truthful unavailable state without fabricated entries. | Not run | Not run |
-| 15 | Long-press a retained item start. Verify progressive haptics and seek on completion. Single tap, short hold, scrolling, future items, and expired starts must not seek. Test a boundary expiring during the hold. | Not run | Not run |
+| 15 | Long-press a retained item start. Verify one native selection haptic and seek on completion. Single tap, short hold, scrolling, future items, and expired starts must not seek. Test a boundary expiring during the hold. | Not run | Not run |
 | 16 | Enable minimalist mode. Metadata, artwork, and programme swipe disappear; Play/Pause, Live, buffer control, gear, and all three overflow actions remain available. System metadata remains present. | Not run | Not run |
 | 17 | Rotate in both directions, including the small SE landscape size. Normal artwork is left and information/controls right. Programme content remains scrollable. | Not run | Not run |
 | 18 | Choose System, Light, and Dark. Change system appearance while System is selected. Check main screen and every sheet. | Not run | Not run |
@@ -88,6 +107,16 @@ For each run, schedule a new near-future event, confirm notification permission 
 
 ## Network, timing, and resource checks
 
+### First listening check with the ordinary Release IPA
+
+After installing through AltStore, keep the same network, audio output and volume, and cancel active sleep timers or scheduled starts. Listen with retention Off for two minutes, then with five-minute retention for three minutes after connection. Rewind about 30 seconds, try Live and the slider's right edge, and try Pause then Play; distinguish deliberate seek transitions from unexpected pauses. Listen locked for one minute, then turn retention Off and listen for one final minute. If an unexpected pause occurs, record its approximate time, duration, recurrence, output, visible state and whether the thumb froze or jumped. This 8–10 minute check identifies whether the reported symptom persists; it does not establish long-run continuity.
+
+Build 6 does not include on-device diagnostic capture. The September 21 diagnostic update adds **Settings → Playback Diagnostics** to ordinary Release IPAs; no Xcode launch arguments are needed. Start capture explicitly, reproduce once, then copy or share the frozen first-failure report before closing the app. The older `-PhilharmonicAudioDiagnostics` console trace remains Debug-only. See [the 14-second failure procedure](diagnostics_2026-09-21.md) for the current investigation and validation status.
+
+### Extended measurements
+
+The owner reports immediate intermittent pauses only when retention is enabled; Off is the control case. Record Off for five minutes, then 1, 5 and 15 minutes of retention on the same route/network, including initial startup and at least 30 minutes of segment joins. Correlate each audible pause with the debug queue depth, item transition, advertised/downloaded edge and last confirmed cursor. Repeat on speaker, Bluetooth and AirPlay. Specifically delay an arrival until the queue drains while later downloaded files already exist: playback must consume those files without waiting for another network arrival. A matching UI timestamp alone is not an audio pass.
+
 | Check | Procedure and observation | SE | iPhone 17 |
 |---|---|---|---|
 | No network at launch | Confirm visible connection handling and return to ordinary Play after the retry window. Restore connectivity and use Play. | Not run | Not run |
@@ -112,12 +141,12 @@ The package is **not device-validated**. Sign-off requires recorded results for 
 
 ## Windows / GitHub / AltStore workflow acceptance
 
-Every runtime entry below is **Not run**. Record the GitHub run URL/commit, AltServer and AltStore versions, device model, OS, and result when performing it.
+Installation/runtime entries below are **Not run**. CI results apply only to the recorded commit; see `update_2026-09-20.md` for the latest build and screenshot evidence. Record the GitHub run URL/commit, AltServer and AltStore versions, device model, OS, and result when performing each remaining check.
 
 | Check | Required observation | Status |
 |---|---|---|
-| Clean public-repository Actions run | Both Foundation test runs and iphoneos builds pass without Apple secrets | Not run |
-| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Not run |
+| Device build jobs | Both Foundation test runs and iphoneos builds pass without Apple secrets | Passed at 2e73cc9, run 35518835405; native capture jobs also pass |
+| Artifact guard | Both actual IPAs pass validate_ipa.py and appear in the run artifacts | Passed at 2e73cc9 in CI and after local download; artifact digests verified |
 | SE legacy AltStore selection, if applicable | On iOS 16–17.3 AltServer installs a compatible older AltStore | Not run |
 | SE signing/install | Correct IPA imports through AltStore, appears in My Apps, and launches | Not run |
 | iPhone 17 signing/install | App and kept Live Activity extension are provisioned and launch | Not run |
@@ -131,3 +160,24 @@ Every runtime entry below is **Not run**. Record the GitHub run URL/commit, AltS
 | CarPlay boundary | Ordinary IPAs do not claim provisioned custom CarPlay templates | Not run |
 
 One successful background renewal is evidence of that event only; it does not establish guaranteed future renewal.
+
+## October 12 scheduled-start and metadata follow-up
+
+These physical checks remain unrun; automated policy, coordinator and native player-volume tests cover the corresponding code paths.
+
+1. Set a start two minutes ahead on Always speaker. Keep system volume fixed. At the target, audio should rise gradually over a full minute from its first ready playback. Repeat with a selected output, then with Rolling buffer Off and five minutes. Also repeat with the phone locked.
+2. To test delay, temporarily disconnect network around the target and restore it within the ten-minute grace period. Once audio becomes ready, it must still get all 60 seconds of fade. A late fade that crosses the grace deadline must finish normally.
+3. Leave a successful start playing until ten minutes after its target. Its schedule entry and scheduled-start status should disappear while audio continues. Repeat with a failed start and reopen after eleven minutes: the request must be gone and must not launch a new scheduled fade. Pause must still pause current audio.
+4. Observe an actual piece transition with the app open, then check the Home Screen widgets. Rewind across a known piece boundary: both must follow the heard piece, including artwork, and return to current metadata at Live. The app polls the station every five seconds; station publication and WidgetKit delivery can add delay.
+5. If the fade still jumps, start Playback Diagnostics before the target and copy the report after the jump. Record whether the phone was locked, the output, buffer setting and approximate time. The report includes schedule phase transitions and the gain delivered to the engine.
+
+## Pull-to-refresh
+
+Build 36 passed native gesture tests on both simulator profiles for both panels, short-pull cancellation, horizontal paging and paused landscape playback. Hosted tests verify forced history/artwork reload and preservation of cached data on failure. The checks below still require a phone, including the pull animation's feel and live station/WidgetKit delivery.
+
+The full workflow passed on attempt 2. The first standalone audio job timed out in the existing retained-successor readiness test; that test passed in both 200-test hosted suites and on an unchanged retry of the 25-test audio job. No audio-engine code changed for this feature.
+
+- On Now Playing, pull down slowly from the artwork while at the top. The native indicator should progressively reveal with the pull distance, retract on a short pull, and spin after a full pull is released until metadata/artwork refresh completes.
+- Swipe right to Programme and repeat at the top of that list. Normal scrolling farther down must not refresh until the top is reached. Horizontal paging and retained-audio scrubbing must still work.
+- Repeat in landscape, dark mode, large text, and while paused or listening behind Live. Refresh must preserve playback intent, listening position, sleep timers and scheduled starts; paused playback must stay paused. Refresh is also available as a VoiceOver action.
+- Repeat without a network connection: the spinner must finish after the request timeout and retain the last usable details/artwork. Reconnect and pull again. Check that Home Screen widgets receive any changed heard-item data, subject to WidgetKit delivery.

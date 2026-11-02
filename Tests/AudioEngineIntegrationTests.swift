@@ -1,0 +1,465 @@
+// These exercise AVFoundation ownership, so they run in the native PhilharmonicTests
+// target rather than the portable policy package. No station request is used.
+#if DEBUG && canImport(AVFoundation) && !canImport(PhilharmonicCore)
+import AVFoundation
+import Foundation
+import XCTest
+@testable import Philharmonic_SE
+
+@MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testProgressiveStreamsNeverEnterTheHLSPreparationPath() async throws {
+        var preparations = 0
+        let engine = RollingAudioEngine(prepareDirectStream: { url in
+            preparations += 1
+            return url
+        })
+        defer { engine.stop() }
+        for address in ["https://example.invalid/live.mp3", "https://example.invalid/live.aac", "https://example.invalid/aac/192"] {
+            let url = try XCTUnwrap(URL(string: address))
+            try await engine.start(url: url, retentionMinutes: 0, playbackRequested: false)
+            XCTAssertEqual(engine.directURLForTesting, url)
+        }
+        XCTAssertEqual(preparations, 0)
+    }
+
+    func testNonKUSCHLSUsesNativePlayerWithoutKUSCManifestRequirements() async throws {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        let url = URL(string: "https://example.invalid/other-station/master.m3u8")!
+        try await engine.start(url: url, retentionMinutes: 0, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, url)
+    }
+
+    func testStationReplacementRetiresLatePreparedAudio() async throws {
+        let began = expectation(description: "First station preparation began")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        let first = Task { try await engine.start(url: source, retentionMinutes: 0) }
+        await fulfillment(of: [began], timeout: 3)
+        let next = URL(string: "https://example.invalid/new-station.aac")!
+        try await engine.start(url: next, retentionMinutes: 0, playbackRequested: false)
+        resume?.resume(returning: URL(string: "https://example.invalid/obsolete.aac")!)
+        do {
+            try await first.value
+            XCTFail("Obsolete station must not install its prepared player")
+        } catch is CancellationError { }
+        XCTAssertEqual(engine.directURLForTesting, next)
+    }
+
+    func testOrdinaryEngineIgnoresLegacyRetentionAndCannotSeek() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-live-only-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let engine = RollingAudioEngine()
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        try await engine.start(url: files.segments[0], retentionMinutes: 15, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, files.segments[0])
+        XCTAssertNil(engine.bufferedTransportForTesting)
+        XCTAssertNil(latest?.window)
+        XCTAssertFalse(engine.canSeek(to: Date()))
+        let session = engine.transportSessionForTesting
+        engine.setRetention(minutes: 5)
+        engine.seek(to: Date().addingTimeInterval(-60))
+        XCTAssertEqual(engine.transportSessionForTesting, session)
+        XCTAssertNil(engine.retentionSwitchForTesting)
+        XCTAssertEqual(latest?.playbackRequested, false, "Obsolete controls cannot restart paused audio")
+    }
+
+    func testPauseWinsAfterPlayWhileDirectReplacementIsStillPreparing() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-pending-pause-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let began = expectation(description: "Direct replacement is preparing")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, sourceURL: source)
+        engine.setRetention(minutes: 0)
+        await fulfillment(of: [began], timeout: 3)
+        let replacement = engine.retentionSwitchForTesting
+        engine.play()
+        engine.pause()
+        resume?.resume(returning: files.segments[0])
+        await replacement?.value
+        XCTAssertEqual(latest?.playbackRequested, false)
+        XCTAssertEqual(latest?.isPlaying, false)
+    }
+
+    func testPlayDuringPausedBufferModePreparationUpdatesLatestIntent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-pending-play-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let began = expectation(description: "Direct replacement is preparing")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, sourceURL: source)
+        engine.volume = 0.2
+        engine.setRetention(minutes: 0)
+        await fulfillment(of: [began], timeout: 3)
+        let replacement = engine.retentionSwitchForTesting
+        engine.pause()
+        engine.play()
+        XCTAssertEqual(latest?.playbackRequested, true, "Play must be remembered before the new player exists")
+        resume?.resume(returning: files.segments[0])
+        await replacement?.value
+        XCTAssertEqual(latest?.playbackRequested, true)
+        XCTAssertEqual(engine.directURLForTesting, files.segments[0])
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+        engine.pause()
+        XCTAssertEqual(latest?.playbackRequested, false)
+    }
+
+    func testDirectResumeAndLiveReusePreparedSessionWithoutRequestingAnotherPromo() async throws {
+        var resolutions = 0
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-direct-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let prepared = files.segments[0]
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            resolutions += 1
+            return prepared
+        })
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        engine.volume = 0.2
+        try await engine.start(url: source, retentionMinutes: 0, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+        engine.pause()
+        engine.play()
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        engine.goLive()
+        XCTAssertEqual(engine.directURLForTesting, prepared)
+        XCTAssertEqual(resolutions, 1)
+        XCTAssertEqual(engine.backendVolumeForTesting, 0.2)
+    }
+
+    func testStopDuringDirectPreparationCannotInstallLatePlayer() async throws {
+        let began = expectation(description: "Stream preparation began")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        let task = Task { try await engine.start(url: source, retentionMinutes: 0) }
+        await fulfillment(of: [began], timeout: 3)
+        engine.stop()
+        resume?.resume(returning: URL(fileURLWithPath: "/nonexistent/late.aac"))
+        do {
+            try await task.value
+            XCTFail("Stopped preparation must not install or start audio")
+        } catch is CancellationError { }
+        XCTAssertNil(engine.directURLForTesting)
+    }
+
+    func testStoppingPendingBufferModeChangeDoesNotReportPlaybackFailure() async throws {
+        let began = expectation(description: "Mode replacement began preparing")
+        var resume: CheckedContinuation<URL, Error>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        var failures = 0
+        engine.onFailure = { _ in failures += 1 }
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, sourceURL: source)
+        engine.setRetention(minutes: 0)
+        await fulfillment(of: [began], timeout: 3)
+        let replacement = engine.retentionSwitchForTesting
+        engine.stop()
+        resume?.resume(throwing: URLError(.cancelled))
+        await replacement?.value
+        XCTAssertEqual(failures, 0)
+        XCTAssertNil(engine.directURLForTesting)
+    }
+
+    func testFullMinuteGainReachesBothNativeBackendsWithoutAFullVolumeStartup() async throws {
+        let engine = RollingAudioEngine()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-gain-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        let now = Date()
+        let envelope = ScheduledGainEnvelope(target: now.addingTimeInterval(-300), readyAt: now, uptime: 100)
+        for buffered in [false, true] {
+            engine.volume = 0
+            if buffered { engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil) }
+            else { try await engine.start(url: files.segments[0], retentionMinutes: 0, playbackRequested: false) }
+            XCTAssertEqual(engine.backendVolumeForTesting, 0)
+            for elapsed in [0.0, 6.0, 30.0, 59.0, 60.0] {
+                engine.volume = envelope.gain(at: 100 + elapsed)
+                XCTAssertEqual(try XCTUnwrap(engine.backendVolumeForTesting), Float(elapsed / 60), accuracy: 0.0001)
+            }
+            engine.stop()
+        }
+    }
+
+    private let source = URL(string: "https://example.invalid/kusc-test.m3u8")!
+
+    private func fixedSegments(origin: Date, filenamePrefix: String) -> [AudioSegment] {
+        var result: [AudioSegment] = []
+        for index in 0..<2 {
+            let url: URL = URL(fileURLWithPath: "/nonexistent/\(filenamePrefix)-\(index).aac")
+            let offset: TimeInterval = TimeInterval(index) * 10
+            let start: Date = origin.addingTimeInterval(offset)
+            let end: Date = start.addingTimeInterval(10)
+            let segment: AudioSegment = AudioSegment(url: url, start: start, end: end, byteCount: 100)
+            result.append(segment)
+        }
+        return result
+    }
+
+    func testLiveBeforeBufferedMediaDoesNotInsertASecondRemotePlayerItem() async throws {
+        let engine = RollingAudioEngine()
+        engine.enableBufferedPlaybackForTesting()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        try await engine.start(url: source, retentionMinutes: 5)
+        engine.goLive()
+        XCTAssertNil(latest?.window)
+        XCTAssertEqual(latest?.hasAudio, false)
+        XCTAssertEqual(latest?.playbackRequested, true)
+        XCTAssertEqual(latest?.hasConfirmedPosition, false)
+        engine.seek(to: Date()) // An unavailable scrub cannot create a player item either.
+        XCTAssertEqual(latest?.hasAudio, false)
+    }
+
+    func testLiveDuringBufferedToDirectSwitchDoesNotUseTheOutgoingQueue() async throws {
+        let engine = RollingAudioEngine()
+        engine.enableBufferedPlaybackForTesting()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        try await engine.start(url: source, retentionMinutes: 5)
+        engine.setRetention(minutes: 0)
+        engine.goLive()
+        XCTAssertEqual(latest?.hasAudio, false,
+                       "The queued mode replacement owns the next live join; the outgoing queue must stay local-only")
+    }
+
+    func testLiveWhilePausedThenPlayPreservesThePendingLiveSeek() {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        let files: [AudioSegment] = fixedSegments(origin: origin, filenamePrefix: "kusc-fixture")
+        engine.configureBufferedTransportForTesting(segments: files, pausedAt: origin.addingTimeInterval(1))
+        engine.goLive()
+        let live = latest?.pendingSeekAt
+        XCTAssertNotNil(live)
+        XCTAssertGreaterThan(live!.timeIntervalSince(origin), 5)
+        engine.play()
+        XCTAssertEqual(latest?.pendingSeekAt, live)
+        XCTAssertEqual(latest?.isSeeking, true)
+        // Pending media must not overwrite the last actual heard timestamp.
+        XCTAssertEqual(latest?.heardAt, origin.addingTimeInterval(1))
+    }
+
+    func testStartupAnchorsLiveOnlyAfterBothInitialSegmentsArrive() {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        let files: [AudioSegment] = fixedSegments(origin: origin, filenamePrefix: "kusc-startup")
+        engine.configureBufferedTransportForTesting(segments: [], pausedAt: nil, initialJoinPending: true)
+        engine.acceptBufferedSegmentForTesting(files[0])
+        XCTAssertNil(latest?.window)
+        XCTAssertNil(latest?.pendingSeekAt)
+        XCTAssertEqual(latest?.hasAudio, false)
+        engine.goLive() // A first-file Live tap must retain the two-file join rule.
+        XCTAssertEqual(latest?.hasAudio, false)
+        engine.acceptBufferedSegmentForTesting(files[1])
+        XCTAssertNotNil(latest?.pendingSeekAt)
+        XCTAssertEqual(latest!.pendingSeekAt!.timeIntervalSince(origin), 6, accuracy: 0.05)
+        XCTAssertEqual(latest?.hasConfirmedPosition, false)
+    }
+
+    func testEmptyRendererRefillsAlreadyDownloadedAudioWithoutAnotherArrival() async throws {
+        // This fixture bypasses AppModel, which normally activates the output
+        // session before preparing a renderer (including a paused seek).
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        try AVAudioSession.sharedInstance().setActive(true)
+        let engine = RollingAudioEngine()
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-refill-\(UUID().uuidString)")
+        defer { engine.stop(); try? FileManager.default.removeItem(at: path) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        // Keep the short tail and exact file boundary that exposed paused
+        // preroll filling the output queue before the successor could enter.
+        let fixture = try BufferedAudioTestFixture.make(in: path)
+        var start = origin
+        let files: [AudioSegment] = fixture.segments.enumerated().map { index, url -> AudioSegment in
+            let end: Date = start.addingTimeInterval(fixture.segmentDurations[index])
+            defer { start = end }
+            return AudioSegment(url: url, start: start, end: end, byteCount: 100)
+        }
+        let consumedEnd = files[2].start
+        engine.configureBufferedTransportForTesting(segments: files, pausedAt: consumedEnd)
+        XCTAssertEqual(latest?.hasAudio, false)
+        let ready = expectation(description: "Retained successor packets prepare without another download")
+        var fulfilled = false
+        var failure: Error?
+        engine.onFailure = { error in
+            failure = error
+            if !fulfilled { fulfilled = true; ready.fulfill() }
+        }
+        engine.onUpdate = { snapshot in
+            latest = snapshot
+            if snapshot.isReady && !snapshot.isSeeking && !fulfilled {
+                fulfilled = true
+                ready.fulfill()
+            }
+        }
+        engine.refillBufferedQueueForTesting()
+        XCTAssertEqual(latest?.pendingSeekAt, consumedEnd)
+        await fulfillment(of: [ready], timeout: 8)
+        if let failure { throw failure }
+        if latest?.isReady != true, let renderer = engine.bufferedTransportForTesting {
+            print("Refill renderer seeking=\(renderer.isSeeking) hasAudio=\(renderer.hasAudio) " +
+                  "statistics=\(renderer.statisticsForTesting) prepared=\(renderer.preparedMediaForTesting)")
+        }
+        XCTAssertEqual(latest?.isReady, true)
+        XCTAssertEqual(latest?.hasAudio, true)
+        XCTAssertEqual(latest?.heardAt, consumedEnd)
+    }
+
+    func testPauseBeforeRetentionSwitchKeepsReplacementPlaybackPaused() async throws {
+        // This tests transport intent, not resolution of the placeholder host.
+        let engine = RollingAudioEngine(prepareDirectStream: { $0 })
+        // Positive retention is available only to legacy renderer regressions.
+        // Ordinary app engines intentionally ignore this obsolete request.
+        engine.enableBufferedPlaybackForTesting()
+        defer { engine.stop() }
+        try await engine.start(url: source, retentionMinutes: 0)
+        engine.setRetention(minutes: 5)
+        engine.pause()
+        let replacement = expectation(description: "Paused retention replacement publishes")
+        var requests: [Bool] = []
+        var observedReplacement = false
+        engine.onUpdate = { snapshot in
+            requests.append(snapshot.playbackRequested)
+            if !snapshot.hasAudio && !observedReplacement {
+                observedReplacement = true
+                replacement.fulfill()
+            }
+        }
+        await fulfillment(of: [replacement], timeout: 2)
+        XCTAssertFalse(requests.isEmpty)
+        XCTAssertTrue(requests.allSatisfy { !$0 }, "A queued retention change must not override Pause")
+    }
+
+    func testPausedPendingSeekExpiryCanResumeAtRetainedAudioAndRejectLateRead() async throws {
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        try AVAudioSession.sharedInstance().setActive(true)
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-seek-expiry-\(UUID().uuidString)")
+        let fixture = try BufferedAudioTestFixture.make(in: path, segmentCount: 2)
+        let origin = Date(timeIntervalSince1970: 1_000_000)
+        func files(start: Date, urls: [URL]) -> [AudioSegment] {
+            var cursor = start
+            return urls.enumerated().map { index, url -> AudioSegment in
+                let end: Date = cursor.addingTimeInterval(fixture.segmentDurations[index])
+                defer { cursor = end }
+                return AudioSegment(url: url, start: cursor, end: end, byteCount: 100)
+            }
+        }
+        let old = files(start: origin, urls: fixture.segments)
+        let packets = try await BufferedAudioSampleSource.load(url: old[0].url)
+        let engine = RollingAudioEngine()
+        var release: CheckedContinuation<BufferedAudioSamples, Never>?
+        defer {
+            engine.stop()
+            release?.resume(returning: packets)
+            try? FileManager.default.removeItem(at: path)
+        }
+        var firstRead = true
+        let readStarted = expectation(description: "Paused seek starts reading")
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        engine.volume = 0.2
+        engine.configureBufferedTransportForTesting(segments: old, pausedAt: origin.addingTimeInterval(0.1)) { url in
+            if firstRead {
+                firstRead = false
+                return await withCheckedContinuation { release = $0; readStarted.fulfill() }
+            }
+            return try await BufferedAudioSampleSource.load(url: url)
+        }
+        engine.goLive()
+        await fulfillment(of: [readStarted], timeout: 3)
+        let freshURLs: [URL] = try fixture.segments.enumerated().map { index, url -> URL in
+            let copy: URL = path.appendingPathComponent("fresh-\(index).aac")
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        }
+        let fresh = files(start: origin.addingTimeInterval(1_000), urls: freshURLs)
+        for segment in fresh { engine.acceptBufferedSegmentForTesting(segment) }
+        if let pending = latest?.pendingSeekAt {
+            XCTAssertGreaterThanOrEqual(pending, fresh[0].start,
+                                       "A replacement seek may prepare retained media, but the expired target is revoked")
+        }
+        let playing = expectation(description: "Play resolves to the surviving retention window")
+        var fulfilled = false
+        engine.onUpdate = { snapshot in
+            latest = snapshot
+            if snapshot.isPlaying && !fulfilled { fulfilled = true; playing.fulfill() }
+        }
+        engine.play()
+        // The obsolete task deliberately returns despite cancellation.
+        let oldRead = release
+        release = nil
+        oldRead?.resume(returning: packets)
+        await fulfillment(of: [playing], timeout: 8)
+        XCTAssertEqual(latest?.isSeeking, false)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(latest?.heardAt), fresh[0].start)
+        XCTAssertEqual(engine.bufferedTransportForTesting?.volume, 0.2)
+    }
+
+    func testRapidRetentionReversalWhilePausedDoesNotRestartPlayback() async throws {
+        let engine = RollingAudioEngine(prepareDirectStream: { $0 })
+        engine.enableBufferedPlaybackForTesting()
+        defer { engine.stop() }
+        try await engine.start(url: source, retentionMinutes: 0, playbackRequested: false)
+        let originalSession = engine.transportSessionForTesting
+        engine.setRetention(minutes: 5)
+        engine.setRetention(minutes: 0)
+        let replacement = expectation(description: "Latest direct-mode replacement publishes")
+        var requests: [Bool] = []
+        var observedReplacement = false
+        engine.onUpdate = { [weak engine] snapshot in
+            requests.append(snapshot.playbackRequested)
+            if engine?.transportSessionForTesting != originalSession && snapshot.hasAudio && !observedReplacement {
+                observedReplacement = true
+                replacement.fulfill()
+            }
+        }
+        await fulfillment(of: [replacement], timeout: 2)
+        XCTAssertFalse(requests.isEmpty)
+        XCTAssertTrue(requests.allSatisfy { !$0 })
+    }
+}
+#endif

@@ -1,0 +1,48 @@
+# Home Screen widgets
+
+> Current scope (2 November 2026): iPhone and Android playback is live-only. Delayed playback, rewind history, scrubbing and Resume Where Paused are removed until a server is acquired. Buffering/retained-position requirements and results below are historical and superseded by [the live-only update](live_only_2026-11-02.md). Normal transport buffering, metadata, widgets, sleep timers and scheduled starts remain.
+
+Six separate gallery entries provide layouts with and without playback controls:
+
+| Entry | Family | Content |
+| --- | --- | --- |
+| Play / Pause | Small, 2×2 | A single Play/Pause button |
+| Album Art | Medium, 4×2 | Album artwork and Play/Pause |
+| Now Playing | Medium, 4×2 | Work, movement, composer, performers and Play/Pause |
+| The Full Picture | Large, 4×4 | Artwork, music details, programme, host and Play/Pause |
+| Album Art Only | Small, 2×2 | Album cover filling the widget; no controls |
+| Music Details Only | Medium, 4×2 | Work, movement, composer and performers; no controls |
+
+No Home Screen widget contains Live. The existing Live Activity retains its controls. Dark backgrounds and button fills are black, with outlines for separation. The system can apply its own tinted or clear Home Screen appearance.
+
+The app publishes its heard-item metadata, transport intent and a JPEG thumbnail as one atomic App Group file. This includes delayed playback; the extension does not fetch an independent live title. Content changes request reloads of all six kinds immediately. While playback is requested, a 10-second heartbeat renews the snapshot and the provider requests another read after 15 seconds; a timeline entry expires its playing flag after two minutes without renewal. [WidgetKit controls actual delivery](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date), so this is a stale-state mitigation rather than a real-time guarantee. Paused widgets retain the last heard metadata.
+
+The app polls current station metadata every five seconds and publishes it before slower day-history requests finish. Direct playback advances a metadata-only clock from media time when programme dates disappear or freeze; absent any station date, it starts with an approximate live wall-clock anchor. Rewound audio always uses its retained audio position. Corrected inline artwork receives a new cache URL, and failed artwork loads can retry. Station publication delay and WidgetKit scheduling still affect visible timing.
+
+On iOS 17 and later, an `AudioPlaybackIntent` invokes the same explicit Play/Pause methods as the player, persists the updated snapshot before returning, and does not open the player interface. Repeated Play and repeated Pause keep their stated meaning even when another widget is stale. Pausing preserves scheduled starts and uses existing interruption recovery policy. On iOS 16, a widget link opens the corresponding app profile to apply that action. A widget Pause received during cold launch suppresses launch autoplay.
+
+Both app profiles embed one extension. The modern extension also hosts the existing Live Activity. Each profile has its own `group.<bundle-prefix>.<profile>.widgets` group. For direct Xcode signing, enable that App Group for the app and matching extension. For AltStore, CI preserves the entitlement using an identity-free ad-hoc signature; AltStore provisions and re-signs both bundles. Runtime lookup honors the matching re-signed group in `ALTAppGroups`. This behavior was checked against AltStore's [provisioning code](https://github.com/altstoreio/AltStore/blob/develop/AltStore/Operations/FetchProvisioningProfilesOperation.swift), [re-signing code](https://github.com/altstoreio/AltStore/blob/develop/AltStore/Operations/ResignAppOperation.swift), and [bundle keys](https://github.com/altstoreio/AltStore/blob/develop/Shared/Extensions/Bundle%2BAltStore.swift). Apple's [interactive widget documentation](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities) describes app-process audio intents and the post-action timeline reload.
+
+## Validation
+
+[Build 36](https://github.com/allegro-sostenuto/philharmonic/actions/runs/38200838401), from source `9d5c213aec6714df176bdb02a003176b83556c8d`, uses Xcode 26.6 (17F113) and the iOS 26.5 SDK. On October 12, 2026 (Asia/Shanghai), both device packages, 123 portable tests, and 200 hosted plus eleven UI tests per simulator profile passed. Both simulator profiles produced 47 validated native captures, including sixteen widget captures apiece. The additional checks exercise pull-to-refresh on both player panels, cache bypass and retained data after a failed refresh. Manual refresh publishes changed heard-item data through the existing widget path. This evidence does not replace the phone checks below.
+
+Verified IPA SHA-256:
+
+| Package | SHA-256 |
+| --- | --- |
+| Philharmonic-17 | `bc3843427775be16a10a3ae428f6bc21cc3cc952064f091f9dda1536730c6fad` |
+| Philharmonic-SE | `cf447caff0098e33845c461f799def640e47048e4f382486c93d49583b70c1d2` |
+
+Artifact ZIP digests and local IPA checksums were verified. Windows checks cover the package structure, matching App Group identifiers, app/extension versions and device Mach-O platform. The full signature and entitlement audit ran on macOS CI; it was not substituted with a Windows signature check.
+
+Automated checks cover snapshot round trips, corrupt-file fallback, bounded content, stale-state expiry, profile isolation, explicit intent behavior, scheduled-start preservation, and native view captures for all layouts in light/dark plus missing art and large text. Captures use the actual shared widget views inside a silent app fixture; they do not prove SpringBoard hosting or signed App Group access. Device builds validate the embedded extension, matching group entitlement, arm64 platform and absence of an owner signing identity.
+
+Phone acceptance:
+
+1. Install keeping the widget extension, open Philharmonic once, then add all six gallery entries.
+2. Confirm Album Art Only is a small square with no controls, Music Details Only is medium with no controls, and the original four layouts retain their controls. No Home Screen widget has Live. Check light/dark and long titles.
+3. Play and Pause from each of the four widgets with controls while the app is backgrounded. Repeated Play/Pause should keep the requested state. Test after an audio interruption and after force-quitting the app.
+4. Rewind to an earlier work; confirm widget metadata/artwork follow what is heard. Pause and check the last heard item stays displayed. Missing artwork should show a music note.
+5. Arm a scheduled start, pause from a widget, then verify the schedule remains and starts with its normal fade. Also pause after the scheduled start has fired.
+6. Verify metadata sharing after AltStore refresh/re-signing, and that the existing Live Activity still works. On iOS 16, expect the app to open for transport commands.

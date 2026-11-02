@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Regenerate the dependency-free Xcode project with Python 3. No XcodeGen required."""
 from pathlib import Path
-import hashlib, json, plistlib
+import hashlib, json, plistlib, sys
 ROOT = Path(__file__).resolve().parents[1]
+ui_tests_only = '--ui-tests-only' in sys.argv[1:]
 objects = {}
 def oid(key): return hashlib.sha1(key.encode()).hexdigest()[:24].upper()
 def add(key, **fields):
@@ -12,16 +13,17 @@ def file(path, kind=None):
     suffix=Path(path).suffix
     return add('file:'+path, isa='PBXFileReference', lastKnownFileType=kind or {'.swift':'sourcecode.swift','.xcassets':'folder.assetcatalog','.xcconfig':'text.xcconfig','.plist':'text.plist.xml','.entitlements':'text.plist.entitlements','.json':'text.json','.xcprivacy':'text.xml'}.get(suffix,'text'), path=path, sourceTree='<group>')
 def buildfile(target,path): return add('build:'+target+':'+path,isa='PBXBuildFile',fileRef=file(path))
-shared=sorted(str(p.relative_to(ROOT)) for p in (ROOT/'Shared').rglob('*.swift'))
-modern=sorted(str(p.relative_to(ROOT)) for p in (ROOT/'Modern').rglob('*.swift'))
-tests=sorted(str(p.relative_to(ROOT)) for p in (ROOT/'Tests').glob('*.swift'))
+shared=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Shared').rglob('*.swift'))
+modern=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Modern').rglob('*.swift'))
+tests=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Tests').glob('*.swift'))
+ui_tests=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'TestsUI').glob('*.swift'))
 resources=['Assets.xcassets','Configuration/PrivacyInfo.xcprivacy']
-app_configs=[('KUSC-SE','16.0',False,False),('KUSC-17','26.0',True,False),('KUSC-SE-CarPlay','16.0',False,True),('KUSC-17-CarPlay','26.0',True,True)]
-alltargets=[x[0] for x in app_configs]+['KUSCLiveActivity','KUSCTests']
+app_configs=[('Philharmonic-SE','16.0',False,False),('Philharmonic-17','26.0',True,False),('Philharmonic-SE-CarPlay','16.0',False,True),('Philharmonic-17-CarPlay','26.0',True,True)]
+alltargets=[x[0] for x in app_configs]+['PhilharmonicLiveActivity','PhilharmonicWidgets','PhilharmonicTests','PhilharmonicUITests']
 base_config=file('Configuration/Signing.xcconfig')
 productrefs={}
 for name in alltargets:
-    ext='appex' if name=='KUSCLiveActivity' else 'xctest' if name=='KUSCTests' else 'app'
+    ext='appex' if name in ['PhilharmonicLiveActivity','PhilharmonicWidgets'] else 'xctest' if name in ['PhilharmonicTests','PhilharmonicUITests'] else 'app'
     productrefs[name]=add('product:'+name,isa='PBXFileReference',explicitFileType={'app':'wrapper.application','appex':'wrapper.app-extension','xctest':'wrapper.cfbundle'}[ext],includeInIndex=0,path=name+'.'+ext,sourceTree='BUILT_PRODUCTS_DIR')
 
 def configlist(name,settings):
@@ -36,54 +38,64 @@ def configlist(name,settings):
 def dep(target,other):
     proxy=add('proxy:'+target+other,isa='PBXContainerItemProxy',containerPortal=ref('project'),proxyType=1,remoteGlobalIDString=ref('target:'+other),remoteInfo=other)
     return add('dep:'+target+other,isa='PBXTargetDependency',target=ref('target:'+other),targetProxy=proxy)
-common={'SDKROOT':'iphoneos','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','TARGETED_DEVICE_FAMILY':'1','SWIFT_VERSION':'5.0','CLANG_ENABLE_MODULES':'YES','CLANG_ENABLE_OBJC_ARC':'YES','CODE_SIGN_STYLE':'Automatic','MARKETING_VERSION':'1.0','CURRENT_PROJECT_VERSION':'1','SUPPORTS_MACCATALYST':'NO','SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD':'NO','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks','GENERATE_INFOPLIST_FILE':'NO','SWIFT_EMIT_LOC_STRINGS':'YES'}
+common={'SDKROOT':'iphoneos','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','TARGETED_DEVICE_FAMILY':'1','SWIFT_VERSION':'5.0','CLANG_ENABLE_MODULES':'YES','CLANG_ENABLE_OBJC_ARC':'YES','CODE_SIGN_STYLE':'Automatic','MARKETING_VERSION':'2.0.1','CURRENT_PROJECT_VERSION':'1','SUPPORTS_MACCATALYST':'NO','SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD':'NO','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks','GENERATE_INFOPLIST_FILE':'NO','SWIFT_EMIT_LOC_STRINGS':'YES'}
 for name,version,is_modern,carplay in app_configs:
     sources=shared+(modern if is_modern else [])+(['CarPlay/CarPlaySceneDelegate.swift'] if carplay else [])
     phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0),add('resources:'+name,isa='PBXResourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in resources],runOnlyForDeploymentPostprocessing=0),add('frameworks:'+name,isa='PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)]
-    dependencies=[]
-    if is_modern:
-        embed=add('embedfile:'+name,isa='PBXBuildFile',fileRef=productrefs['KUSCLiveActivity'],settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
-        phases.append(add('embed:'+name,isa='PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0))
-        dependencies=[dep(name,'KUSCLiveActivity')]
-    settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET=version,PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_MODULE_NAME='KUSC_SE' if not is_modern else 'KUSC_17',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).'+('modern' if is_modern else 'classic'),INFOPLIST_FILE='Configuration/'+('App-CarPlay.plist' if carplay else 'App.plist'),ASSETCATALOG_COMPILER_APPICON_NAME='AppIcon',SWIFT_ACTIVE_COMPILATION_CONDITIONS=' '.join(x for x in ['MODERN' if is_modern else '', 'CARPLAY' if carplay else ''] if x))
+    extension='PhilharmonicLiveActivity' if is_modern else 'PhilharmonicWidgets'
+    embed=add('embedfile:'+name,isa='PBXBuildFile',fileRef=productrefs[extension],settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
+    phases.append(add('embed:'+name,isa='PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0))
+    dependencies=[dep(name,extension)]
+    settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET=version,PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_MODULE_NAME='Philharmonic_SE' if not is_modern else 'Philharmonic_17',PRODUCT_BUNDLE_IDENTIFIER='$(PHILHARMONIC_BUNDLE_PREFIX).'+('modern' if is_modern else 'classic'),INFOPLIST_FILE='Configuration/'+('App-CarPlay.plist' if carplay else 'App.plist'),ASSETCATALOG_COMPILER_APPICON_NAME='AppIcon',SWIFT_ACTIVE_COMPILATION_CONDITIONS=' '.join(x for x in ['MODERN' if is_modern else '', 'CARPLAY' if carplay else ''] if x))
     settings['CODE_SIGN_ENTITLEMENTS']='Configuration/'+('CarPlay.entitlements' if carplay else 'App.entitlements')
+    settings['PHILHARMONIC_PROFILE']='modern' if is_modern else 'classic'
     add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=dependencies,name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.application')
-name='KUSCLiveActivity'
-sources=['Modern/LiveActivityAttributes.swift','Modern/PlaybackIntents.swift','Widget/KUSCLiveActivity.swift']
-phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0)]
-settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET='26.0',PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).modern.activity',INFOPLIST_FILE='Configuration/Widget.plist',APPLICATION_EXTENSION_API_ONLY='YES',SKIP_INSTALL='YES',SWIFT_ACTIVE_COMPILATION_CONDITIONS='WIDGET_EXTENSION',LD_RUNPATH_SEARCH_PATHS='$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks')
-add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.app-extension')
-name='KUSCTests'
-fixture_files=sorted(str(p.relative_to(ROOT)) for p in (ROOT/'Tests'/'Fixtures').glob('*.json'))
+widget_sources=['Shared/Core/ProgrammeItem.swift','Shared/Core/WidgetPlaybackSnapshot.swift',
+                'Shared/System/WidgetPlaybackIntent.swift','Shared/UI/HomeWidgetView.swift','Widget/PhilharmonicHomeWidgets.swift']
+for name,profile,version,suffix in [('PhilharmonicLiveActivity','modern','26.0','activity'),('PhilharmonicWidgets','classic','16.0','widgets')]:
+    sources=widget_sources+(['Modern/LiveActivityAttributes.swift','Modern/PlaybackIntents.swift','Widget/PhilharmonicLiveActivity.swift'] if profile=='modern' else [])
+    phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in sources],runOnlyForDeploymentPostprocessing=0)]
+    settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET=version,PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(PHILHARMONIC_BUNDLE_PREFIX).'+profile+'.'+suffix,INFOPLIST_FILE='Configuration/Widget.plist',CODE_SIGN_ENTITLEMENTS='Configuration/App.entitlements',PHILHARMONIC_PROFILE=profile,APPLICATION_EXTENSION_API_ONLY='YES',SKIP_INSTALL='YES',SWIFT_ACTIVE_COMPILATION_CONDITIONS='WIDGET_EXTENSION'+(' MODERN' if profile=='modern' else ''),LD_RUNPATH_SEARCH_PATHS='$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks')
+    add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.app-extension')
+name='PhilharmonicTests'
+fixture_files=sorted(p.relative_to(ROOT).as_posix() for p in (ROOT/'Tests'/'Fixtures').iterdir() if p.suffix in {'.json', '.m3u8', '.xml'})
 phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in tests],runOnlyForDeploymentPostprocessing=0),add('resources:'+name,isa='PBXResourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in fixture_files],runOnlyForDeploymentPostprocessing=0)]
-settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET='16.0',PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(KUSC_BUNDLE_PREFIX).tests',GENERATE_INFOPLIST_FILE='YES',TEST_HOST='$(BUILT_PRODUCTS_DIR)/KUSC-SE.app/KUSC-SE',BUNDLE_LOADER='$(TEST_HOST)')
-add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[dep(name,'KUSC-SE')],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.bundle.unit-test')
+settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET='16.0',PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(PHILHARMONIC_BUNDLE_PREFIX).tests',GENERATE_INFOPLIST_FILE='YES',TEST_HOST='$(BUILT_PRODUCTS_DIR)/Philharmonic-SE.app/Philharmonic-SE',BUNDLE_LOADER='$(TEST_HOST)')
+add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[dep(name,'Philharmonic-SE')],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.bundle.unit-test')
+name='PhilharmonicUITests'
+phases=[add('sources:'+name,isa='PBXSourcesBuildPhase',buildActionMask=2147483647,files=[buildfile(name,p) for p in ui_tests],runOnlyForDeploymentPostprocessing=0)]
+settings=dict(common,IPHONEOS_DEPLOYMENT_TARGET='16.0',PRODUCT_NAME='$(TARGET_NAME)',PRODUCT_BUNDLE_IDENTIFIER='$(PHILHARMONIC_BUNDLE_PREFIX).uitests',GENERATE_INFOPLIST_FILE='YES',TEST_TARGET_NAME='Philharmonic-SE',SKIP_INSTALL='YES')
+add('target:'+name,isa='PBXNativeTarget',buildConfigurationList=configlist(name,settings),buildPhases=phases,buildRules=[],dependencies=[dep(name,'Philharmonic-SE')],name=name,productName=name,productReference=productrefs[name],productType='com.apple.product-type.bundle.ui-testing')
 for path in ['Configuration/App.plist','Configuration/App-CarPlay.plist','Configuration/Widget.plist','Configuration/App.entitlements','Configuration/CarPlay.entitlements']: file(path)
 products=add('products',isa='PBXGroup',children=list(productrefs.values()),name='Products',sourceTree='<group>')
 files=[i for i,o in objects.items() if o['isa']=='PBXFileReference' and o.get('sourceTree')!='BUILT_PRODUCTS_DIR']
 main=add('main',isa='PBXGroup',children=files+[products],sourceTree='<group>')
 projectsettings={'ALWAYS_SEARCH_USER_PATHS':'NO','CLANG_WARN_DOCUMENTATION_COMMENTS':'YES','CLANG_WARN_UNGUARDED_AVAILABILITY':'YES_AGGRESSIVE','ENABLE_STRICT_OBJC_MSGSEND':'YES','GCC_C_LANGUAGE_STANDARD':'gnu17','SWIFT_STRICT_CONCURRENCY':'minimal','SWIFT_VERSION':'5.0'}
-add('project',isa='PBXProject',attributes={'BuildIndependentTargetsInParallel':'YES','LastUpgradeCheck':'2600','TargetAttributes':{ref('target:'+n):{'CreatedOnToolsVersion':'26.0','ProvisioningStyle':'Automatic'} for n in alltargets}},buildConfigurationList=configlist('Project',projectsettings),compatibilityVersion='Xcode 14.0',developmentRegion='en',hasScannedForEncodings=0,knownRegions=['en','Base'],mainGroup=main,productRefGroup=products,projectDirPath='',projectRoot='',targets=[ref('target:'+n) for n in alltargets])
+add('project',isa='PBXProject',attributes={'BuildIndependentTargetsInParallel':'YES','LastUpgradeCheck':'2600','TargetAttributes':{ref('target:'+n):{'CreatedOnToolsVersion':'26.0','ProvisioningStyle':'Automatic',**({'TestTargetID':ref('target:Philharmonic-SE')} if n=='PhilharmonicUITests' else {})} for n in alltargets}},buildConfigurationList=configlist('Project',projectsettings),compatibilityVersion='Xcode 14.0',developmentRegion='en',hasScannedForEncodings=0,knownRegions=['en','Base'],mainGroup=main,productRefGroup=products,projectDirPath='',projectRoot='',targets=[ref('target:'+n) for n in alltargets])
 def fmt(value, indent=0):
     if isinstance(value,dict): return '{\n'+''.join('\t'*(indent+1)+json.dumps(str(k))+' = '+fmt(v,indent+1)+';\n' for k,v in value.items())+'\t'*indent+'}'
     if isinstance(value,list): return '(\n'+''.join('\t'*(indent+1)+fmt(v,indent+1)+',\n' for v in value)+'\t'*indent+')'
     if isinstance(value,int): return str(value)
     return json.dumps(value)
-project=ROOT/'KUSC.xcodeproj';project.mkdir(exist_ok=True)
+project=ROOT/'Philharmonic.xcodeproj';project.mkdir(exist_ok=True)
 (project/'project.pbxproj').write_text('// !$*UTF8*$!\n'+fmt({'archiveVersion':1,'classes':{},'objectVersion':56,'objects':objects,'rootObject':ref('project')})+'\n')
 workspace=project/'project.xcworkspace';workspace.mkdir(exist_ok=True)
 (workspace/'contents.xcworkspacedata').write_text('<?xml version="1.0" encoding="UTF-8"?><Workspace version="1.0"><FileRef location="self:"></FileRef></Workspace>\n')
 schemes=project/'xcshareddata'/'xcschemes';schemes.mkdir(parents=True,exist_ok=True)
 for name,*_ in app_configs:
-    def br(n): return f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:"+n)}" BuildableName="{n}.app" BlueprintName="{n}" ReferencedContainer="container:KUSC.xcodeproj"/>'
+    def br(n): return f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:"+n)}" BuildableName="{n}.app" BlueprintName="{n}" ReferencedContainer="container:Philharmonic.xcodeproj"/>'
     tests_xml=''
-    if name=='KUSC-SE': tests_xml=f'<TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:KUSCTests")}" BuildableName="KUSCTests.xctest" BlueprintName="KUSCTests" ReferencedContainer="container:KUSC.xcodeproj"/></TestableReference>'
+    test_environment_xml=''
+    if name=='Philharmonic-SE':
+        selected_tests = ['PhilharmonicUITests'] if ui_tests_only else ['PhilharmonicTests','PhilharmonicUITests']
+        tests_xml=''.join(f'<TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:"+test)}" BuildableName="{test}.xctest" BlueprintName="{test}" ReferencedContainer="container:Philharmonic.xcodeproj"/></TestableReference>' for test in selected_tests)
+        test_environment_xml='<EnvironmentVariables><EnvironmentVariable key="PHILHARMONIC_UI_STATE" value="no-artwork" isEnabled="YES"/></EnvironmentVariables>'
     (schemes/(name+'.xcscheme')).write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2600" version="1.3">
 <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{br(name)}</BuildActionEntry></BuildActionEntries></BuildAction>
-<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables>{tests_xml}</Testables></TestAction>
+<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="{'NO' if name=='Philharmonic-SE' else 'YES'}"><Testables>{tests_xml}</Testables>{test_environment_xml}</TestAction>
 <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="NO"><BuildableProductRunnable runnableDebuggingMode="0">{br(name)}</BuildableProductRunnable></LaunchAction>
 <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{br(name)}</BuildableProductRunnable></ProfileAction>
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>''')
-print(f'Generated {project.name}: {len(app_configs)} app schemes, one extension, one test target.')
+print(f'Generated {project.name}: {len(app_configs)} app schemes, two widget extensions, unit and UI test targets.')

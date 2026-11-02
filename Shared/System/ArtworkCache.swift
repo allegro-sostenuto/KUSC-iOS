@@ -3,8 +3,8 @@ import UIKit
 @MainActor final class ArtworkCache {
     private let cache = NSCache<NSURL, UIImage>()
     init() { cache.countLimit = 16; cache.totalCostLimit = 12 * 1024 * 1024 }
-    func image(at url: URL) async -> UIImage? {
-        if let image = cache.object(forKey: url as NSURL) { return image }
+    func image(at url: URL, forceReload: Bool = false) async -> UIImage? {
+        if !forceReload, let image = cache.object(forKey: url as NSURL) { return image }
         do {
             let data: Data
             if url.isFileURL {
@@ -16,7 +16,10 @@ import UIKit
                 data = try Data(contentsOf: url, options: .mappedIfSafe)
             } else {
                 guard url.scheme == "https" else { return nil }
-                var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+                var request = URLRequest(url: url,
+                    cachePolicy: forceReload ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad,
+                    timeoutInterval: 15)
+                if forceReload { request.setValue("no-cache", forHTTPHeaderField: "Cache-Control") }
                 request.setValue("image/*", forHTTPHeaderField: "Accept")
                 let (downloaded, response) = try await URLSession.shared.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

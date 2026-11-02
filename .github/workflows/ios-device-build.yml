@@ -2,8 +2,48 @@ name: Build unsigned iPhone apps
 
 on:
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: Build IPAs without running the test suites
+        type: boolean
+        default: false
+        required: false
+      source_check:
+        description: Also check audio quality choices and sources with a build-only run
+        type: boolean
+        default: false
+        required: false
+      quality_ui_check:
+        description: Check only the channel bitrate dropdown UI alongside builds
+        type: boolean
+        default: false
+        required: false
+      landscape_only_check:
+        description: Check only the restored landscape layout
+        type: boolean
+        default: false
+        required: false
+      swipe_check:
+        description: Run focused first-swipe and header checks
+        type: boolean
+        default: false
+        required: false
+      station_check:
+        description: Run v2 checks and captures without the historical screenshot sweep
+        type: boolean
+        default: false
+        required: false
+      release_swipe_check:
+        description: Verify the first swipe using the uninstrumented Release configuration
+        type: boolean
+        default: false
+        required: false
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -16,6 +56,96 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  station-picker:
+    name: Station switching and native picker checks
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check)
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check stations and capture picker layouts
+        env:
+          PHILHARMONIC_QUALITY_UI_ONLY: ${{ (inputs.source_check || inputs.quality_ui_check) && '1' || '0' }}
+        run: bash scripts/test_station_picker.sh
+      - name: Upload station evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-station-results
+          path: artifacts/native-stations
+          retention-days: 14
+      - name: Upload station captures separately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-station-captures
+          path: |
+            artifacts/native-stations/attachments
+            artifacts/native-stations/tests.log
+          retention-days: 14
+
+  native-audio:
+    name: Native playback regression tests
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check)
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run hosted media tests
+        env:
+          PHILHARMONIC_STATION_SOURCES_ONLY: ${{ inputs.source_check && '1' || '0' }}
+        run: bash scripts/test_native_audio.sh
+      - name: Upload audio test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-audio-results
+          path: artifacts/native-audio
+          if-no-files-found: warn
+          retention-days: 14
+
+  panel-swipe:
+    name: Focused panel swipe check
+    if: github.event.repository.private == false && github.event_name == 'workflow_dispatch' && (inputs.swipe_check || inputs.landscape_only_check || inputs.release_swipe_check)
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check fresh-launch swipes and header
+        env:
+          PHILHARMONIC_LANDSCAPE_ONLY: ${{ inputs.landscape_only_check }}
+          PHILHARMONIC_RELEASE_SWIPE_ONLY: ${{ inputs.release_swipe_check }}
+        run: bash scripts/test_panel_swipe.sh
+      - name: Upload focused gesture evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-swipe-results
+          path: artifacts/native-swipe
+          retention-days: 14
+      - name: Upload swipe captures separately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-swipe-captures
+          path: |
+            artifacts/native-swipe/attachments
+            artifacts/native-swipe/tests.log
+          retention-days: 14
+
   build:
     name: ${{ matrix.scheme }} device build
     # Keep this zero-cost workflow from consuming private-repository minutes.
@@ -26,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scheme: [KUSC-SE, KUSC-17]
+        scheme: [Philharmonic-SE, Philharmonic-17]
     env:
       # Available on the documented macos-26 image; avoid the Xcode 27 preview.
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
@@ -49,14 +179,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/validate_source.py
-          swift test
+          if [ "${{ inputs.build_only }}" != "true" ]; then swift test; fi
 
       - name: Build and validate unsigned IPA
         shell: bash
         env:
-          KUSC_SCHEME: ${{ matrix.scheme }}
-          KUSC_BUILD_NUMBER: ${{ github.run_number }}
-        run: bash scripts/build_unsigned_ipa.sh "$KUSC_SCHEME" dist
+          PHILHARMONIC_SCHEME: ${{ matrix.scheme }}
+          PHILHARMONIC_BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/build_unsigned_ipa.sh "$PHILHARMONIC_SCHEME" dist
 
       - name: Upload IPA and build record
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -69,3 +199,47 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  screenshots:
+    name: Native ${{ matrix.profile }} simulator layout capture
+    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && (inputs.build_only || inputs.station_check))
+    runs-on: macos-26
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [iphone17, se]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      PHILHARMONIC_CAPTURE_PROFILE: ${{ matrix.profile }}
+    steps:
+      - name: Check out source and baseline history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Capture native simulator layouts
+        shell: bash
+        run: bash scripts/capture_ui.sh artifacts/native-ui
+
+      - name: Upload native screenshots and capture limits
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-ui-${{ matrix.profile }}-screenshots
+          path: |
+            artifacts/native-ui
+            !artifacts/native-ui/**/Interactions.xcresult/**
+            !artifacts/native-ui/**/test-attachments/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload native XCTest result bundles
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.profile }}-xcresults
+          path: artifacts/native-ui/**/Interactions.xcresult
+          if-no-files-found: warn
+          retention-days: 14

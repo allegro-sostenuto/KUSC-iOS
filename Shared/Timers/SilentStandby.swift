@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Only used for the explicit, charging-gated scheduled-start policy.
+/// Used for an explicit scheduled start while its chosen power policy permits it.
 /// iOS may still suspend/terminate this process; the local notification is independent.
 @MainActor final class SilentStandby {
     private var player: AVAudioPlayer?

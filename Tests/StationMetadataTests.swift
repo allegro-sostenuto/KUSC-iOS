@@ -1,12 +1,120 @@
 import Foundation
 import XCTest
-#if canImport(KUSCCore)
-@testable import KUSCCore
+#if canImport(UIKit) && !canImport(PhilharmonicCore)
+import UIKit
+#endif
+#if canImport(PhilharmonicCore)
+@testable import PhilharmonicCore
 #else
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 #endif
 
 final class StationMetadataTests: XCTestCase {
+    func testDirectMetadataAdvancesWhenProgrammeDatesDisappearOrFreeze() {
+        let start = Date(timeIntervalSince1970: 1000)
+        var clock = DirectMetadataClock()
+        XCTAssertEqual(clock.update(station: start, seconds: 10, now: start, advancing: true), start)
+        XCTAssertEqual(clock.update(station: nil, seconds: 40, now: start.addingTimeInterval(600), advancing: true), start.addingTimeInterval(30))
+        XCTAssertEqual(clock.update(station: start, seconds: 70, now: start.addingTimeInterval(800), advancing: true), start.addingTimeInterval(60))
+        let corrected = start.addingTimeInterval(80)
+        XCTAssertEqual(clock.update(station: corrected, seconds: 71, now: corrected, advancing: true), corrected)
+    }
+
+    func testDirectMetadataWithoutDatesUsesMediaProgressAndHonorsPause() {
+        let start = Date(timeIntervalSince1970: 1000)
+        var clock = DirectMetadataClock()
+        XCTAssertNil(clock.update(station: nil, seconds: 0, now: start, advancing: false))
+        XCTAssertEqual(clock.update(station: nil, seconds: 4, now: start, advancing: true), start)
+        XCTAssertEqual(clock.update(station: nil, seconds: 14, now: start, advancing: true), start.addingTimeInterval(10))
+        XCTAssertEqual(clock.update(station: nil, seconds: 14, now: start.addingTimeInterval(600), advancing: false), start.addingTimeInterval(10))
+        XCTAssertEqual(clock.update(station: nil, seconds: 15, now: start, advancing: true), start.addingTimeInterval(11))
+        XCTAssertEqual(clock.update(station: nil, seconds: 0, now: start.addingTimeInterval(700), advancing: true), start.addingTimeInterval(700))
+    }
+
+    #if canImport(UIKit) && !canImport(PhilharmonicCore)
+    @MainActor func testChangedInlineArtworkForTheSamePieceGetsANewCacheURL() throws {
+        let store = StationArtworkStore()
+        let id = "artwork-regression-\(UUID().uuidString)"
+        let first = Data([0xff, 0xd8, 0xff, 1])
+        let second = Data([0xff, 0xd8, 0xff, 2])
+        let a = try XCTUnwrap(store.resolve("data:image/jpeg;base64," + first.base64EncodedString(), itemID: id))
+        let b = try XCTUnwrap(store.resolve("data:image/jpeg;base64," + second.base64EncodedString(), itemID: id))
+        defer { try? FileManager.default.removeItem(at: a); try? FileManager.default.removeItem(at: b) }
+        XCTAssertNotEqual(a, b, "ArtworkCache must not reuse the previous image for a corrected station response")
+        XCTAssertEqual(try Data(contentsOf: b), second)
+        XCTAssertEqual(store.resolve("data:image/jpeg;base64," + second.base64EncodedString(), itemID: id), b)
+    }
+
+    @MainActor func testLiveMetadataPublishesBeforeSlowHistoryAndBypassesResponseCache() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MetadataResponseProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        MetadataResponseProtocol.current = try fixture("official-now-2026-09-19")
+        MetadataResponseProtocol.history = try fixture("official-combined-2026-09-19")
+        MetadataResponseProtocol.historyCompleted = false
+        MetadataResponseProtocol.requests = []
+        let service = MetadataService(session: session)
+        var receivedEarly = false
+        _ = try await service.fetch { items in
+            receivedEarly = !MetadataResponseProtocol.historyCompleted
+            XCTAssertFalse(items.isEmpty)
+        }
+        XCTAssertTrue(receivedEarly, "The /now result cannot wait for the day schedule")
+        XCTAssertTrue(MetadataResponseProtocol.requests.allSatisfy {
+            $0.cachePolicy == .reloadIgnoringLocalCacheData && $0.value(forHTTPHeaderField: "Cache-Control") == "no-cache"
+        })
+        XCTAssertEqual(StationConfiguration.metadataRefreshInterval, 5)
+    }
+
+    @MainActor func testManualRefreshBypassesDayIntervalsAndKeepsHistoryOnFailure() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MetadataResponseProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel(); MetadataResponseProtocol.failRequests = false }
+        MetadataResponseProtocol.current = try fixture("official-now-2026-09-19")
+        MetadataResponseProtocol.history = try fixture("official-combined-2026-09-19")
+        MetadataResponseProtocol.requests = []
+        let service = MetadataService(session: session)
+        let original = try await service.fetch()
+        XCTAssertFalse(original.isEmpty)
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 4)
+        _ = try await service.fetch()
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 5, "Normal polls reuse fresh day history")
+        _ = try await service.fetch(force: true)
+        XCTAssertEqual(MetadataResponseProtocol.requests.count, 9, "Pull-to-refresh reloads all three days immediately")
+        MetadataResponseProtocol.failRequests = true
+        let retained = try await service.fetch(force: true)
+        XCTAssertEqual(Set(retained.map(\.id)), Set(original.map(\.id)))
+        XCTAssertNotNil(service.lastWarning)
+    }
+
+    @MainActor func testManualArtworkRefreshReloadsSameURLAndPreservesCacheOnFailure() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("refresh-\(UUID()).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        func picture(_ color: UIColor) throws -> Data {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+                color.setFill(); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+            }
+            return try XCTUnwrap(image.pngData())
+        }
+        try picture(.red).write(to: url)
+        let cache = ArtworkCache()
+        let original = await cache.image(at: url)
+        XCTAssertNotNil(original)
+        try picture(.blue).write(to: url)
+        let cached = await cache.image(at: url)
+        XCTAssertEqual(cached?.pngData(), original?.pngData())
+        let refreshed = await cache.image(at: url, forceReload: true)
+        XCTAssertNotNil(refreshed)
+        XCTAssertNotEqual(refreshed?.pngData(), original?.pngData())
+        try Data("invalid image".utf8).write(to: url)
+        let failed = await cache.image(at: url, forceReload: true)
+        XCTAssertNil(failed)
+        let preserved = await cache.image(at: url)
+        XCTAssertEqual(preserved?.pngData(), refreshed?.pngData())
+    }
+    #endif
     private func fixture(_ name: String) throws -> Data {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -91,3 +199,37 @@ final class StationMetadataTests: XCTestCase {
         XCTAssertThrowsError(try StationMetadataParser.combined(Data("{truncated".utf8)))
     }
 }
+
+#if canImport(UIKit) && !canImport(PhilharmonicCore)
+private final class MetadataResponseProtocol: URLProtocol {
+    static var failRequests = false
+    static var current = Data()
+    static var history = Data()
+    static var historyCompleted = false
+    static var requests: [URLRequest] = []
+    private var delivery: DispatchWorkItem?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        // Serial main queue owns the stub's shared test state.
+        DispatchQueue.main.async { [self] in
+            Self.requests.append(request)
+            let isCurrent = request.url!.path.contains("/now")
+            let work = DispatchWorkItem { [self] in
+                if Self.failRequests {
+                    client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+                    return
+                }
+                if !isCurrent { Self.historyCompleted = true }
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+                    httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: isCurrent ? Self.current : Self.history)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            delivery = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (isCurrent ? 0 : 0.5), execute: work)
+        }
+    }
+    override func stopLoading() { DispatchQueue.main.async { [self] in delivery?.cancel() } }
+}
+#endif

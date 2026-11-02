@@ -1,14 +1,16 @@
-# KUSC iOS App — ChatGPT Work Build Specification
+# Philharmonic iOS App — ChatGPT Work Build Specification
+
+> Current scope (2 November 2026): iPhone and Android playback is live-only. Delayed playback, rewind history, scrubbing and Resume Where Paused are removed until a server is acquired. Buffering/retained-position requirements and results below are historical and superseded by [the live-only update](live_only_2026-11-02.md). Normal transport buffering, metadata, widgets, sleep timers and scheduled starts remain.
 
 ## 1. Purpose
 
-Build a private-use iOS app named **KUSC** whose sole purpose is to stream **KUSC FM 91.5 / Classical California** with a minimal, high-quality native iOS experience.
+Build **Philharmonic**, a private-use classical-radio app for iOS and Android. This document describes the native iOS targets; the Android implementation is in `android/`. **KUSC FM 91.5 / Classical California** is the currently implemented station. The owner has approved the additional stations in [station decisions](station-candidates.md) for the next live-only implementation.
 
 This is not intended for public App Store distribution. It is intended for installation on the owner's own devices.
 
 Produce a complete, buildable Xcode project with source code, assets, entitlements/capabilities configuration, tests for critical state logic, and a concise README explaining build/sign/install steps.
 
-Do not add unrelated features, accounts, analytics, advertising, social features, donations, news, station discovery, or other radio stations.
+Keep the app focused on the explicitly approved stations. Do not add unrelated features, accounts, analytics, advertising, social features, donations, news, or unapproved stations. The owner's multi-station approval supersedes the original single-station scope.
 
 ---
 

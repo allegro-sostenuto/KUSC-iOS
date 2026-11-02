@@ -27,6 +27,18 @@ The observed HLS media playlist included:
 
 HLS titles can instead contain station automation labels such as `VT Classical California`. They are not used to fabricate a composer, movement, performer or programme. Program date time maps the audio segments to the independent station metadata timeline. Sample framing and network success were verified; audible quality, interruption recovery, drift and multi-hour playback still require an actual iPhone test.
 
+## Startup promos (21 October 2026)
+
+A fresh session returned three opening segments labelled exactly `Advertisement`, lasting 9.98458 + 9.98458 + 1.6254 seconds, followed by programme audio. The downloaded AAC confirmed `cue_type=ad`, `ad_type=break`, and `title=Advertisement`; the following music segment had `cue_type=track`. A reduced copy of that public playlist is in `Tests/Fixtures/kusc-startup-ad.m3u8`. Other fresh sessions had no inserted promo, so this behavior varies by connection. Switching from HLS to the published continuous AAC endpoint was not established as an ad-free solution: the sampled continuous audio matched the simultaneous HLS programme audio.
+
+Both playback paths now resolve a fresh HLS session before playing its audio. If its playlist marks advertisements, the app advances that **same session** by fetching only a programme segment after the final marked ad, then rechecks the playlist until all marked segments leave its window. Live testing confirmed that playlist polling alone can leave the promo pinned, whereas requesting the later programme segment advanced the window from sequence 1 to sequence 4 and removed all three marked ads. No marked ad audio is downloaded or played; the bounded programme prefetch is discarded. This can leave a short silent connection wait while programme segments become available. Polling has a 45-second limit, with normal request timeouts and connection failure handling if the window does not clear. Unknown titles and station announcements are not classified as ads. Established playback is not filtered, and unmarked promos or announcements embedded in programme audio cannot be identified by this change.
+
+Buffer Off hands AVPlayer the prepared **media-session URL**, not the master redirect that could insert a new promo. Pause/resume and Live replace the player item with that same session URL to rejoin its current server window without requesting another session. A live check with a 25-second gap in media requests confirmed that the same session's playlist continued advancing (media sequence 1 to 3). An expired session still uses the existing reconnect handling. Both backends identify themselves as `PhilharmonicPrivate/1.0`; changing the user agent alone is not treated as an ad blocker. Stop, a replacement connection, and cancellation invalidate pending preparation; scheduled fade gain remains unchanged until audio is ready.
+
+Triton also documents publisher-signed `td-ads` access-token claims for suppressing server insertion. They are not ordinary public URL switches and are not used here. See [Player Streaming Connection](https://help.tritondigital.com/docs/player-streaming-connection). The local suppression above uses the observed playlist markers and requires no publisher credentials.
+
+Build 39 (`e7d905a8579864572d481dbc98d0514dc82b5504`, [successful CI run](https://github.com/allegro-sostenuto/philharmonic/actions/runs/39633075884)) passed 130 portable tests, 28 native audio tests, and 210 hosted plus 11 UI tests on each simulator profile. The native tests cover prepared-session reuse, late preparation after Stop, cancelled buffer-mode changes, Pause intent, and preserving the full-minute scheduled fade. Both device IPAs built successfully and passed archive, source/version, device-binary, widget/App Group, and signature checks (signature verification on macOS CI). The iPhone 17 IPA SHA-256 is `0c0542228204bc8d576deb06fe69d02692ad108542375dcd7fc17148ac4c5646`; the SE IPA SHA-256 is `22cda26b96573862750a97336b7ffa66d7fae77d5860bfefeeb692b316c526ed`. Physical iPhone startup listening still needs an owner check with Rolling buffer Off; live HTTP/AAC evidence and simulator tests are not an audible phone test.
+
 ## Metadata and programme feeds
 
 Endpoint formulas were read from the JavaScript served by the official website, specifically the public [player bundle](https://www.classicalcalifornia.org/_next/static/chunks/5019-4aed77a18202bbff.js). This bundle's filename can change on deployment. The [official playlist](https://www.classicalcalifornia.org/playlist) uses these station-hosted JSON services:
@@ -62,13 +74,13 @@ The combined feed's enclosing block supplies programme/host identity. During gap
 
 ## Refresh and failure behavior
 
-- Current-item metadata is requested at the application's 30-second playback polling cadence.
-- Today's combined feed is refreshed no more often than once a minute. Adjacent station days are cached for 15 minutes, including data needed across midnight.
+- Current-item metadata is requested at the application's five-second playback polling cadence.
+- Today's combined feed is refreshed every 20 seconds. Adjacent station days are cached for 15 minutes, including data needed across midnight. Pull-to-refresh bypasses those cache intervals.
 - Polling is owned by playback and stops with the owner; the adapter creates no perpetual background timer.
 - Requests time out after 15 seconds. Individual malformed song rows are skipped. Entire malformed payloads and HTTP failures become recoverable metadata errors.
 - A partial failure preserves available cached history and programme data. Metadata failure never controls or stops the audio connection.
 - Exposed items are bounded to 224 past/current and 32 future entries; the core timeline has its own 256-item limit. Artwork is cached separately and modestly.
-- There is no claim that the station publishes updates every 30 seconds. That is the app's chosen request cadence; server event latency is variable and was not statistically measured.
+- There is no claim that the station publishes updates every five seconds. That is the app's chosen request cadence; server event latency is variable and was not statistically measured.
 
 Reduced official response fixtures are in `docs/fixtures/`. They are test evidence, not a fallback playlist and are never loaded by the application. The large inline artwork field was removed from the fixture. Public metadata HTTP verification is distinct from device acceptance testing.
 

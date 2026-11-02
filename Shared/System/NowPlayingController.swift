@@ -6,7 +6,9 @@ import UIKit
     private var previousItem: ProgrammeItem?
     private var previousArtwork: UIImage?
     private var previousPlaying: Bool?
-    init(play: @escaping () -> Void, pause: @escaping () -> Void, toggle: @escaping () -> Void) {
+    private var previousStationID: String?
+    init(play: @escaping () -> Void, pause: @escaping () -> Void, toggle: @escaping () -> Void,
+         next: (() -> Void)? = nil, previous: (() -> Void)? = nil) {
         let c = MPRemoteCommandCenter.shared()
         for command in [c.previousTrackCommand, c.nextTrackCommand, c.skipBackwardCommand,
                         c.skipForwardCommand, c.seekBackwardCommand, c.seekForwardCommand,
@@ -22,14 +24,29 @@ import UIKit
             }
             targets.append((command, target))
         }
+        for (command, action) in [(c.nextTrackCommand, next), (c.previousTrackCommand, previous)] {
+            guard let action else { continue }
+            command.isEnabled = true
+            let target = command.addTarget { _ in
+                Task { @MainActor in action() }
+                return .success
+            }
+            targets.append((command, target))
+        }
     }
-    func update(item: ProgrammeItem?, artwork: UIImage?, playing: Bool) {
-        guard item != previousItem || artwork !== previousArtwork || playing != previousPlaying else { return }
+    func update(item: ProgrammeItem?, artwork: UIImage?, playing: Bool,
+                station: RadioStation = StationCatalog.defaultStation) {
+        guard item != previousItem || artwork !== previousArtwork || playing != previousPlaying ||
+                station.id != previousStationID else { return }
         previousItem = item; previousArtwork = artwork; previousPlaying = playing
+        previousStationID = station.id
+        let artists = item.map { [$0.composer, $0.performers].filter { !$0.isEmpty }.joined(separator: " · ") } ?? ""
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: item?.title ?? "KUSC FM 91.5",
-            MPMediaItemPropertyArtist: item?.composer ?? "Classical California",
-            MPMediaItemPropertyAlbumTitle: item?.performers ?? "",
+            MPMediaItemPropertyTitle: item?.title ?? station.name,
+            MPMediaItemPropertyArtist: artists.isEmpty ? station.subtitle ?? "Live radio" : artists,
+            MPMediaItemPropertyComposer: item?.composer ?? "",
+            MPMediaItemPropertyAlbumTitle: station.name,
+            MPNowPlayingInfoPropertyExternalContentIdentifier: station.id,
             MPNowPlayingInfoPropertyIsLiveStream: true,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
@@ -38,7 +55,7 @@ import UIKit
         if let artwork {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
         }
-        // No duration/elapsed fields: system scrubbing remains disabled even while locally delayed.
+        // No duration/elapsed fields: live-only playback has no system scrubber.
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 }

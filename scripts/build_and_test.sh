@@ -6,9 +6,9 @@ if ! command -v xcodebuild >/dev/null; then
     exit 1
 fi
 swift test
-for scheme in KUSC-SE KUSC-17 KUSC-SE-CarPlay KUSC-17-CarPlay; do
-    xcodebuild -project KUSC.xcodeproj -scheme "$scheme" -configuration Debug \
+for scheme in Philharmonic-SE Philharmonic-17 Philharmonic-SE-CarPlay Philharmonic-17-CarPlay; do
+    xcodebuild -project Philharmonic.xcodeproj -scheme "$scheme" -configuration Debug \
         -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 done
-# To run the hosted tests: xcodebuild -project KUSC.xcodeproj -scheme KUSC-SE \
+# To run the hosted tests: xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE \
 #   -destination 'platform=iOS Simulator,name=<installed iPhone simulator>' test

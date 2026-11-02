@@ -3,70 +3,71 @@ import SwiftUI
 struct SleepTimerView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var hours = 0
     @State private var minutes = 0
 
     private var totalMinutes: Int { min(720, hours * 60 + minutes) }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack(spacing: 0) {
-                        Picker("Hours", selection: Binding(
-                            get: { hours },
-                            set: { value in
-                                if value == 12 { minutes = 0 }
-                                hours = value
-                            }
-                        )) {
-                            ForEach(0...12, id: \.self) { value in
-                                Text("\(value) \(value == 1 ? "hour" : "hours")").tag(value)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(maxWidth: .infinity)
-                        Picker("Minutes", selection: $minutes) {
-                            ForEach(0...(hours == 12 ? 0 : 59), id: \.self) { value in
-                                Text("\(value) min").tag(value)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(maxWidth: .infinity)
-                        .disabled(hours == 12)
+        TimerSheetLayout(title: "Sleep Timer") {
+            HStack(spacing: 0) {
+                Picker("Hours", selection: Binding(
+                    get: { hours },
+                    set: { value in
+                        if value == 12 { minutes = 0 }
+                        hours = value
                     }
-                    .frame(height: 180)
-                    Button(totalMinutes == 0 ? "Turn timer off" : "Start sleep timer") {
-                        model.startSleep(minutes: totalMinutes)
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .fontWeight(.semibold)
-                } footer: {
-                    Text("At expiry, playback finishes the current piece if its known end is within 10 minutes. Otherwise playback fades out. Missing timing uses the next piece’s start when available.")
-                }
-                if let description = model.sleepDescription {
-                    Section("Active timer") {
-                        Text(description)
-                        Button("Cancel sleep timer", role: .destructive) {
-                            model.cancelSleep()
-                            dismiss()
-                        }
+                )) {
+                    ForEach(0...12, id: \.self) { value in
+                        Text("\(value) \(value == 1 ? "hour" : "hours")").tag(value)
                     }
                 }
-            }
-            .navigationTitle("Sleep Timer")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                Picker("Minutes", selection: $minutes) {
+                    ForEach(0...(hours == 12 ? 0 : 59), id: \.self) { value in
+                        Text("\(value) min").tag(value)
+                    }
                 }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .disabled(hours == 12)
             }
-            .onAppear {
-                let duration = min(720, max(0, model.settings.lastSleepMinutes))
-                hours = duration / 60
-                minutes = duration % 60
+            .frame(height: 180)
+
+            Text("At the end, finish the current movement if its known end is within 10 minutes. Otherwise, fade out over 1 minute. If timing is missing, use the next piece’s start when available.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let description = model.sleepDescription {
+                TimerStatusCard(title: "Active timer", message: description, symbol: "moon.zzz")
             }
+
+            if model.sleepDescription != nil {
+                Button("Cancel Sleep Timer", role: .destructive) {
+                    model.cancelSleep()
+                    dismiss()
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+        } footer: {
+            Button(totalMinutes == 0 ? "Turn Timer Off" : "Start Timer") {
+                model.startSleep(minutes: totalMinutes)
+                dismiss()
+            }
+            .buttonStyle(PhilharmonicPrimaryButtonStyle())
+            .accessibilityIdentifier("timer-primary-action")
+        }
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            let duration = min(720, max(0, model.settings.lastSleepMinutes))
+            hours = duration / 60
+            minutes = duration % 60
         }
     }
 }
@@ -76,67 +77,412 @@ struct ScheduledStartView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var createdAt = Date()
     @State private var selectedDate = Date().addingTimeInterval(300)
+    @State private var outputMode: ScheduledOutputMode = .speaker
+    @State private var preferredRoute: ObservedAudioRoute?
+    @State private var fallback: ScheduleFallback = .notifyOnly
     @State private var isScheduling = false
     @State private var failure: String?
+    @State private var allowOnBattery = false
+    @State private var batteryOnlyStop = false
+    @State private var batteryPercent = 25
+    @State private var lowBatteryMinutes = 20
+
+    private var outputPreference: ScheduledOutputPreference {
+        outputMode == .speaker ? .speaker
+            : ScheduledOutputPreference(route: preferredRoute, fallback: fallback, mode: .selected)
+    }
+
+    private var options: ScheduledStartOptions {
+        .init(allowOnBattery: allowOnBattery, batteryOnlyStop: outputMode == .speaker && batteryOnlyStop,
+              batteryPercent: batteryPercent, lowBatteryMinutes: lowBatteryMinutes)
+    }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    DatePicker("Start time", selection: $selectedDate,
-                               in: createdAt...createdAt.addingTimeInterval(24 * 60 * 60),
-                               displayedComponents: [.date, .hourAndMinute])
-                        .datePickerStyle(.compact)
-                    Button {
-                        isScheduling = true
-                        Task { @MainActor in
-                            do {
-                                try await model.scheduleStart(at: selectedDate)
-                                dismiss()
-                            } catch {
-                                failure = error.localizedDescription
-                            }
-                            isScheduling = false
-                        }
-                    } label: {
-                        HStack {
-                            Text("Schedule start")
-                            Spacer()
-                            if isScheduling { ProgressView() }
-                        }
-                        .frame(minHeight: 44)
-                    }
+        TimerSheetLayout(title: "Scheduled Start", scrollTarget: "scheduled-delete", scrollRequest: model.scheduleManagementRequest) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Start once")
+                    .font(.headline)
+                Text("Within the next 24 hours")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Station: \(model.selectedStation.name)")
+                    .font(.subheadline)
+                    .accessibilityIdentifier("scheduled-station")
+                DatePicker("Start playback at", selection: $selectedDate,
+                           in: createdAt...createdAt.addingTimeInterval(24 * 60 * 60),
+                           displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .accessibilityLabel("Start playback at")
                     .disabled(isScheduling)
-                } header: {
-                    Text("Once within the next 24 hours")
-                } footer: {
-                    Text("While charging, KUSC keeps a standby session for automatic playback when iOS permits. A notification remains as a fallback. On battery, tap the notification to start playback.")
+            }
+
+            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, Philharmonic takes over and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            outputControls
+                .disabled(isScheduling)
+                .id("scheduled-output")
+
+            powerControls
+                .disabled(isScheduling)
+                .id("scheduled-power")
+
+            TimerStatusCard(
+                title: "Automatic start & notification",
+                message: "A reminder arrives 2 minutes before the start; tap it to open Delete Scheduled Start. Starts less than 2 minutes away get the reminder immediately. Keep Philharmonic running for automatic playback. iOS can delay audio during calls or suspend the app; a backup notification remains available.",
+                symbol: "bell"
+            )
+
+            if let description = model.scheduleDescription {
+                TimerStatusCard(title: "Current schedule", message: "\(model.scheduledStation.name) · \(description)", symbol: "clock")
+            }
+
+            if model.scheduleDescription != nil {
+                Button("Delete Scheduled Start", role: .destructive) {
+                    model.cancelSchedule()
+                    dismiss()
                 }
-                if let description = model.scheduleDescription {
-                    Section("Current schedule") {
-                        Text(description)
-                        Button("Cancel scheduled start", role: .destructive) {
-                            model.cancelSchedule()
-                            dismiss()
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .disabled(isScheduling)
+                .accessibilityIdentifier("delete-scheduled-start")
+                .id("scheduled-delete")
+            }
+        } footer: {
+            Button {
+                isScheduling = true
+                Task { @MainActor in
+                    do {
+                        try await model.scheduleStart(at: selectedDate, output: outputPreference, options: options)
+                        dismiss()
+                    } catch {
+                        failure = error.localizedDescription
+                    }
+                    isScheduling = false
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    if isScheduling { ProgressView().tint(Color.philharmonicInk) }
+                    Text(isScheduling ? "Scheduling…" : "Schedule Start")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PhilharmonicPrimaryButtonStyle())
+            .accessibilityIdentifier("schedule-primary-action")
+            .disabled(isScheduling || (outputMode == .selected && preferredRoute == nil))
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            model.refreshCurrentOutput()
+            let saved = model.scheduledOutput
+            outputMode = saved.mode == .speaker ? .speaker : .selected
+            preferredRoute = saved.route
+            fallback = saved.fallback == .currentOutput ? .speaker : saved.fallback
+            let savedOptions = model.scheduledOptions
+            allowOnBattery = savedOptions.allowOnBattery
+            batteryOnlyStop = savedOptions.batteryOnlyStop
+            batteryPercent = savedOptions.batteryPercent
+            lowBatteryMinutes = savedOptions.lowBatteryMinutes
+            #if DEBUG
+            if UIFixture.state == "schedule-output", model.currentOutputRoute.isIdentifiable {
+                outputMode = .selected
+                preferredRoute = model.currentOutputRoute
+            }
+            #endif
+        }
+        .alert("Unable to schedule", isPresented: Binding(
+            get: { failure != nil },
+            set: { if !$0 { failure = nil } }
+        )) {
+            Button("OK", role: .cancel) { failure = nil }
+        } message: {
+            Text(failure ?? "")
+        }
+    }
+
+    private var outputControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Audio Output")
+                .font(.headline)
+            Picker("Output policy", selection: $outputMode) {
+                Text("Always speaker").tag(ScheduledOutputMode.speaker)
+                Text("Selected output").tag(ScheduledOutputMode.selected)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("scheduled-output-mode")
+
+            if outputMode == .selected {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Currently selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(model.currentOutputName)
+                        .font(.body.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                AudioRoutePicker()
+                    .frame(width: 48, height: 48)
+                    .background(Color.philharmonicSurface, in: Circle())
+                    .overlay { Circle().strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
+                    .accessibilityLabel("Choose audio output")
+            }
+
+            Text("Choosing an output changes the system route immediately.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Button {
+                    // Read the real route at confirmation; opening or dismissing
+                    // Apple's picker is not proof that an output changed.
+                    model.refreshCurrentOutput()
+                    guard model.currentOutputRoute.isIdentifiable else { return }
+                    preferredRoute = model.currentOutputRoute
+                } label: {
+                    Label("Use Current Selection for This Start", systemImage: "checkmark.circle")
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .disabled(!model.currentOutputRoute.isIdentifiable)
+
+                if let preferredRoute {
+                    Text("Planned output: \(preferredRoute.name)")
+                        .font(.subheadline.weight(.medium))
+                    if !preferredRoute.matches(model.currentOutputRoute) {
+                        Label("The planned output is not currently selected.", systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(Color.philharmonicRed)
+                    }
+                } else {
+                    Text(model.currentOutputRoute.isIdentifiable
+                         ? "Confirm the actual selected output above before scheduling."
+                         : "This output cannot be identified reliably. Choose another output or Always speaker.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Picker("If the output is unavailable", selection: $fallback) {
+                    Text("Notify only").tag(ScheduleFallback.notifyOnly)
+                    Text("Use iPhone speaker").tag(ScheduleFallback.speaker)
+                }
+                .pickerStyle(.menu)
+                .frame(minHeight: 44)
+
+                Text(fallback == .notifyOnly
+                     ? "If the planned output is unavailable or no longer selected, scheduled audio stays silent and a notification remains."
+                     : "If the planned output is unavailable or no longer selected, playback switches to the iPhone speaker.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Keep the planned output available and selected. Philharmonic cannot reconnect Bluetooth or choose an AirPlay destination automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Starts on the iPhone speaker even with headphones connected. Disconnecting an output does not cancel this start. Temporary audio interruptions keep it armed until iOS permits playback.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
+        }
+    }
+
+    private var powerControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Power & interruptions").font(.headline)
+            if outputMode == .speaker {
+                Toggle("Ignore everything except battery", isOn: $batteryOnlyStop)
+                    .accessibilityIdentifier("scheduled-battery-only")
+                    .onChange(of: batteryOnlyStop) { enabled in
+                        if enabled { allowOnBattery = true }
+                    }
+                if batteryOnlyStop {
+                    Text("Stays armed through unplugging, output changes, interruptions, and connection failures until 10 minutes after the selected time. Pause silences current audio without deleting a future start; afterward, Pause waits for Play. Sleep timers do not cancel an armed start. Delete it here to cancel sooner.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle("Allow while unplugged", isOn: $allowOnBattery)
+                .disabled(outputMode == .speaker && batteryOnlyStop)
+                .accessibilityIdentifier("scheduled-allow-battery")
+            if options.allowOnBattery {
+                ScheduledValueControl(title: "Battery below \(batteryPercent)%", spokenLabel: "Battery threshold",
+                                      value: $batteryPercent, range: 25...100, step: 1, unit: "percent")
+                    .accessibilityIdentifier("scheduled-battery-threshold")
+                ScheduledValueControl(title: "For \(lowBatteryMinutes) minutes", spokenLabel: "Time below threshold while unplugged",
+                                      value: $lowBatteryMinutes, range: 1...20, step: 1, unit: "minutes")
+                    .accessibilityIdentifier("scheduled-battery-duration")
+                Text("Stops only after the battery stays below \(batteryPercent)% while unplugged for \(lowBatteryMinutes) continuous minutes. Plugging in or reaching \(batteryPercent)% resets the countdown. This protection continues after playback starts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Automatic standby and playback require a charger. Unplugging leaves the backup notification available.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
+    }
+}
+
+/// An adjustable control whose surface follows the same pure-black palette as
+/// the other controls. Native Stepper draws an opaque gray pill in dark mode.
+private struct ScheduledValueControl: View {
+    let title: String
+    let spokenLabel: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let unit: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Button { adjust(-step) } label: {
+                    Image(systemName: "minus").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(value <= range.lowerBound)
+                Rectangle().fill(Color.philharmonicSeparator).frame(width: 0.75, height: 24)
+                Button { adjust(step) } label: {
+                    Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(value >= range.upperBound)
+            }
+            .buttonStyle(.plain)
+            .background(Color.philharmonicSurface, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenLabel)
+        .accessibilityValue("\(value) \(unit)")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: adjust(step)
+            case .decrement: adjust(-step)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func adjust(_ amount: Int) { value = min(range.upperBound, max(range.lowerBound, value + amount)) }
+}
+
+private struct TimerSheetLayout<Content: View, Footer: View>: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let content: Content
+    let footer: Footer
+    let scrollTarget: String?
+    let scrollRequest: UUID?
+
+    init(title: String, scrollTarget: String? = nil, scrollRequest: UUID? = nil,
+         @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.scrollTarget = scrollTarget
+        self.scrollRequest = scrollRequest
+        self.content = content()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 16) {
+                Text(title)
+                    .font(.title.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                SheetCloseButton { dismiss() }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 12)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        content
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
+                }
+                .task(id: scrollRequest) {
+                    guard scrollRequest != nil, let scrollTarget else { return }
+                    // Saved options expand the power card as the sheet opens.
+                    // Scroll after that presentation layout has settled.
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo(scrollTarget, anchor: .bottom)
+                }
+                #if DEBUG
+                .onAppear {
+                    if UIFixture.state == "schedule-output" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            proxy.scrollTo("scheduled-output", anchor: .top)
+                        }
+                    } else if UIFixture.state == "schedule-power" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            proxy.scrollTo("scheduled-power", anchor: .top)
                         }
                     }
                 }
+                #endif
             }
-            .navigationTitle("Scheduled Start")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            footer
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity)
+                .background(Color.philharmonicSurface)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
                 }
+        }
+        .foregroundStyle(Color.philharmonicInk)
+        .background(Color.philharmonicSurface.ignoresSafeArea())
+        .tint(.philharmonicRed)
+        .philharmonicSheetBackground()
+    }
+}
+
+private struct TimerStatusCard: View {
+    let title: String
+    let message: String
+    let symbol: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(Color.philharmonicRed)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .alert("Unable to schedule", isPresented: Binding(
-                get: { failure != nil },
-                set: { if !$0 { failure = nil } }
-            )) {
-                Button("OK", role: .cancel) { failure = nil }
-            } message: {
-                Text(failure ?? "")
-            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.philharmonicBackground, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
         }
     }
 }
