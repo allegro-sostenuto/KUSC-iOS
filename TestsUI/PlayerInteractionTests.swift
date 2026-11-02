@@ -444,19 +444,35 @@ final class PlayerInteractionTests: XCTestCase {
 
     @MainActor
     func testLandscapeLiveOnlyControlsAndPaging() {
-        let app = launchFixture("live", landscape: true)
-        let orientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            app.frame.width > app.frame.height
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [orientation], timeout: 10), .completed)
-        let player = app.scrollViews["now-playing-scroll"]
-        XCTAssertTrue(player.isHittable)
-        swipePanel(player, direction: 1)
-        XCTAssertTrue(player.isHittable)
-        XCTAssertFalse(app.buttons["programme-page"].exists, "Program is unavailable in landscape")
-        XCTAssertFalse(app.scrollViews["programme-scroll"].exists)
-        XCTAssertTrue(app.staticTexts["station-header"].label.contains("KUSC"))
-        attach(app, named: "landscape-artwork-player")
+        for state in ["live", "dark"] {
+            let app = launchFixture(state, landscape: true)
+            let orientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                app.frame.width > app.frame.height
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [orientation], timeout: 10), .completed)
+            let player = app.scrollViews["now-playing-scroll"]
+            let artwork = app.descendants(matching: .any).matching(identifier: "player-artwork").firstMatch
+            let play = app.buttons["Pause"]
+            XCTAssertTrue(player.isHittable)
+            XCTAssertGreaterThan(artwork.frame.width, app.frame.height * 0.55,
+                                 "Landscape artwork must retain its historical large size")
+            XCTAssertEqual(artwork.frame.width, artwork.frame.height, accuracy: 1)
+            XCTAssertGreaterThan(player.frame.minX, artwork.frame.maxX)
+            for button in [app.buttons["Jump to live"], play, app.buttons["More controls"]] {
+                XCTAssertTrue(button.isHittable)
+                XCTAssertGreaterThanOrEqual(button.frame.minX, player.frame.minX - 1,
+                                            "Transport belongs in the right column, below the details")
+                XCTAssertGreaterThanOrEqual(button.frame.minY, player.frame.maxY - 1)
+            }
+            XCTAssertEqual(play.frame.midX, player.frame.midX, accuracy: 1)
+            swipePanel(player, direction: 1)
+            XCTAssertTrue(player.isHittable)
+            XCTAssertFalse(app.buttons["programme-page"].exists, "Program is unavailable in landscape")
+            XCTAssertFalse(app.scrollViews["programme-scroll"].exists)
+            XCTAssertTrue(app.staticTexts["station-header"].label.contains("KUSC"))
+            attach(app, named: "restored-landscape-" + state)
+            app.terminate()
+        }
     }
 
     @MainActor

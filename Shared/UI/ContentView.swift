@@ -46,13 +46,13 @@ struct ContentView: View {
                     .modifier(PlayerRefreshModifier())
                 } else {
                     panels(size: geometry.size)
-                    VStack(spacing: 0) {
-                        anchoredControls(landscape: landscape, height: geometry.size.height)
-                        if !landscape { pageIndicators(width: geometry.size.width) }
+                    if !landscape {
+                        VStack(spacing: 0) {
+                            anchoredControls(landscape: false, height: geometry.size.height)
+                            pageIndicators(width: geometry.size.width)
+                        }
+                        .scrollDisabled(isSwipingPanel)
                     }
-                    .frame(maxWidth: landscape ? 560 : .infinity)
-                    .padding(.horizontal, landscape ? 32 : 0)
-                    .scrollDisabled(isSwipingPanel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -149,7 +149,7 @@ struct ContentView: View {
             if size.width > size.height {
                 // Keep the established artwork-left / details-right layout.
                 // Program and its recognizer do not exist in landscape.
-                landscapePlayer(width: size.width, height: viewport.size.height)
+                landscapePlayer(size: size)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.philharmonicBackground)
             } else {
@@ -215,7 +215,7 @@ struct ContentView: View {
             if programme {
                 ProgrammeView()
             } else if size.width > size.height {
-                landscapePlayer(width: size.width, height: height)
+                landscapePlayer(size: size)
             } else {
                 portrait(size: size)
             }
@@ -241,15 +241,21 @@ struct ContentView: View {
         .modifier(PlayerRefreshModifier())
     }
 
-    private func landscapePlayer(width: CGFloat, height: CGFloat) -> some View {
-        let artworkSide = max(0, min(width * 0.34, height - 16))
+    private func landscapePlayer(size: CGSize) -> some View {
+        // Restore the landscape proportions used from September 20 to October 22.
+        let artworkSide = max(96, min(size.width * 0.34, size.height - 84))
         return HStack(alignment: .center, spacing: 32) {
             AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
-            ScrollView {
-                NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
+            VStack(spacing: 0) {
+                ScrollView {
+                    NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
+                }
+                .accessibilityIdentifier("now-playing-scroll")
+                .modifier(PlayerRefreshModifier())
+                anchoredControls(landscape: true, height: size.height)
+                // Keep the historical bottom spacing without landscape page controls.
+                Color.clear.frame(height: 44).accessibilityHidden(true)
             }
-            .accessibilityIdentifier("now-playing-scroll")
-            .modifier(PlayerRefreshModifier())
         }
         .padding(.horizontal, 32).padding(.bottom, 8)
     }

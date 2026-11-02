@@ -38,16 +38,22 @@ PY
 python3 scripts/generate_project.py
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
+checks=(
+    "-only-testing:PhilharmonicTests/PanelSwipeTests"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testProgramStaysPortraitUntilReturningToPlayer"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testHeaderRollPartialRevealCapture"
+    "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testPullToRefreshBothPanelsPreservesPlaybackAndHorizontalPaging"
+)
+if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" = true ]; then
+    checks=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging)
+fi
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Swipe.xcresult" -parallel-testing-enabled NO \
-    -only-testing:PhilharmonicTests/PanelSwipeTests \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testProgramStaysPortraitUntilReturningToPlayer \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testHeaderRollPartialRevealCapture \
-    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testPullToRefreshBothPanelsPreservesPlaybackAndHorizontalPaging \
+    "${checks[@]}" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
 
