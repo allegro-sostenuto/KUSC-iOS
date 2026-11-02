@@ -71,6 +71,9 @@ station parameter continue to act on the current selection.
 
 ## Verification
 
+The completed build, test results, native evidence and IPA checksums are in the
+[2 November validation record](ios_v2_validation_2026-11-02.md).
+
 Portable source checks are distinct from Xcode compilation. GitHub Actions
 builds the iOS 16 and iOS 26 device targets with their widget extensions, runs
 core and hosted audio/schedule/switch tests, and captures native portrait and

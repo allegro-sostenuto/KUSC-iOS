@@ -4,6 +4,11 @@ Checked 2 November 2026. `Shared/Core/StationCatalog.swift` is the implemented i
 
 The following short network probes used FFmpeg `ffprobe` against broadcaster/CDN URLs. Bitrates are the probe's stream estimates, not listening-quality scores or a long-term measurement. Every successful probe found two audio channels. These Windows network/decoder probes do **not** establish native AVPlayer playback, audible station identity, physical iPhone operation, or delivery reliability in Shanghai. Native/device acceptance is recorded separately.
 
+All eleven configured sources subsequently passed native AVPlayer readiness and
+decoder-clock advancement on the disposable iPhone simulator in run 61. See the
+[validation record](ios_v2_validation_2026-11-02.md) for exact scope, the observed
+single-attempt Orpheus startup failure in an earlier run, and device limitations.
+
 | Entry | Configured source | Probe result | Metadata implemented |
 |---|---|---|---|
 | KUSC | [Broadcaster AAC HLS redirect](https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8) | AAC, 44.1 kHz, about 98 kbps; existing advertised 96 kbps service | Existing KUSC now/combined feeds, work, performers, artwork and programme data |
