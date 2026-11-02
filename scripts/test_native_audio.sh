@@ -50,10 +50,19 @@ tests=(
 if [ "${PHILHARMONIC_STATION_SOURCES_ONLY:-0}" = 1 ]; then
     tests=(-only-testing:PhilharmonicTests/StationSourcePlaybackTests)
 fi
+set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Audio.xcresult" -parallel-testing-enabled NO \
     "${tests[@]}" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
-xcrun xcresulttool export attachments --path "$output/Audio.xcresult" --output-path "$output/attachments"
+test_status=${PIPESTATUS[0]}
+set -e
+
+export_status=0
+if [ -d "$output/Audio.xcresult" ]; then
+    xcrun xcresulttool export attachments --path "$output/Audio.xcresult" --output-path "$output/attachments" || export_status=$?
+fi
+if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+exit "$export_status"

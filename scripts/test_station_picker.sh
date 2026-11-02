@@ -38,11 +38,19 @@ PY
 python3 scripts/generate_project.py
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
+set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Stations.xcresult" -parallel-testing-enabled NO \
     -only-testing:PhilharmonicUITests/StationPickerUITests \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
+test_status=${PIPESTATUS[0]}
+set -e
 
-xcrun xcresulttool export attachments --path "$output/Stations.xcresult" --output-path "$output/attachments"
+export_status=0
+if [ -d "$output/Stations.xcresult" ]; then
+    xcrun xcresulttool export attachments --path "$output/Stations.xcresult" --output-path "$output/attachments" || export_status=$?
+fi
+if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+exit "$export_status"

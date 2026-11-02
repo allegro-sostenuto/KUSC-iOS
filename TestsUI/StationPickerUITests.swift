@@ -93,7 +93,7 @@ final class StationPickerUITests: XCTestCase {
         app.buttons["choose-station"].tap()
         XCTAssertTrue(app.buttons["stations-mode-list"].isSelected)
         XCTAssertLessThan(swiss.frame.minY, kusc.frame.minY)
-        XCTAssertTrue(app.buttons["Play"].exists == false, "The picker is a dedicated page")
+        XCTAssertFalse(app.buttons["Play"].isHittable, "The picker covers the player controls")
     }
 
     @MainActor
@@ -101,9 +101,10 @@ final class StationPickerUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         app.buttons["choose-station"].tap()
+        app.buttons["stations-reorder"].tap()
         let kusc = app.buttons["station-kusc"]
         let swiss = app.buttons["station-radio-swiss-classic"]
-        kusc.press(forDuration: 0.8, thenDragTo: swiss)
+        kusc.press(forDuration: 1.2, thenDragTo: swiss, withVelocity: .slow, thenHoldForDuration: 0.3)
         let gridChanged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             swiss.frame.minX < kusc.frame.minX
         }, object: nil)
@@ -111,7 +112,7 @@ final class StationPickerUITests: XCTestCase {
         XCTAssertTrue(kusc.isSelected, "Dragging changes order without changing the selected station")
         capture("stations-grid-drag-reordered")
         app.buttons["stations-mode-list"].tap()
-        swiss.press(forDuration: 0.8, thenDragTo: kusc)
+        swiss.press(forDuration: 1.2, thenDragTo: kusc, withVelocity: .slow, thenHoldForDuration: 0.3)
         let listChanged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             kusc.frame.minY < swiss.frame.minY
         }, object: nil)

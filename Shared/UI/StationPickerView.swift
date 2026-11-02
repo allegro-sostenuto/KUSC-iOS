@@ -9,6 +9,7 @@ struct StationPickerView: View {
     @ScaledMetric(relativeTo: .subheadline) private var stationTextScale: CGFloat = 15
     @State private var reordering = false
     @State private var draggedID: String?
+    @State private var lastReorderedTargetID: String?
 
     private var grid: Bool { model.stationPreferences.displayMode == .grid }
 
@@ -144,7 +145,6 @@ struct StationPickerView: View {
                     }
                     .padding(.horizontal, 20).padding(.vertical, 12)
                     .frame(width: pageWidth, height: size.height)
-                    .accessibilityIdentifier("stations-page-\(page)")
                 }
             }
         }.accessibilityIdentifier("stations-horizontal-scroll")
@@ -166,6 +166,11 @@ struct StationPickerView: View {
             .accessibilityIdentifier("station-\(station.id)")
             .accessibilityAction(named: Text("Move earlier")) { model.moveStation(station.id, by: -1) }
             .accessibilityAction(named: Text("Move later")) { model.moveStation(station.id, by: 1) }
+            .onDrag {
+                draggedID = station.id
+                lastReorderedTargetID = nil
+                return NSItemProvider(object: ("philharmonic-station:" + station.id) as NSString)
+            }
             if reordering {
                 Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
                 HStack(spacing: 0) {
@@ -178,11 +183,8 @@ struct StationPickerView: View {
         .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
                                                                 lineWidth: selected ? 1.5 : 0.75))
-        .onDrag {
-            draggedID = station.id
-            return NSItemProvider(object: ("philharmonic-station:" + station.id) as NSString)
-        }
-        .onDrop(of: [UTType.plainText], delegate: StationReorderDrop(targetID: station.id, draggedID: $draggedID) { id, target in
+        .onDrop(of: [UTType.plainText], delegate: StationReorderDrop(targetID: station.id, draggedID: $draggedID,
+                                                                 lastTargetID: $lastReorderedTargetID) { id, target in
             let order = model.orderedStations
             guard let source = order.firstIndex(where: { $0.id == id }),
                   let destination = order.firstIndex(where: { $0.id == target }) else { return }
@@ -252,13 +254,26 @@ private struct StationLogo: View {
 private struct StationReorderDrop: DropDelegate {
     let targetID: String
     @Binding var draggedID: String?
+    @Binding var lastTargetID: String?
     let move: (String, String) -> Void
 
-    func validateDrop(info: DropInfo) -> Bool { draggedID != nil }
+    func validateDrop(info: DropInfo) -> Bool {
+        draggedID != nil && info.hasItemsConforming(to: [UTType.plainText.identifier])
+    }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
     func dropEntered(info: DropInfo) {
-        guard let draggedID, draggedID != targetID else { return }
+        guard let draggedID, draggedID != targetID, lastTargetID != targetID else { return }
+        lastTargetID = targetID
         move(draggedID, targetID)
     }
-    func performDrop(info: DropInfo) -> Bool { draggedID = nil; return true }
+    func performDrop(info: DropInfo) -> Bool {
+        let source = draggedID
+        let reorderedOnEntry = lastTargetID != nil
+        draggedID = nil; lastTargetID = nil
+        guard let source else { return false }
+        // A final drop still works if the native interaction omitted hover
+        // entry. Once hover already reordered, a second move would swap back.
+        if !reorderedOnEntry && source != targetID { move(source, targetID) }
+        return true
+    }
 }
