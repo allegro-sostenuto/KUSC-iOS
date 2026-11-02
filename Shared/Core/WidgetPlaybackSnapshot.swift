@@ -65,7 +65,7 @@ struct WidgetSnapshotStore {
 
     #if os(iOS)
     static var shared: Self? {
-        guard let configured = Bundle.main.object(forInfoDictionaryKey: "KUSCAppGroup") as? String else { return nil }
+        guard let configured = Bundle.main.object(forInfoDictionaryKey: "PhilharmonicAppGroup") as? String else { return nil }
         let resigned = Bundle.main.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] ?? []
         for identifier in WidgetPlaybackSnapshot.groupIdentifiers(configured: configured, resigned: resigned) {
             if let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {

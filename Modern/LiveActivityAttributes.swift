@@ -1,7 +1,7 @@
 import ActivityKit
 import Foundation
 
-struct KUSCActivityAttributes: ActivityAttributes {
+struct PhilharmonicActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var title: String
         var composer: String

@@ -122,7 +122,7 @@ import UIKit
     #if DEBUG
     private var scheduleDiagnostics: [String] = []
     private var lastDiagnosticGain: Float = -1
-    private var isUIFixture = ProcessInfo.processInfo.environment["KUSC_UI_STATE"] != nil
+    private var isUIFixture = ProcessInfo.processInfo.environment["PHILHARMONIC_UI_STATE"] != nil
     private var fixtureRefreshCount = 0
     private var boundaryGainTrace: [Float]?
     private var audioRecoveryTestConnections: Int?
@@ -164,7 +164,7 @@ import UIKit
             scheduleRequest = migrated
             persistSchedule()
             NotificationCoordinator.shared.cancel(requestID: migrated.id)
-            NotificationCoordinator.shared.replaceFallback(migrated, body: "Tap to start KUSC live.")
+            NotificationCoordinator.shared.replaceFallback(migrated, body: "Tap to start Philharmonic live.")
         }
         UserDefaults.standard.removeObject(forKey: "scheduledAt")
         refreshCurrentOutput()
@@ -194,7 +194,7 @@ import UIKit
     }
 
     func handleWidgetURL(_ url: URL) {
-        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "KUSCURLScheme") as? String,
+        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "PhilharmonicURLScheme") as? String,
               let playing = WidgetPlaybackLink.action(for: url, scheme: scheme) else { return }
         setPlaybackFromWidget(playing)
     }
@@ -211,7 +211,7 @@ import UIKit
         let version = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "unknown"
         let build = (bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "unknown"
         let routeTypes = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.sorted().joined(separator: ",")
-        diagnostics.start(context: "KUSC \(version) build \(build); \(UIDevice.current.model); iOS \(UIDevice.current.systemVersion); retention=\(settings.retentionMinutes); resumeWherePaused=\(settings.resumeWherePaused); playbackRequested=\(wantsPlayback); outputTypes=[\(routeTypes)]")
+        diagnostics.start(context: "Philharmonic \(version) build \(build); \(UIDevice.current.model); iOS \(UIDevice.current.systemVersion); retention=\(settings.retentionMinutes); resumeWherePaused=\(settings.resumeWherePaused); playbackRequested=\(wantsPlayback); outputTypes=[\(routeTypes)]")
         engine.recordDiagnosticSnapshot()
     }
 
@@ -717,7 +717,7 @@ import UIKit
                 if protectedSchedule {
                     waitForScheduledAudio("Waiting for the station; this start remains armed.", retryAfter: 15)
                 }
-                else if scheduleOwnsPlayback { scheduleFallback("The station could not connect. Tap to try KUSC again.") }
+                else if scheduleOwnsPlayback { scheduleFallback("The station could not connect. Tap to try Philharmonic again.") }
                 else { stopEverything(reason: .idle) }
             }
             else if now >= nextRetry {
@@ -883,7 +883,7 @@ import UIKit
                 state = .scheduledStandby; setSchedulePhase(.standby)
             } catch {
                 if request.survivesInterruption { waitForScheduledAudio("Waiting for audio; scheduled start remains armed.") }
-                else { scheduleFallback("Automatic standby is unavailable. Tap to start KUSC live.") }
+                else { scheduleFallback("Automatic standby is unavailable. Tap to start Philharmonic live.") }
             }
         }
         if scheduleRequest != nil, !notificationOnly {
@@ -988,7 +988,7 @@ import UIKit
                                  mixWithOthers: preparingSilently) }
         catch {
             if request.survivesInterruption { waitForScheduledAudio("Waiting for iPhone audio; scheduled start remains armed.") }
-            else { scheduleFallback("KUSC could not activate audio. Tap to try again.") }
+            else { scheduleFallback("Philharmonic could not activate audio. Tap to try again.") }
             return
         }
         guard validateScheduledRoute(request) else { return }
@@ -1286,11 +1286,11 @@ import UIKit
     private func recordScheduleDiagnostic(_ event: String) {
         diagnostics.record("schedule id=\(scheduleRequest?.id.uuidString ?? "none") phase=\(schedulePhase?.rawValue ?? "none") gain=\(engine.volume) \(event)")
         #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-KUSCAudioDiagnostics") else { return }
+        guard ProcessInfo.processInfo.arguments.contains("-PhilharmonicAudioDiagnostics") else { return }
         let entry = "schedule=\(scheduleRequest?.id.uuidString ?? "none") uptime=\(ProcessInfo.processInfo.systemUptime) wall=\(Date().timeIntervalSince1970) target=\(scheduledAt?.timeIntervalSince1970 ?? 0) route=\(currentOutputRoute.ports.map { $0.type + ":" + $0.uid }.joined(separator: ",")) \(event)"
         scheduleDiagnostics.append(entry)
         if scheduleDiagnostics.count > 512 { scheduleDiagnostics.removeFirst(scheduleDiagnostics.count - 512) }
-        NSLog("KUSC schedule %@", entry)
+        NSLog("Philharmonic schedule %@", entry)
         #endif
     }
 
@@ -1391,7 +1391,7 @@ import UIKit
         liveActivity.update(item: currentItem, artwork: artwork, playing: isAudible,
                             requested: isPlaying, status: surfaceStatus, visible: hasStartedEngine)
         #endif
-        NotificationCenter.default.post(name: .kuscPlaybackChanged, object: self)
+        NotificationCenter.default.post(name: .philharmonicPlaybackChanged, object: self)
     }
 
     private func refreshHomeWidgets() {
@@ -1424,7 +1424,7 @@ import UIKit
         let audio = AVAudioSession.sharedInstance()
         if useSpeaker {
             // Public speaker override requires playAndRecord. No input tap,
-            // recorder, or microphone data is used by KUSC.
+            // recorder, or microphone data is used by Philharmonic.
             if audio.category != .playAndRecord {
                 try audio.setCategory(.playAndRecord, mode: .default, policy: .default, options: [.defaultToSpeaker])
             }
@@ -1617,4 +1617,4 @@ import UIKit
         }
     }
 }
-extension Notification.Name { static let kuscPlaybackChanged = Notification.Name("KUSCPlaybackChanged") }
+extension Notification.Name { static let philharmonicPlaybackChanged = Notification.Name("PhilharmonicPlaybackChanged") }

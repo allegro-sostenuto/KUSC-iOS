@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-@main struct KUSCApp: App {
-    @UIApplicationDelegateAdaptor(KUSCAppDelegate.self) private var delegate
+@main struct PhilharmonicApp: App {
+    @UIApplicationDelegateAdaptor(PhilharmonicAppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
@@ -19,7 +19,7 @@ import UIKit
                 #if DEBUG
                 .modifier(UIFixtureTextSize())
                 #endif
-                .tint(Color.kuscRed)
+                .tint(Color.philharmonicRed)
                 .task {
                     #if DEBUG
                     if UIFixture.configure(model: model) { return }
@@ -31,7 +31,7 @@ import UIKit
         }
     }
 }
-final class KUSCAppDelegate: NSObject, UIApplicationDelegate {
+final class PhilharmonicAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NotificationCoordinator.shared.install()
         return true

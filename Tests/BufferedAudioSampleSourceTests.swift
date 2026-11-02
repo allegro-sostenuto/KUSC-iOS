@@ -1,10 +1,10 @@
 // Native media tests use locally encoded AAC, never station audio or networking.
-#if DEBUG && canImport(AVFoundation) && !canImport(KUSCCore)
+#if DEBUG && canImport(AVFoundation) && !canImport(PhilharmonicCore)
 import AVFoundation
 import CoreMedia
 import Foundation
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 enum BufferedAudioTestFixture {
     struct Files {
@@ -81,7 +81,7 @@ enum BufferedAudioTestFixture {
             let status = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(buffer,
                 packetDescriptionsPointerOut: &descriptions, sizeOut: &size)
             guard status == noErr, count > 0 else {
-                throw NSError(domain: "KUSC.Tests.CompressedPackets", code: Int(status), userInfo: [
+                throw NSError(domain: "Philharmonic.Tests.CompressedPackets", code: Int(status), userInfo: [
                     NSLocalizedDescriptionKey: "Packet description lookup failed: status=\(status) samples=\(count) blockBytes=\(blockSize) sampleBytes=\(CMSampleBufferGetTotalSampleSize(buffer))"
                 ])
             }

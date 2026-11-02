@@ -3,29 +3,35 @@
 Optional Python packages: tree-sitter, tree-sitter-swift, Pillow.
 """
 from pathlib import Path
-import json, plistlib, re, sys, xml.etree.ElementTree as ET
+import json, os, plistlib, re, sys, xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parents[1]
 errors=[]
+# Check project sources, not archived builds or downloaded Android/Gradle SDKs.
+excluded={'.git','.build','DerivedData','artifacts','IPA','.gradle','.tools','build','__pycache__'}
+source_files=[]
+for directory, folders, names in os.walk(ROOT):
+    folders[:]=[name for name in folders if name not in excluded]
+    source_files.extend(Path(directory)/name for name in names)
 for p in (ROOT/'Configuration').iterdir():
     if p.suffix in {'.plist','.entitlements','.xcprivacy'}:
         try: plistlib.loads(p.read_bytes())
         except Exception as e: errors.append(f'{p}: {e}')
-for p in (ROOT/'KUSC.xcodeproj').rglob('*'):
+for p in (ROOT/'Philharmonic.xcodeproj').rglob('*'):
     if p.suffix=='.xcscheme' or p.name=='contents.xcworkspacedata':
         try: ET.parse(p)
         except Exception as e: errors.append(f'{p}: {e}')
-project=(ROOT/'KUSC.xcodeproj/project.pbxproj').read_text()
+project=(ROOT/'Philharmonic.xcodeproj/project.pbxproj').read_text()
 for path in re.findall(r'"path" = "([^"]+)";',project):
     if path.endswith(('.app','.appex','.xctest')): continue
     if not (ROOT/path).exists(): errors.append(f'Missing project file {path}')
-for p in ROOT.rglob('*.json'):
+for p in (p for p in source_files if p.suffix=='.json'):
     try: json.loads(p.read_text())
     except Exception as e: errors.append(f'{p}: {e}')
 try:
     from tree_sitter import Language, Parser
     import tree_sitter_swift
     parser=Parser(Language(tree_sitter_swift.language()))
-    files=list(ROOT.rglob('*.swift'))
+    files=[p for p in source_files if p.suffix=='.swift']
     for p in files:
         data=p.read_bytes();tree=parser.parse(data)
         pending=[tree.root_node]

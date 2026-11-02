@@ -2,7 +2,7 @@
 
 ## Verified build 19
 
-Source `7a9c7ef9eb0881c8e8ada100db3c395882c0fbb7` passed all five jobs in [Actions run 35586611350](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35586611350): both Release device builds, all 105 portable tests, all 24 focused native audio tests, and all 140 hosted plus six UI tests on each simulator profile. The original four-second cached-refill fixture and the exact-file-boundary paused-seek/resume regression both pass. Packet tests confirm original/whole/split payload equality and byte/timing preservation when grouping seek preroll. Xcode is 26.6 (17F113), device SDK and both simulator runtimes are iOS 26.5; this is not an iOS 16 runtime test.
+Source `7a9c7ef9eb0881c8e8ada100db3c395882c0fbb7` passed all five jobs in [Actions run 35586611350](https://github.com/allegro-sostenuto/philharmonic/actions/runs/35586611350): both Release device builds, all 105 portable tests, all 24 focused native audio tests, and all 140 hosted plus six UI tests on each simulator profile. The original four-second cached-refill fixture and the exact-file-boundary paused-seek/resume regression both pass. Packet tests confirm original/whole/split payload equality and byte/timing preservation when grouping seek preroll. Xcode is 26.6 (17F113), device SDK and both simulator runtimes are iOS 26.5; this is not an iOS 16 runtime test.
 
 Both downloaded artifact ZIPs match GitHub's SHA-256 digests. Both extracted IPAs independently pass device-binary validation; their embedded build number is 19, source records match the commit above, and the iPhone 17 app and Live Activity extension have matching versions. Local evidence is under `artifacts/ci-35586611350`. Physical listening on the owner's iPhone 17 remains necessary to confirm that the reported Bluetooth/live-stream dips are gone.
 
@@ -10,8 +10,8 @@ All 29 native capture hashes per profile match their manifests and expected orie
 
 | Package | IPA SHA-256 |
 |---|---|
-| KUSC-17-unsigned.ipa | `30e3c54e83657c96588aa8d96731418f6ae511d9983cc4a19d713df49904a664` |
-| KUSC-SE-unsigned.ipa | `a0019c07dddb35f11af448d6910898af86d1645b8b1f35347247c0343a2eadd5` |
+| Philharmonic-17-unsigned.ipa | `30e3c54e83657c96588aa8d96731418f6ae511d9983cc4a19d713df49904a664` |
+| Philharmonic-SE-unsigned.ipa | `a0019c07dddb35f11af448d6910898af86d1645b8b1f35347247c0343a2eadd5` |
 
 ## Device evidence
 
@@ -43,7 +43,7 @@ Build 15 passed all six compressed-source tests and all seven renderer tests, in
 
 ## Exact-boundary seek diagnosis
 
-Source `8b7732f3a01d293d75fd1643b88ee39342ee5dad` ran in [Actions run 35582385059](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35582385059). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. The larger refill fixture passed, but the new short-tail renderer regression failed. Build 16 is not an accepted installation candidate.
+Source `8b7732f3a01d293d75fd1643b88ee39342ee5dad` ran in [Actions run 35582385059](https://github.com/allegro-sostenuto/philharmonic/actions/runs/35582385059). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. The larger refill fixture passed, but the new short-tail renderer regression failed. Build 16 is not an accepted installation candidate.
 
 The trace identified a real exact-boundary seek issue: the paused renderer reported sufficient decoded media while its last enqueued timestamp equalled the seek target and the successor's two batches remained pending. Preroll before the target filled the output queue. Clip length alone was not the cause. The follow-up marked seek-only preroll with Apple's [TrimDurationAtStart attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_trimdurationatstart), which permits decoding packets for context while discarding their output. Full buffers before the target produce no output; a buffer spanning the target discards only its earlier portion. Ordinary playback gets no trim. The original short engine fixture was restored, alongside the short-tail arrival regression.
 
@@ -51,7 +51,7 @@ Build 17 caught a compile-only API constant error: the legacy `CMAttachmentMode`
 
 ## Build 18 verification
 
-Source `c914ecc9b9d41f849b6ad7fdfc32942eeb382a16` ran in [Actions run 35584810875](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/35584810875). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. All seven source tests passed, including the trim semantics, but both exact-boundary paused-seek cases remained blocked with the same trace. Build 18 is not an accepted installation candidate.
+Source `c914ecc9b9d41f849b6ad7fdfc32942eeb382a16` ran in [Actions run 35584810875](https://github.com/allegro-sostenuto/philharmonic/actions/runs/35584810875). Both Release device builds and all 105 portable tests passed under Xcode 26.6 (17F113), iPhoneOS SDK 26.5. All seven source tests passed, including the trim semantics, but both exact-boundary paused-seek cases remained blocked with the same trace. Build 18 is not an accepted installation candidate.
 
 Trim metadata alone did not make the paused native renderer accept the next buffer. The final implementation holds the bounded preroll until the first batch extending past the target is available, then concatenates those exact compressed packets into one initial sample buffer before applying the seek trim. All later ordinary arrivals retain their normal packaging. Source tests compare every packet and timing entry after concatenation, including shared-backing suffix buffers. The renderer test requires a confirmed paused cursor, then arrival and playback across the successor without a reset; it no longer expects all future media to enter a backpressured paused queue. Build 19 verifies this correction.
 

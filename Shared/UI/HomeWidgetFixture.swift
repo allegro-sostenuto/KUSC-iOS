@@ -12,7 +12,7 @@ struct HomeWidgetFixture: View {
         if state.contains("everything") { return .everything }
         return .playback
     }
-    private var dark: Bool { ProcessInfo.processInfo.environment["KUSC_UI_DARK"] == "1" }
+    private var dark: Bool { ProcessInfo.processInfo.environment["PHILHARMONIC_UI_DARK"] == "1" }
     private var snapshot: WidgetPlaybackSnapshot {
         let artwork: Data? = state.contains("empty") ? nil : UIGraphicsImageRenderer(size: CGSize(width: 240, height: 240)).image { _ in
             UIColor(red: 0.48, green: 0.12, blue: 0.19, alpha: 1).setFill()

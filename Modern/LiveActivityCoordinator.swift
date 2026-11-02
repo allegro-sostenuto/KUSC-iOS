@@ -2,8 +2,8 @@ import ActivityKit
 import UIKit
 
 @MainActor final class LiveActivityCoordinator {
-    private var activity: Activity<KUSCActivityAttributes>?
-    private var lastState: KUSCActivityAttributes.ContentState?
+    private var activity: Activity<PhilharmonicActivityAttributes>?
+    private var lastState: PhilharmonicActivityAttributes.ContentState?
     private var task: Task<Void, Never>?
     private var thumbnailSource: UIImage?
     private var cachedThumbnail: Data?
@@ -11,8 +11,8 @@ import UIKit
     init() {
         // Reuse one system activity after process death, without restoring any audio
         // cursor. Its content is replaced by this launch's live playback state.
-        activity = Activity<KUSCActivityAttributes>.activities.first
-        for duplicate in Activity<KUSCActivityAttributes>.activities.dropFirst() {
+        activity = Activity<PhilharmonicActivityAttributes>.activities.first
+        for duplicate in Activity<PhilharmonicActivityAttributes>.activities.dropFirst() {
             Task { await duplicate.end(nil, dismissalPolicy: .immediate) }
         }
     }
@@ -26,7 +26,7 @@ import UIKit
             return
         }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        var state = KUSCActivityAttributes.ContentState(title: String((item?.title ?? "KUSC FM 91.5").prefix(180)),
+        var state = PhilharmonicActivityAttributes.ContentState(title: String((item?.title ?? "KUSC FM 91.5").prefix(180)),
             composer: String((item?.composer ?? "Classical California").prefix(100)),
             playing: playing, artwork: thumbnail(artwork), playbackRequested: requested, status: status)
         if let activity, activity.activityState == .dismissed { return }
@@ -46,7 +46,7 @@ import UIKit
             // The OS may refuse a request made while backgrounded, or remove the activity
             // at its maximum lifetime. The next foreground/state change can request again.
             guard UIApplication.shared.applicationState == .active else { lastState = nil; return }
-            do { activity = try Activity.request(attributes: KUSCActivityAttributes(), content: content, pushType: nil) }
+            do { activity = try Activity.request(attributes: PhilharmonicActivityAttributes(), content: content, pushType: nil) }
             catch { lastState = nil }
         }
     }

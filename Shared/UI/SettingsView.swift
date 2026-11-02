@@ -58,13 +58,18 @@ struct SettingsView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(cardBackground)
                 }
+                Section("About") {
+                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"))")
+                        .listRowBackground(cardBackground)
+                }
+
             }
             .scrollContentBackground(.hidden)
-            .background(Color.kuscBackground)
-            .foregroundStyle(Color.kuscInk)
+            .background(Color.philharmonicBackground)
+            .foregroundStyle(Color.philharmonicInk)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(Color.kuscBackground, for: .navigationBar)
+            .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
             .toolbar {
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .confirmationAction) {
@@ -78,21 +83,21 @@ struct SettingsView: View {
                 }
             }
         }
-        .tint(.kuscRed)
-        .kuscSheetBackground()
+        .tint(.philharmonicRed)
+        .philharmonicSheetBackground()
     }
 
     private var divider: some View {
-        Rectangle().fill(Color.kuscSeparator).frame(height: 0.5)
+        Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
             .accessibilityHidden(true)
     }
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Color.kuscSurface)
+            .fill(Color.philharmonicSurface)
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
             }
     }
 

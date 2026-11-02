@@ -3,17 +3,17 @@ import PackageDescription
 
 // Core policy tests also run without Xcode or an iOS SDK: swift test
 let package = Package(
-    name: "KUSCCore",
+    name: "PhilharmonicCore",
     platforms: [.macOS(.v12), .iOS(.v16)],
-    products: [.library(name: "KUSCCore", targets: ["KUSCCore"])],
+    products: [.library(name: "PhilharmonicCore", targets: ["PhilharmonicCore"])],
     targets: [
-        .target(name: "KUSCCore", path: "Shared",
-                exclude: ["AppSettings.swift", "AppModel.swift", "KUSCApp.swift", "StationConfiguration.swift", "Metadata/MetadataService.swift",
+        .target(name: "PhilharmonicCore", path: "Shared",
+                exclude: ["AppSettings.swift", "AppModel.swift", "PhilharmonicApp.swift", "StationConfiguration.swift", "Metadata/MetadataService.swift",
                           "System", "Timers", "UI", "Audio/RollingAudioEngine.swift", "Audio/HLSIngestor.swift", "Audio/PlaybackDiagnostics.swift",
                           "Audio/BufferedAudioSampleSource.swift", "Audio/BufferedAudioRenderer.swift"],
                 sources: ["Core", "Audio/ADTSParser.swift", "Audio/HLSManifest.swift",
                           "Metadata/StationMetadataParser.swift"]),
-        .testTarget(name: "KUSCCoreTests", dependencies: ["KUSCCore"], path: "Tests",
+        .testTarget(name: "PhilharmonicCoreTests", dependencies: ["PhilharmonicCore"], path: "Tests",
                     resources: [.copy("Fixtures")])
     ]
 )

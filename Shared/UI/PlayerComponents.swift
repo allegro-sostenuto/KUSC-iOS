@@ -2,11 +2,11 @@ import AVKit
 import SwiftUI
 
 extension Color {
-    static let kuscBackground = adaptive(light: 0xFAF9F7, dark: 0x000000)
-    static let kuscSurface = adaptive(light: 0xFFFFFF, dark: 0x000000)
-    static let kuscInk = adaptive(light: 0x171719, dark: 0xF4F2EF)
-    static let kuscRed = adaptive(light: 0xAC1B31, dark: 0xF26A7C)
-    static let kuscSeparator = Color(uiColor: UIColor { traits in
+    static let philharmonicBackground = adaptive(light: 0xFAF9F7, dark: 0x000000)
+    static let philharmonicSurface = adaptive(light: 0xFFFFFF, dark: 0x000000)
+    static let philharmonicInk = adaptive(light: 0x171719, dark: 0xF4F2EF)
+    static let philharmonicRed = adaptive(light: 0xAC1B31, dark: 0xF26A7C)
+    static let philharmonicSeparator = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.28) : UIColor.black.withAlphaComponent(0.12)
     })
 
@@ -21,30 +21,30 @@ extension Color {
 }
 
 extension View {
-    func kuscControlSurface<S: InsettableShape>(_ shape: S) -> some View {
-        background(Color.kuscSurface, in: shape)
-            .overlay(shape.strokeBorder(Color.kuscSeparator, lineWidth: 0.75))
+    func philharmonicControlSurface<S: InsettableShape>(_ shape: S) -> some View {
+        background(Color.philharmonicSurface, in: shape)
+            .overlay(shape.strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75))
     }
 
-    @ViewBuilder func kuscSheetBackground() -> some View {
+    @ViewBuilder func philharmonicSheetBackground() -> some View {
         if #available(iOS 16.4, *) {
-            self.presentationBackground(Color.kuscBackground)
+            self.presentationBackground(Color.philharmonicBackground)
         } else {
-            self.background(Color.kuscBackground.ignoresSafeArea())
+            self.background(Color.philharmonicBackground.ignoresSafeArea())
         }
     }
 }
 
-struct KUSCPrimaryButtonStyle: ButtonStyle {
+struct PhilharmonicPrimaryButtonStyle: ButtonStyle {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
             .frame(maxWidth: .infinity, minHeight: 52)
-            .foregroundStyle(colorScheme == .dark ? Color.kuscRed : .white)
-            .background(colorScheme == .dark ? Color.black : Color.kuscRed, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.kuscRed, lineWidth: 1))
+            .foregroundStyle(colorScheme == .dark ? Color.philharmonicRed : .white)
+            .background(colorScheme == .dark ? Color.black : Color.philharmonicRed, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.philharmonicRed, lineWidth: 1))
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }
@@ -54,8 +54,8 @@ struct SheetCloseButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark").font(.system(size: 16))
-                .foregroundStyle(Color.kuscInk)
-                .frame(width: 44, height: 44).kuscControlSurface(Circle())
+                .foregroundStyle(Color.philharmonicInk)
+                .frame(width: 44, height: 44).philharmonicControlSurface(Circle())
         }
         .buttonStyle(.plain).accessibilityLabel("Close")
     }
@@ -70,7 +70,7 @@ struct AlbumArtwork: View {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
                 ZStack {
-                    Color.kuscSurface
+                    Color.philharmonicSurface
                     VStack(spacing: 14) {
                         Image(systemName: "music.note").font(.system(size: 48, weight: .ultraLight))
                         if !dynamicTypeSize.isAccessibilitySize {
@@ -81,7 +81,7 @@ struct AlbumArtwork: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.kuscSeparator, lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.5))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(image == nil ? "Album artwork unavailable" : "Album artwork")
         .accessibilityIdentifier("player-artwork")
@@ -168,9 +168,9 @@ struct PlayerControls: View {
                 .font(.system(size: minimalist ? 40 : 28, weight: .semibold))
                 .offset(x: model.isPlaying ? 0 : 2)
                 .frame(width: playSize, height: playSize)
-                .foregroundStyle(colorScheme == .dark ? Color.kuscInk : Color.white)
-                .background(colorScheme == .dark ? Color.black : Color.kuscInk, in: Circle())
-                .overlay(Circle().strokeBorder(Color.kuscInk.opacity(colorScheme == .dark ? 0.8 : 0), lineWidth: 1.2))
+                .foregroundStyle(colorScheme == .dark ? Color.philharmonicInk : Color.white)
+                .background(colorScheme == .dark ? Color.black : Color.philharmonicInk, in: Circle())
+                .overlay(Circle().strokeBorder(Color.philharmonicInk.opacity(colorScheme == .dark ? 0.8 : 0), lineWidth: 1.2))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
@@ -182,9 +182,9 @@ struct PlayerControls: View {
                 Circle().frame(width: 5, height: 5)
                 Text("LIVE").font(.system(size: 14, weight: .medium))
             }
-            .foregroundStyle(Color.kuscRed)
+            .foregroundStyle(Color.philharmonicRed)
             .padding(.horizontal, 17).frame(minHeight: auxiliarySize)
-            .kuscControlSurface(Capsule())
+            .philharmonicControlSurface(Capsule())
         }
         .buttonStyle(.plain).accessibilityLabel("Jump to live")
     }
@@ -197,13 +197,13 @@ struct PlayerControls: View {
     private var playbackStatus: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Circle().fill(Color.kuscRed).frame(width: 4, height: 4)
+                Circle().fill(Color.philharmonicRed).frame(width: 4, height: 4)
                 Text(model.state == .playingLive ? "Listening live" : model.statusText)
                     .foregroundStyle(.secondary)
             }.font(.caption)
             if case .reconnecting(let since) = model.state {
                 ProgressView(value: min(60, max(0, Date().timeIntervalSince(since))), total: 60)
-                    .tint(.kuscRed).accessibilityLabel("Reconnection time used")
+                    .tint(.philharmonicRed).accessibilityLabel("Reconnection time used")
             }
         }
     }
@@ -265,21 +265,21 @@ struct AudioOutputView: View {
                 SheetCloseButton { dismiss() }
             }
             HStack(spacing: 16) {
-                Image(systemName: "speaker.wave.2").foregroundStyle(Color.kuscRed)
+                Image(systemName: "speaker.wave.2").foregroundStyle(Color.philharmonicRed)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Current output").font(.caption).foregroundStyle(.secondary)
                     Text(model.currentOutputName).font(.body.weight(.medium))
                 }
                 Spacer()
                 AudioRoutePicker().frame(width: 52, height: 52)
-            }.padding(16).kuscControlSurface(RoundedRectangle(cornerRadius: 18))
+            }.padding(16).philharmonicControlSurface(RoundedRectangle(cornerRadius: 18))
             Text("Choose an available output using the system picker. Selecting an output changes the current audio route.")
                 .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
         }
         .padding(24)
-        .foregroundStyle(Color.kuscInk)
-        .background(Color.kuscBackground.ignoresSafeArea())
+        .foregroundStyle(Color.philharmonicInk)
+        .background(Color.philharmonicBackground.ignoresSafeArea())
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 }
@@ -309,14 +309,14 @@ struct PlayerRefreshModifier: ViewModifier {
 struct AudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = UIColor(Color.kuscRed)
-        view.activeTintColor = UIColor(Color.kuscRed)
+        view.tintColor = UIColor(Color.philharmonicRed)
+        view.activeTintColor = UIColor(Color.philharmonicRed)
         view.prioritizesVideoDevices = false
         view.accessibilityLabel = "Choose audio output"
         return view
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
-        uiView.tintColor = UIColor(Color.kuscRed)
-        uiView.activeTintColor = UIColor(Color.kuscRed)
+        uiView.tintColor = UIColor(Color.philharmonicRed)
+        uiView.activeTintColor = UIColor(Color.philharmonicRed)
     }
 }

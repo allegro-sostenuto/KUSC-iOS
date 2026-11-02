@@ -430,7 +430,7 @@ enum BufferedAudioSampleSource {
     private static func failure(_ stage: String, status: OSStatus? = nil, detail: String = "") -> NSError {
         // Numeric media properties and operation names only: no file paths,
         // request URLs, sample bytes, or arbitrary AVFoundation userInfo.
-        NSError(domain: "KUSC.BufferedAudioSampleSource", code: Int(status ?? -1),
+        NSError(domain: "Philharmonic.BufferedAudioSampleSource", code: Int(status ?? -1),
                 userInfo: [NSLocalizedDescriptionKey: "Buffered AAC \(stage) failed. \(detail)"])
     }
 }

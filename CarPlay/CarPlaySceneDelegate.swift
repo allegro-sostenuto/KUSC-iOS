@@ -44,11 +44,11 @@ import UIKit
         interfaceController.setRootTemplate(tabs, animated: false) { success, error in
             if !success {
                 Task { @MainActor in
-                    AppModel.shared.notice = error?.localizedDescription ?? "CarPlay could not open KUSC."
+                    AppModel.shared.notice = error?.localizedDescription ?? "CarPlay could not open Philharmonic."
                 }
             }
         }
-        observer = NotificationCenter.default.addObserver(forName: .kuscPlaybackChanged, object: nil, queue: .main) { [weak self] _ in
+        observer = NotificationCenter.default.addObserver(forName: .philharmonicPlaybackChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.updateProgramme() }
         }
         AppModel.shared.launch()

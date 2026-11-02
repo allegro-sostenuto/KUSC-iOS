@@ -1,23 +1,23 @@
 import SwiftUI
 import WidgetKit
 
-struct KUSCWidgetEntry: TimelineEntry {
+struct PhilharmonicWidgetEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetPlaybackSnapshot
 }
 
-struct KUSCWidgetProvider: TimelineProvider {
-    func placeholder(in context: Context) -> KUSCWidgetEntry {
+struct PhilharmonicWidgetProvider: TimelineProvider {
+    func placeholder(in context: Context) -> PhilharmonicWidgetEntry {
         .init(date: Date(), snapshot: .init(item: ProgrammeItem(id: "widget-preview", start: Date(),
             work: "Classical California", composer: "KUSC", performers: "Music for your day")))
     }
-    func getSnapshot(in context: Context, completion: @escaping (KUSCWidgetEntry) -> Void) {
+    func getSnapshot(in context: Context, completion: @escaping (PhilharmonicWidgetEntry) -> Void) {
         completion(.init(date: Date(), snapshot: WidgetSnapshotStore.shared?.read() ?? .init()))
     }
-    func getTimeline(in context: Context, completion: @escaping (Timeline<KUSCWidgetEntry>) -> Void) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<PhilharmonicWidgetEntry>) -> Void) {
         let now = Date()
         let snapshot = WidgetSnapshotStore.shared?.read() ?? .init()
-        var entries = [KUSCWidgetEntry(date: now, snapshot: snapshot)]
+        var entries = [PhilharmonicWidgetEntry(date: now, snapshot: snapshot)]
         let expires = snapshot.updatedAt.addingTimeInterval(WidgetPlaybackSnapshot.lifetime)
         if snapshot.playbackRequested && expires > now {
             entries.append(.init(date: expires, snapshot: snapshot))
@@ -26,79 +26,79 @@ struct KUSCWidgetProvider: TimelineProvider {
     }
 }
 
-struct KUSCPlaybackWidget: Widget {
+struct PhilharmonicPlaybackWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.playback.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.playback.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .playback)
                 .widgetURL(WidgetPlaybackLink.url(playing: !$0.snapshot.requestingPlayback(at: $0.date)))
-        }.configurationDisplayName("Play / Pause").description("Just one button for KUSC.")
+        }.configurationDisplayName("Play / Pause").description("Just one button for Philharmonic.")
             .supportedFamilies([.systemSmall])
     }
 }
-struct KUSCArtworkWidget: Widget {
+struct PhilharmonicArtworkWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.artwork.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.artwork.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .artwork)
         }.configurationDisplayName("Album Art").description("Album artwork and Play/Pause.")
             .supportedFamilies([.systemMedium])
     }
 }
-struct KUSCDetailsWidget: Widget {
+struct PhilharmonicDetailsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.details.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.details.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .details)
         }.configurationDisplayName("Now Playing").description("Work, movement, composer, performers and Play/Pause.")
             .supportedFamilies([.systemMedium])
     }
 }
-struct KUSCEverythingWidget: Widget {
+struct PhilharmonicEverythingWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.everything.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.everything.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .everything)
         }.configurationDisplayName("The Full Picture").description("Artwork, music details, programme, host and Play/Pause.")
             .supportedFamilies([.systemLarge])
     }
 }
 
-struct KUSCArtworkOnlyWidget: Widget {
+struct PhilharmonicArtworkOnlyWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.artworkOnly.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.artworkOnly.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .artworkOnly)
         }.configurationDisplayName("Album Art Only").description("Just the album cover, without playback controls.")
             .supportedFamilies([.systemSmall])
             .contentMarginsDisabled()
     }
 }
-struct KUSCDetailsOnlyWidget: Widget {
+struct PhilharmonicDetailsOnlyWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: HomeWidgetLayout.detailsOnly.rawValue, provider: KUSCWidgetProvider()) {
+        StaticConfiguration(kind: HomeWidgetLayout.detailsOnly.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .detailsOnly)
         }.configurationDisplayName("Music Details Only").description("Work, movement, composer and performers, without playback controls.")
             .supportedFamilies([.systemMedium])
     }
 }
 
-struct KUSCControlWidgets: WidgetBundle {
+struct PhilharmonicControlWidgets: WidgetBundle {
     var body: some Widget {
-        KUSCPlaybackWidget()
-        KUSCArtworkWidget()
-        KUSCDetailsWidget()
-        KUSCEverythingWidget()
+        PhilharmonicPlaybackWidget()
+        PhilharmonicArtworkWidget()
+        PhilharmonicDetailsWidget()
+        PhilharmonicEverythingWidget()
     }
 }
 
-struct KUSCDisplayWidgets: WidgetBundle {
+struct PhilharmonicDisplayWidgets: WidgetBundle {
     var body: some Widget {
-        KUSCArtworkOnlyWidget()
-        KUSCDetailsOnlyWidget()
+        PhilharmonicArtworkOnlyWidget()
+        PhilharmonicDetailsOnlyWidget()
     }
 }
 
 #if !MODERN
-@main struct KUSCHomeWidgetBundle: WidgetBundle {
+@main struct PhilharmonicHomeWidgetBundle: WidgetBundle {
     var body: some Widget {
-        KUSCControlWidgets().body
-        KUSCDisplayWidgets().body
+        PhilharmonicControlWidgets().body
+        PhilharmonicDisplayWidgets().body
     }
 }
 #endif

@@ -34,7 +34,7 @@ import WidgetKit
             for kind in HomeWidgetLayout.allCases { WidgetCenter.shared.reloadTimelines(ofKind: kind.rawValue) }
         } catch {
             // A widget storage failure must never prevent a transport command.
-            NSLog("KUSC widget snapshot unavailable: %@", error.localizedDescription)
+            NSLog("Philharmonic widget snapshot unavailable: %@", error.localizedDescription)
         }
     }
 }

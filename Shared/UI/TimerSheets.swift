@@ -59,7 +59,7 @@ struct SleepTimerView: View {
                 model.startSleep(minutes: totalMinutes)
                 dismiss()
             }
-            .buttonStyle(KUSCPrimaryButtonStyle())
+            .buttonStyle(PhilharmonicPrimaryButtonStyle())
             .accessibilityIdentifier("timer-primary-action")
         }
         .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
@@ -116,7 +116,7 @@ struct ScheduledStartView: View {
                     .disabled(isScheduling)
             }
 
-            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, KUSC takes over and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
+            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, Philharmonic takes over and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -131,7 +131,7 @@ struct ScheduledStartView: View {
 
             TimerStatusCard(
                 title: "Automatic start & notification",
-                message: "A reminder arrives 2 minutes before the start; tap it to open Delete Scheduled Start. Starts less than 2 minutes away get the reminder immediately. Keep KUSC running for automatic playback. iOS can delay audio during calls or suspend the app; a backup notification remains available.",
+                message: "A reminder arrives 2 minutes before the start; tap it to open Delete Scheduled Start. Starts less than 2 minutes away get the reminder immediately. Keep Philharmonic running for automatic playback. iOS can delay audio during calls or suspend the app; a backup notification remains available.",
                 symbol: "bell"
             )
 
@@ -163,12 +163,12 @@ struct ScheduledStartView: View {
                 }
             } label: {
                 HStack(spacing: 10) {
-                    if isScheduling { ProgressView().tint(Color.kuscInk) }
+                    if isScheduling { ProgressView().tint(Color.philharmonicInk) }
                     Text(isScheduling ? "Scheduling…" : "Schedule Start")
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(KUSCPrimaryButtonStyle())
+            .buttonStyle(PhilharmonicPrimaryButtonStyle())
             .accessibilityIdentifier("schedule-primary-action")
             .disabled(isScheduling || (outputMode == .selected && preferredRoute == nil))
         }
@@ -226,8 +226,8 @@ struct ScheduledStartView: View {
                 Spacer(minLength: 0)
                 AudioRoutePicker()
                     .frame(width: 48, height: 48)
-                    .background(Color.kuscSurface, in: Circle())
-                    .overlay { Circle().strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
+                    .background(Color.philharmonicSurface, in: Circle())
+                    .overlay { Circle().strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
                     .accessibilityLabel("Choose audio output")
             }
 
@@ -254,7 +254,7 @@ struct ScheduledStartView: View {
                     if !preferredRoute.matches(model.currentOutputRoute) {
                         Label("The planned output is not currently selected.", systemImage: "exclamationmark.circle")
                             .font(.caption)
-                            .foregroundStyle(Color.kuscRed)
+                            .foregroundStyle(Color.philharmonicRed)
                     }
                 } else {
                     Text(model.currentOutputRoute.isIdentifiable
@@ -276,7 +276,7 @@ struct ScheduledStartView: View {
                      : "If the planned output is unavailable or no longer selected, playback switches to the iPhone speaker.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Keep the planned output available and selected. KUSC cannot reconnect Bluetooth or choose an AirPlay destination automatically.")
+                Text("Keep the planned output available and selected. Philharmonic cannot reconnect Bluetooth or choose an AirPlay destination automatically.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -286,10 +286,10 @@ struct ScheduledStartView: View {
             }
         }
         .padding(16)
-        .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 18))
+        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 18))
         .overlay {
             RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
         }
     }
 
@@ -325,8 +325,8 @@ struct ScheduledStartView: View {
             }
         }
         .padding(16)
-        .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
+        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
     }
 }
 
@@ -349,15 +349,15 @@ private struct ScheduledValueControl: View {
                     Image(systemName: "minus").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .disabled(value <= range.lowerBound)
-                Rectangle().fill(Color.kuscSeparator).frame(width: 0.75, height: 24)
+                Rectangle().fill(Color.philharmonicSeparator).frame(width: 0.75, height: 24)
                 Button { adjust(step) } label: {
                     Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .disabled(value >= range.upperBound)
             }
             .buttonStyle(.plain)
-            .background(Color.kuscSurface, in: Capsule())
-            .overlay { Capsule().strokeBorder(Color.kuscSeparator, lineWidth: 0.75) }
+            .background(Color.philharmonicSurface, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
@@ -443,15 +443,15 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
                 .padding(.top, 12)
                 .padding(.bottom, 16)
                 .frame(maxWidth: .infinity)
-                .background(Color.kuscSurface)
+                .background(Color.philharmonicSurface)
                 .overlay(alignment: .top) {
-                    Rectangle().fill(Color.kuscSeparator).frame(height: 0.5)
+                    Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
                 }
         }
-        .foregroundStyle(Color.kuscInk)
-        .background(Color.kuscSurface.ignoresSafeArea())
-        .tint(.kuscRed)
-        .kuscSheetBackground()
+        .foregroundStyle(Color.philharmonicInk)
+        .background(Color.philharmonicSurface.ignoresSafeArea())
+        .tint(.philharmonicRed)
+        .philharmonicSheetBackground()
     }
 }
 
@@ -464,7 +464,7 @@ private struct TimerStatusCard: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: symbol)
                 .font(.title3)
-                .foregroundStyle(Color.kuscRed)
+                .foregroundStyle(Color.philharmonicRed)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.subheadline.weight(.semibold))
@@ -476,10 +476,10 @@ private struct TimerStatusCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color.kuscBackground, in: RoundedRectangle(cornerRadius: 18))
+        .background(Color.philharmonicBackground, in: RoundedRectangle(cornerRadius: 18))
         .overlay {
             RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
         }
     }
 }

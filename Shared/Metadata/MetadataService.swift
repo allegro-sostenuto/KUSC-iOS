@@ -152,7 +152,7 @@ final class StationArtworkStore {
 
     init() {
         if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            var location = caches.appendingPathComponent("KUSCStationArtwork", isDirectory: true)
+            var location = caches.appendingPathComponent("PhilharmonicStationArtwork", isDirectory: true)
             try? FileManager.default.createDirectory(at: location, withIntermediateDirectories: true)
             var values = URLResourceValues()
             values.isExcludedFromBackup = true

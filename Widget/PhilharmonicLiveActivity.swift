@@ -4,23 +4,23 @@ import AppIntents
 import SwiftUI
 import UIKit
 
-@main struct KUSCLiveActivityBundle: WidgetBundle {
+@main struct PhilharmonicLiveActivityBundle: WidgetBundle {
     var body: some Widget {
-        KUSCControlWidgets().body
-        KUSCDisplayWidgets().body
-        KUSCLiveActivity()
+        PhilharmonicControlWidgets().body
+        PhilharmonicDisplayWidgets().body
+        PhilharmonicLiveActivity()
     }
 }
-struct KUSCLiveActivity: Widget {
+struct PhilharmonicLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: KUSCActivityAttributes.self) { context in
+        ActivityConfiguration(for: PhilharmonicActivityAttributes.self) { context in
             HStack(spacing: 12) {
                 ActivityArtwork(data: context.state.artwork).frame(width: 54, height: 54)
                 VStack(alignment: .leading) {
                     Text(context.state.title).font(.headline).lineLimit(2)
                     Text(context.state.composer).font(.subheadline).lineLimit(1)
                     HStack {
-                        Button(intent: ToggleKUSCPlaybackIntent()) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
+                        Button(intent: TogglePhilharmonicPlaybackIntent()) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
                         Button("Live", intent: GoLiveIntent())
                     }.buttonStyle(ActivityControlStyle())
                     if let status = context.state.status { Text(status).font(.caption).foregroundStyle(.secondary) }
@@ -40,7 +40,7 @@ struct KUSCLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 28) {
-                        Button(intent: ToggleKUSCPlaybackIntent()) {
+                        Button(intent: TogglePhilharmonicPlaybackIntent()) {
                             Label((context.state.playbackRequested ?? context.state.playing) ? "Pause" : "Play",
                                   systemImage: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill")
                         }

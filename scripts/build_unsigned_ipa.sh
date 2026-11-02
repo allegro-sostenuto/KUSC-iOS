@@ -1,14 +1,14 @@
 #!/bin/bash
 # Build a device IPA for subsequent signing/import in AltStore Classic.
-# Usage: bash scripts/build_unsigned_ipa.sh KUSC-SE|KUSC-17 [output-directory]
+# Usage: bash scripts/build_unsigned_ipa.sh Philharmonic-SE|Philharmonic-17 [output-directory]
 # Requires macOS and Xcode 26.x. No Apple account or signing material is used.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scheme="${1:-}"
 case "$scheme" in
-  KUSC-SE|KUSC-17) ;;
-  *) echo 'Usage: build_unsigned_ipa.sh KUSC-SE|KUSC-17 [output-directory]' >&2; exit 2 ;;
+  Philharmonic-SE|Philharmonic-17) ;;
+  *) echo 'Usage: build_unsigned_ipa.sh Philharmonic-SE|Philharmonic-17 [output-directory]' >&2; exit 2 ;;
 esac
 if [ "$(uname -s)" != Darwin ] || ! command -v xcodebuild >/dev/null; then
   echo 'This device build requires Xcode on macOS; use the included GitHub Actions workflow.' >&2
@@ -18,12 +18,12 @@ fi
 output="${2:-dist}"
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
-build_number="${KUSC_BUILD_NUMBER:-1}"
+build_number="${PHILHARMONIC_BUILD_NUMBER:-1}"
 case "$build_number" in
-  ''|*[!0-9]*) echo 'KUSC_BUILD_NUMBER must be a positive integer.' >&2; exit 2 ;;
+  ''|*[!0-9]*) echo 'PHILHARMONIC_BUILD_NUMBER must be a positive integer.' >&2; exit 2 ;;
 esac
 if [ "$build_number" -lt 1 ]; then
-  echo 'KUSC_BUILD_NUMBER must be a positive integer.' >&2
+  echo 'PHILHARMONIC_BUILD_NUMBER must be a positive integer.' >&2
   exit 2
 fi
 
@@ -32,17 +32,17 @@ bundle_prefix="$(python3 - <<'PY'
 import re
 from pathlib import Path
 text = Path('Configuration/Signing.xcconfig').read_text()
-matches = re.findall(r'^\s*KUSC_BUNDLE_PREFIX\s*=\s*([A-Za-z0-9.-]+)\s*$', text, re.M)
+matches = re.findall(r'^\s*PHILHARMONIC_BUNDLE_PREFIX\s*=\s*([A-Za-z0-9.-]+)\s*$', text, re.M)
 if len(matches) != 1:
-    raise SystemExit('Expected exactly one literal KUSC_BUNDLE_PREFIX in Configuration/Signing.xcconfig')
+    raise SystemExit('Expected exactly one literal PHILHARMONIC_BUNDLE_PREFIX in Configuration/Signing.xcconfig')
 print(matches[0])
 PY
 )"
-work="$(mktemp -d "${TMPDIR:-/tmp}/kusc-ipa.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/philharmonic-ipa.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 xcodebuild \
-  -project KUSC.xcodeproj \
+  -project Philharmonic.xcodeproj \
   -scheme "$scheme" \
   -configuration Release \
   -sdk iphoneos \
@@ -69,11 +69,11 @@ python3 - "$work/package/Payload/$scheme.app" "$work/widget-entitlements.plist" 
 import pathlib, plistlib, subprocess, sys
 app = pathlib.Path(sys.argv[1])
 entitlements = pathlib.Path(sys.argv[2])
-group = plistlib.loads((app / 'Info.plist').read_bytes())['KUSCAppGroup']
+group = plistlib.loads((app / 'Info.plist').read_bytes())['PhilharmonicAppGroup']
 entitlements.write_bytes(plistlib.dumps({'com.apple.security.application-groups': [group]}))
 for bundle in sorted((app / 'PlugIns').glob('*.appex')) + [app]:
     info = plistlib.loads((bundle / 'Info.plist').read_bytes())
-    if info.get('KUSCAppGroup') != group or '$(' in group:
+    if info.get('PhilharmonicAppGroup') != group or '$(' in group:
         raise SystemExit('Widget App Group differs from its containing app')
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none',
                     '--generate-entitlement-der', '--entitlements', str(entitlements), str(bundle)], check=True)

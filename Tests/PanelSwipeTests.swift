@@ -1,8 +1,8 @@
 import XCTest
-#if canImport(KUSCCore)
-@testable import KUSCCore
+#if canImport(PhilharmonicCore)
+@testable import PhilharmonicCore
 #else
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 #endif
 
 final class PanelSwipeTests: XCTestCase {

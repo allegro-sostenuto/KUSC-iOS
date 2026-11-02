@@ -7,11 +7,11 @@ import UIKit
 /// never evidence that a stream, schedule, output route, or buffer actually ran.
 @MainActor enum UIFixture {
     static var state: String? {
-        ProcessInfo.processInfo.environment["KUSC_UI_STATE"]
+        ProcessInfo.processInfo.environment["PHILHARMONIC_UI_STATE"]
     }
 
     static var largeText: Bool {
-        ProcessInfo.processInfo.environment["KUSC_UI_LARGE_TEXT"] == "1"
+        ProcessInfo.processInfo.environment["PHILHARMONIC_UI_LARGE_TEXT"] == "1"
     }
 
     @discardableResult
@@ -22,9 +22,9 @@ import UIKit
         model.settings = AppSettings()
         model.settings.autoplay = false
         model.settings.appearance = state == "dark" ||
-            ProcessInfo.processInfo.environment["KUSC_UI_DARK"] == "1" ? "dark" : "light"
+            ProcessInfo.processInfo.environment["PHILHARMONIC_UI_DARK"] == "1" ? "dark" : "light"
         model.settings.minimalist = state == "minimal" ||
-            ProcessInfo.processInfo.environment["KUSC_UI_MINIMAL"] == "1"
+            ProcessInfo.processInfo.environment["PHILHARMONIC_UI_MINIMAL"] == "1"
         model.settings.lastSleepMinutes = 30
         if state == "schedule-power" { model.settings.scheduledStartDefaults = .init(batteryOnlyStop: true) }
         let anchor = ISO8601DateFormatter().date(from: "2026-09-20T09:41:00Z")!
@@ -40,7 +40,7 @@ import UIKit
         model.programmeName = "Programme layout fixture"
         model.hostName = "Host · test data"
         if state == "schedule-reminder" { model.configureScheduleReminderFixture() }
-        if ProcessInfo.processInfo.environment["KUSC_UI_REPEAT_MODEL_UPDATES"] == "1" {
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_REPEAT_MODEL_UPDATES"] == "1" {
             Task { @MainActor in
                 for _ in 0..<240 {
                     try? await Task.sleep(nanoseconds: 250_000_000)
@@ -83,11 +83,11 @@ import UIKit
         }
         // XCTest rotates the actual simulated device and captures its oriented
         // app image. A scene-only rotation leaves simctl's framebuffer portrait.
-        if ProcessInfo.processInfo.environment["KUSC_UI_ROTATION_DRIVER"] == "xctest" {
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_ROTATION_DRIVER"] == "xctest" {
             return true
         }
         let orientation: UIInterfaceOrientationMask =
-            ProcessInfo.processInfo.environment["KUSC_UI_LANDSCAPE"] == "1" ? .landscapeRight : .portrait
+            ProcessInfo.processInfo.environment["PHILHARMONIC_UI_LANDSCAPE"] == "1" ? .landscapeRight : .portrait
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             guard let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene }).first else { return }

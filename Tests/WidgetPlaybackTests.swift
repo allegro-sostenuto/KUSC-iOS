@@ -1,6 +1,6 @@
-#if canImport(UIKit) && !canImport(KUSCCore) && DEBUG
+#if canImport(UIKit) && !canImport(PhilharmonicCore) && DEBUG
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 final class WidgetPlaybackTests: XCTestCase {
     @MainActor func testWidgetActionsAreExplicitAndOverrideStaleInterruption() async throws {
@@ -8,14 +8,14 @@ final class WidgetPlaybackTests: XCTestCase {
         let model = AppModel.shared
         model.configureAudioRecoveryForTesting(playing: false, interrupted: true)
         defer { model.finishAudioRecoveryForTesting() }
-        _ = try await SetKUSCWidgetPlaybackIntent(playing: true).perform()
+        _ = try await SetPhilharmonicWidgetPlaybackIntent(playing: true).perform()
         XCTAssertTrue(model.isPlaying)
         XCTAssertFalse(model.audioRecoveryStateForTesting.interrupted)
-        _ = try await SetKUSCWidgetPlaybackIntent(playing: true).perform()
+        _ = try await SetPhilharmonicWidgetPlaybackIntent(playing: true).perform()
         XCTAssertTrue(model.isPlaying, "Repeated Play from a stale widget must not pause")
-        _ = try await SetKUSCWidgetPlaybackIntent(playing: false).perform()
+        _ = try await SetPhilharmonicWidgetPlaybackIntent(playing: false).perform()
         XCTAssertFalse(model.isPlaying)
-        _ = try await SetKUSCWidgetPlaybackIntent(playing: false).perform()
+        _ = try await SetPhilharmonicWidgetPlaybackIntent(playing: false).perform()
         XCTAssertFalse(model.isPlaying, "Repeated Pause must not restart audio")
     }
 

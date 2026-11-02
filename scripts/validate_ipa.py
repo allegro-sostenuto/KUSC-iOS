@@ -132,7 +132,7 @@ def inspect_library(data, name, minimum):
 def check_signature(data, name, allow_apple_vendor=False, expected_group=None):
     """Permit ad-hoc signatures, or Apple-anchored signatures on vendor libraries."""
     require(sys.platform == 'darwin', f'{name}: signature present; macOS codesign is required to audit it')
-    with tempfile.TemporaryDirectory(prefix='kusc-signature-') as temp:
+    with tempfile.TemporaryDirectory(prefix='philharmonic-signature-') as temp:
         path = Path(temp) / 'executable'
         path.write_bytes(data)
         result = subprocess.run(['/usr/bin/codesign', '-d', '--verbose=4', str(path)],
@@ -158,10 +158,10 @@ def check_signature(data, name, allow_apple_vendor=False, expected_group=None):
 
 
 def validate(path, scheme, prefix):
-    minimum = (16, 0, 0) if scheme == 'KUSC-SE' else (26, 0, 0)
-    bundle_id = prefix + ('.classic' if scheme == 'KUSC-SE' else '.modern')
+    minimum = (16, 0, 0) if scheme == 'Philharmonic-SE' else (26, 0, 0)
+    bundle_id = prefix + ('.classic' if scheme == 'Philharmonic-SE' else '.modern')
     root = f'Payload/{scheme}.app'
-    extension_name = 'KUSCWidgets' if scheme == 'KUSC-SE' else 'KUSCLiveActivity'
+    extension_name = 'PhilharmonicWidgets' if scheme == 'Philharmonic-SE' else 'PhilharmonicLiveActivity'
     expected_extensions = [f'{root}/PlugIns/{extension_name}.appex']
     expected_group = 'group.' + bundle_id + '.widgets'
     with zipfile.ZipFile(path) as archive:
@@ -189,10 +189,10 @@ def validate(path, scheme, prefix):
             info_path = bundle + '/Info.plist'
             require(info_path in names, f'Missing {info_path}')
             info = plistlib.loads(archive.read(info_path))
-            expected_id = bundle_id if bundle == root else bundle_id + ('.widgets' if scheme == 'KUSC-SE' else '.activity')
+            expected_id = bundle_id if bundle == root else bundle_id + ('.widgets' if scheme == 'Philharmonic-SE' else '.activity')
             require(info.get('CFBundleIdentifier') == expected_id,
                     f'{bundle}: expected bundle identifier {expected_id}')
-            require(info.get('KUSCAppGroup') == expected_group, f'{bundle}: wrong widget App Group')
+            require(info.get('PhilharmonicAppGroup') == expected_group, f'{bundle}: wrong widget App Group')
             require(info.get('CFBundleSupportedPlatforms') == ['iPhoneOS'],
                     f'{bundle}: CFBundleSupportedPlatforms must be iPhoneOS')
             require(version(info.get('MinimumOSVersion', '0')) == minimum,
@@ -248,7 +248,7 @@ def validate(path, scheme, prefix):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('ipa', type=Path)
-    parser.add_argument('--scheme', required=True, choices=['KUSC-SE', 'KUSC-17'])
+    parser.add_argument('--scheme', required=True, choices=['Philharmonic-SE', 'Philharmonic-17'])
     parser.add_argument('--bundle-prefix', default='org.personal.kusc')
     args = parser.parse_args()
     try:

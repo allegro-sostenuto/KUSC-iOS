@@ -9,14 +9,14 @@ fi
 output="${1:-artifacts/native-audio}"
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
-work="$(mktemp -d "${TMPDIR:-/tmp}/kusc-audio.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/philharmonic-audio.XXXXXX")"
 device=""
 cleanup() {
     if [ -n "$device" ]; then
         xcrun simctl shutdown "$device" >/dev/null 2>&1 || true
         xcrun simctl delete "$device" >/dev/null 2>&1 || true
     fi
-    case "$work" in */kusc-audio.*) rm -rf "$work" ;; esac
+    case "$work" in */philharmonic-audio.*) rm -rf "$work" ;; esac
 }
 trap cleanup EXIT
 device="$(python3 - <<'PY'
@@ -32,19 +32,19 @@ types = json.loads(sim('list', 'devicetypes', '--json'))['devicetypes']
 kind = next((t for name in ['iPhone 17', 'iPhone 17 Pro'] for t in types if t['name'] == name), None)
 if kind is None:
     raise SystemExit('An iPhone 17 simulator device type is required.')
-print(sim('create', 'KUSC native audio', kind['identifier'], runtimes[0]['identifier']).strip())
+print(sim('create', 'Philharmonic native audio', kind['identifier'], runtimes[0]['identifier']).strip())
 PY
 )"
 python3 scripts/generate_project.py
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
-xcodebuild -project KUSC.xcodeproj -scheme KUSC-SE -configuration Debug \
+xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Audio.xcresult" -parallel-testing-enabled NO \
-    -only-testing:KUSCTests/BufferedAudioSampleSourceTests \
-    -only-testing:KUSCTests/BufferedAudioRendererTests \
-    -only-testing:KUSCTests/AudioEngineIntegrationTests \
-    -only-testing:KUSCTests/LiveOnlySettingsTests \
-    -only-testing:KUSCTests/ScheduleModelBoundaryTests \
+    -only-testing:PhilharmonicTests/BufferedAudioSampleSourceTests \
+    -only-testing:PhilharmonicTests/BufferedAudioRendererTests \
+    -only-testing:PhilharmonicTests/AudioEngineIntegrationTests \
+    -only-testing:PhilharmonicTests/LiveOnlySettingsTests \
+    -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"

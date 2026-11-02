@@ -18,7 +18,7 @@ import UserNotifications
         let task = writes.submit(id: request.id, write: { [self] in
             do {
                 try await center.add(headsUpNotification(request))
-                try await center.add(notification(request, body: "Tap to start KUSC live. Output: \(request.output.summary)."))
+                try await center.add(notification(request, body: "Tap to start Philharmonic live. Output: \(request.output.summary)."))
             } catch { remove(request.id); throw error }
         }, remove: { [self] in remove(request.id) })
         try await task.value
@@ -30,7 +30,7 @@ import UserNotifications
     }
     private func notification(_ request: ScheduledStartRequest, body: String) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = "KUSC scheduled start"
+        content.title = "Philharmonic scheduled start"
         content.body = body
         content.sound = .default
         content.userInfo = ["action": "start-live", "scheduleID": request.id.uuidString]
@@ -40,7 +40,7 @@ import UserNotifications
     }
     func headsUpNotification(_ request: ScheduledStartRequest, now: Date = Date()) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = "KUSC scheduled start at \(request.date.formatted(date: .omitted, time: .shortened))"
+        content.title = "Philharmonic scheduled start at \(request.date.formatted(date: .omitted, time: .shortened))"
         content.body = "Tap to cancel. Opens Scheduled Start at Delete Scheduled Start."
         content.sound = .default
         content.categoryIdentifier = "scheduled-heads-up"
@@ -86,6 +86,6 @@ import UserNotifications
     }
     enum NotificationError: LocalizedError {
         case permissionDenied
-        var errorDescription: String? { "Enable KUSC notifications in iPhone Settings before scheduling a start." }
+        var errorDescription: String? { "Enable Philharmonic notifications in iPhone Settings before scheduling a start." }
     }
 }

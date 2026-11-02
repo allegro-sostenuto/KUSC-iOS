@@ -1,6 +1,6 @@
-#if canImport(UIKit) && !canImport(KUSCCore) && DEBUG
+#if canImport(UIKit) && !canImport(PhilharmonicCore) && DEBUG
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 /// Hosted coordinator regressions. Only the network/session-start boundary is
 /// intercepted; resets still invalidate the real engine and its transport clock.

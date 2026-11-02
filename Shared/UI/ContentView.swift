@@ -17,7 +17,6 @@ struct ContentView: View {
     private struct PanelTransition {
         let id = UUID()
         let switchesPanel: Bool
-        let direction: Int
     }
 
     private enum PlayerSheet: String, Identifiable {
@@ -57,7 +56,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.kuscBackground.ignoresSafeArea())
+            .background(Color.philharmonicBackground.ignoresSafeArea())
             .onChange(of: geometry.size) { _ in
                 resetPanelDrag()
                 #if DEBUG
@@ -65,8 +64,8 @@ struct ContentView: View {
                 #endif
             }
         }
-        .foregroundStyle(Color.kuscInk)
-        .tint(.kuscRed)
+        .foregroundStyle(Color.philharmonicInk)
+        .tint(.philharmonicRed)
         .preferredColorScheme(colorScheme)
         .sheet(item: $sheet, onDismiss: { model.clearScheduleManagementRequest() }) { selected in
             Group {
@@ -81,7 +80,7 @@ struct ContentView: View {
             .modifier(UIFixtureTextSize())
             #endif
             .preferredColorScheme(colorScheme)
-            .kuscSheetBackground()
+            .philharmonicSheetBackground()
         }
         .confirmationDialog("Sleep timer", isPresented: $choosingPauseBehavior, titleVisibility: .visible) {
             Button("Keep counting") { model.choosePausedTimer(.keepCounting) }
@@ -136,20 +135,19 @@ struct ContentView: View {
             if showingProgramme && !model.settings.minimalist {
                 Text("Program")
                     .font(.subheadline).frame(minHeight: 44)
-                    .foregroundStyle(Color.kuscRed)
+                    .foregroundStyle(Color.philharmonicRed)
                     .accessibilityIdentifier("programme-header")
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 9) {
-                    Text("KUSC").font(.system(size: 25, weight: .semibold)).tracking(-1.2)
-                    Text("91.5 FM").font(.system(size: 10, weight: .medium)).tracking(1.4)
-                        .foregroundStyle(Color.kuscRed)
+                    Text("Philharmonic").font(.system(size: 25, weight: .semibold)).tracking(-1.2)
+                        .lineLimit(1).minimumScaleFactor(0.75)
                 }
                 .accessibilityElement(children: .combine)
             }
             Spacer(minLength: 8)
             Button { sheet = .settings } label: {
                 Image(systemName: "gearshape").font(.system(size: 19))
-                    .frame(width: 44, height: 44).kuscControlSurface(Circle())
+                    .frame(width: 44, height: 44).philharmonicControlSurface(Circle())
             }
             .buttonStyle(.plain).accessibilityLabel("Settings")
         }
@@ -160,25 +158,28 @@ struct ContentView: View {
         let transitionID = panelTransition?.id
         return GeometryReader { viewport in
             ZStack {
-                if isSwipingPanel {
-                    panel(programme: !showingProgramme, size: size, height: viewport.size.height)
+                if showingProgramme || isSwipingPanel {
+                    panel(programme: true, size: size, height: viewport.size.height)
                         .transition(.identity)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                        .allowsHitTesting(showingProgramme && panelTransition == nil)
+                        .accessibilityHidden(!showingProgramme)
                 }
-                panel(programme: showingProgramme, size: size, height: viewport.size.height)
-                    .overlay(alignment: dividerDirection > 0 ? .leading : .trailing) {
-                        if isSwipingPanel {
-                            Rectangle().fill(Color.kuscSeparator).frame(width: 1)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
+                if !showingProgramme || isSwipingPanel {
+                    panel(programme: false, size: size, height: viewport.size.height)
+                        .overlay(alignment: .leading) {
+                            if isSwipingPanel {
+                                Rectangle().fill(Color.philharmonicSeparator).frame(width: 1)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
                         }
-                    }
-                    .offset(x: panelOffset)
-                    .modifier(PanelOffsetCompletion(offset: panelOffset) {
-                        finishPanelTransition(id: transitionID)
-                    })
-                    .allowsHitTesting(panelTransition == nil)
+                        .offset(x: showingProgramme ? viewport.size.width + panelOffset : panelOffset)
+                        .modifier(PanelOffsetCompletion(offset: panelOffset) {
+                            finishPanelTransition(id: transitionID)
+                        })
+                        .allowsHitTesting(!showingProgramme && panelTransition == nil)
+                        .accessibilityHidden(showingProgramme)
+                }
             }
             .scrollDisabled(isSwipingPanel)
             .coordinateSpace(name: "player-panels")
@@ -194,20 +195,13 @@ struct ContentView: View {
         // XCTest rotates after launch. Reapply only the held layout fixture;
         // real gestures still reset when the viewport changes dimensions.
         guard let fixture = UIFixture.state else { return }
-        if fixture == "reveal-left" { panelOffset = -width * 0.44 }
-        if ["reveal-right", "reveal-programme-right"].contains(fixture) {
-            panelOffset = width * 0.44
-        }
+        if ["reveal-left", "reveal-right"].contains(fixture) { panelOffset = width * 0.44 }
+        if fixture == "reveal-programme-right" { panelOffset = -width * 0.44 }
     }
     #endif
 
     private var isSwipingPanel: Bool {
         panelSwipe.axis == .horizontal || panelOffset != 0 || panelTransition != nil
-    }
-
-    private var dividerDirection: Int {
-        // Keep the same edge while an abandoned drag animates back to zero.
-        panelTransition?.direction ?? (panelOffset >= 0 ? 1 : -1)
     }
 
     private func panel(programme: Bool, size: CGSize, height: CGFloat) -> some View {
@@ -223,8 +217,8 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque surfaces reveal the other panel rather than crossfading text.
-        // kuscBackground remains pure black in dark appearance.
-        .background(Color.kuscBackground)
+        // philharmonicBackground remains pure black in dark appearance.
+        .background(Color.philharmonicBackground)
     }
 
     private func portrait(size: CGSize) -> some View {
@@ -289,7 +283,7 @@ struct ContentView: View {
         Button {
             selectPanel(programme: programme, width: width)
         } label: {
-            Circle().fill(Color.kuscInk.opacity(showingProgramme == programme ? 0.65 : 0.2))
+            Circle().fill(Color.philharmonicInk.opacity(showingProgramme == programme ? 0.65 : 0.2))
                 .frame(width: 5, height: 5).frame(width: 44, height: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -305,14 +299,24 @@ struct ContentView: View {
                 guard !model.settings.minimalist, panelTransition == nil else { return }
                 if let offset = panelSwipe.translation(x: Double(value.translation.width),
                                                       y: Double(value.translation.height), width: Double(width)) {
-                    panelOffset = CGFloat(offset)
+                    let allowed = showingProgramme ? min(0, offset) : max(0, offset)
+                    let distance = abs(allowed)
+                    // A spring-dashpot under a steadily moving hand eases into motion.
+                    let resistance = min(18.0, Double(width) * 0.08)
+                    let full = Double(width) - resistance * (1 - exp(-Double(width) / resistance))
+                    let eased = (distance - resistance * (1 - exp(-distance / resistance))) * Double(width) / full
+                    panelOffset = CGFloat(allowed < 0 ? -eased : eased)
                 }
             }
             .onEnded { value in
                 guard !model.settings.minimalist, panelTransition == nil else { return }
                 let direction = panelSwipe.releaseDirection(x: Double(value.translation.width),
                     predictedX: Double(value.predictedEndTranslation.width), width: Double(width))
-                settlePanel(direction: direction, width: width)
+                let allowedDirection = showingProgramme ? -1 : 1
+                let selected = direction == allowedDirection ? direction : nil
+                let projected = (value.predictedEndTranslation.width - value.translation.width) * CGFloat(allowedDirection)
+                let velocity = selected == nil || width <= 0 ? 0 : min(1, max(0, Double(projected / width)))
+                settlePanel(direction: selected, width: width, velocity: velocity)
             }
     }
 
@@ -321,7 +325,7 @@ struct ContentView: View {
         settlePanel(direction: programme ? 1 : -1, width: width)
     }
 
-    private func settlePanel(direction: Int?, width: CGFloat) {
+    private func settlePanel(direction: Int?, width: CGFloat, velocity: Double = 0) {
         panelSwipe = PanelSwipeState()
         let target = direction.map { CGFloat($0) * width } ?? 0
         guard panelOffset != target else {
@@ -329,11 +333,11 @@ struct ContentView: View {
             resetPanelDrag()
             return
         }
-        panelTransition = PanelTransition(switchesPanel: direction != nil,
-                                          direction: direction ?? (panelOffset >= 0 ? 1 : -1))
-        withAnimation(.easeOut(duration: reduceMotion ? 0.12 : 0.26)) {
-            panelOffset = target
-        }
+        panelTransition = PanelTransition(switchesPanel: direction != nil)
+        // m = 1, k = 225, c = 2√(mk): critical damping settles without bounce.
+        let motion: Animation = reduceMotion ? .easeOut(duration: 0.12)
+            : .interpolatingSpring(mass: 1, stiffness: 225, damping: 30, initialVelocity: velocity)
+        withAnimation(motion) { panelOffset = target }
     }
 
     private func finishPanelTransition(id: UUID?) {

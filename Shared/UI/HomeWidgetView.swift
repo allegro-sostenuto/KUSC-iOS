@@ -3,6 +3,7 @@ import WidgetKit
 import UIKit
 
 enum HomeWidgetLayout: String, CaseIterable {
+    // Stable persisted WidgetKit kinds keep existing home-screen widgets configured.
     case playback = "KUSCPlaybackWidget"
     case artwork = "KUSCArtworkWidget"
     case details = "KUSCDetailsWidget"
@@ -59,7 +60,7 @@ struct HomeWidgetView: View {
                         HStack(alignment: .center, spacing: 18) {
                             cover.frame(width: min(136, proxy.size.height * 0.43), height: min(136, proxy.size.height * 0.43))
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(snapshot.programme.isEmpty ? "KUSC" : snapshot.programme)
+                                Text(snapshot.programme.isEmpty ? "Philharmonic" : snapshot.programme)
                                     .font(.subheadline.weight(.semibold)).lineLimit(2)
                                 if !snapshot.host.isEmpty {
                                     Text(snapshot.host).font(.caption).foregroundStyle(ink.opacity(0.75)).lineLimit(2)
@@ -118,12 +119,12 @@ struct HomeWidgetView: View {
 
     @ViewBuilder private func control(size: CGFloat) -> some View {
         if #available(iOS 17.0, *) {
-            Button(intent: SetKUSCWidgetPlaybackIntent(playing: !playing)) { controlImage(size: size) }
+            Button(intent: SetPhilharmonicWidgetPlaybackIntent(playing: !playing)) { controlImage(size: size) }
                 .buttonStyle(.plain)
-                .accessibilityLabel(playing ? "Pause KUSC" : "Play KUSC")
+                .accessibilityLabel(playing ? "Pause Philharmonic" : "Play Philharmonic")
         } else {
             Link(destination: WidgetPlaybackLink.url(playing: !playing)) { controlImage(size: size) }
-                .accessibilityLabel(playing ? "Pause KUSC" : "Play KUSC")
+                .accessibilityLabel(playing ? "Pause Philharmonic" : "Play Philharmonic")
         }
     }
 

@@ -1,8 +1,8 @@
-#if DEBUG && canImport(AVFoundation) && !canImport(KUSCCore)
+#if DEBUG && canImport(AVFoundation) && !canImport(PhilharmonicCore)
 import AVFoundation
 import Foundation
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 @MainActor final class BufferedAudioRendererTests: XCTestCase {
     private let origin = Date(timeIntervalSince1970: 1_789_900_000)

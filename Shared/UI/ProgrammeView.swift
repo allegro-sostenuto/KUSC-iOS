@@ -25,10 +25,10 @@ struct ProgrammeView: View {
                     if let current = model.currentItem {
                         row(current, isCurrent: true)
                             .padding(14)
-                            .background(Color.kuscSurface, in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 14))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
                             }
                     } else {
                         Text("Current piece information is unavailable.")
@@ -47,8 +47,8 @@ struct ProgrammeView: View {
         }
         .accessibilityIdentifier("programme-scroll")
         .modifier(PlayerRefreshModifier())
-        .foregroundStyle(Color.kuscInk)
-        .background(Color.kuscBackground)
+        .foregroundStyle(Color.philharmonicInk)
+        .background(Color.philharmonicBackground)
     }
 
     private func nonempty(_ value: String?) -> String? {
@@ -85,7 +85,7 @@ struct ProgrammeView: View {
                         row(item)
                             .padding(.vertical, 12)
                         Rectangle()
-                            .fill(Color.kuscSeparator)
+                            .fill(Color.philharmonicSeparator)
                             .frame(height: 0.5)
                             .accessibilityHidden(true)
                     }
@@ -125,7 +125,7 @@ struct ProgrammeView: View {
 
         }
         .font(.caption)
-        .foregroundStyle(isCurrent ? Color.kuscRed : Color.secondary)
+        .foregroundStyle(isCurrent ? Color.philharmonicRed : Color.secondary)
     }
 
     private func pieceLabel(_ item: ProgrammeItem, isCurrent: Bool) -> some View {

@@ -19,7 +19,7 @@ public struct PlaybackDiagnosticLog {
         guard let startedAt else { return "No playback diagnostic recording." }
         let status = hasFailure ? "First failure captured; recording frozen." :
             (isRecording ? "Recording." : "Recording stopped.")
-        let heading = "KUSC playback diagnostics\n\(status)\nStarted: \(Self.wallTime(startedAt))\nContext: \(context)"
+        let heading = "Philharmonic playback diagnostics\n\(status)\nStarted: \(Self.wallTime(startedAt))\nContext: \(context)"
         return heading + (events.isEmpty ? "" : "\n\n" + events.joined(separator: "\n"))
     }
 

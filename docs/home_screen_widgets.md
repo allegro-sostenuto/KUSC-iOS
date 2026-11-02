@@ -25,14 +25,14 @@ Both app profiles embed one extension. The modern extension also hosts the exist
 
 ## Validation
 
-[Build 36](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/38200838401), from source `9d5c213aec6714df176bdb02a003176b83556c8d`, uses Xcode 26.6 (17F113) and the iOS 26.5 SDK. On October 12, 2026 (Asia/Shanghai), both device packages, 123 portable tests, and 200 hosted plus eleven UI tests per simulator profile passed. Both simulator profiles produced 47 validated native captures, including sixteen widget captures apiece. The additional checks exercise pull-to-refresh on both player panels, cache bypass and retained data after a failed refresh. Manual refresh publishes changed heard-item data through the existing widget path. This evidence does not replace the phone checks below.
+[Build 36](https://github.com/allegro-sostenuto/philharmonic/actions/runs/38200838401), from source `9d5c213aec6714df176bdb02a003176b83556c8d`, uses Xcode 26.6 (17F113) and the iOS 26.5 SDK. On October 12, 2026 (Asia/Shanghai), both device packages, 123 portable tests, and 200 hosted plus eleven UI tests per simulator profile passed. Both simulator profiles produced 47 validated native captures, including sixteen widget captures apiece. The additional checks exercise pull-to-refresh on both player panels, cache bypass and retained data after a failed refresh. Manual refresh publishes changed heard-item data through the existing widget path. This evidence does not replace the phone checks below.
 
 Verified IPA SHA-256:
 
 | Package | SHA-256 |
 | --- | --- |
-| KUSC-17 | `bc3843427775be16a10a3ae428f6bc21cc3cc952064f091f9dda1536730c6fad` |
-| KUSC-SE | `cf447caff0098e33845c461f799def640e47048e4f382486c93d49583b70c1d2` |
+| Philharmonic-17 | `bc3843427775be16a10a3ae428f6bc21cc3cc952064f091f9dda1536730c6fad` |
+| Philharmonic-SE | `cf447caff0098e33845c461f799def640e47048e4f382486c93d49583b70c1d2` |
 
 Artifact ZIP digests and local IPA checksums were verified. Windows checks cover the package structure, matching App Group identifiers, app/extension versions and device Mach-O platform. The full signature and entitlement audit ran on macOS CI; it was not substituted with a Windows signature check.
 
@@ -40,7 +40,7 @@ Automated checks cover snapshot round trips, corrupt-file fallback, bounded cont
 
 Phone acceptance:
 
-1. Install keeping the widget extension, open KUSC once, then add all six gallery entries.
+1. Install keeping the widget extension, open Philharmonic once, then add all six gallery entries.
 2. Confirm Album Art Only is a small square with no controls, Music Details Only is medium with no controls, and the original four layouts retain their controls. No Home Screen widget has Live. Check light/dark and long titles.
 3. Play and Pause from each of the four widgets with controls while the app is backgrounded. Repeated Play/Pause should keep the requested state. Test after an audio interruption and after force-quitting the app.
 4. Rewind to an earlier work; confirm widget metadata/artwork follow what is heard. Pause and check the last heard item stays displayed. Missing artwork should show a music note.

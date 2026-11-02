@@ -1,6 +1,9 @@
-# KUSC for iPhone
+# Philharmonic
 
-Native private-use KUSC FM 91.5 player, with shared Swift/SwiftUI source and separate iOS 16 and iOS 26 app targets. Build from Windows through the included public-repository GitHub Actions workflow, then install with AltStore Classic and AltServer. Exact steps for both phones are in **[installation_guides.md](installation_guides.md)**; no local Mac or paid Apple membership is required for that route.
+
+Philharmonic is a private-use classical-radio player for iOS and Android. KUSC FM 91.5 is the currently implemented station; the approved multi-station expansion is planned for a future update. The iPhone app has shared Swift/SwiftUI source and separate iOS 16 and iOS 26 targets. Build from Windows through the included public-repository GitHub Actions workflow, then install with AltStore Classic and AltServer. Exact steps for both phones are in **[installation_guides.md](installation_guides.md)**; no local Mac or paid Apple membership is required for that route.
+
+The project and repository are named **Philharmonic**. Existing installation identifiers, widget kinds, widget links, preference storage and Android compatibility components retain their earlier opaque values so the rename can update installed apps without losing configuration. KUSC station names, broadcaster URLs, real metadata fixtures and archived build evidence continue to identify their actual source. Current targets, modules, code namespaces, build variables, artifacts and app labels use Philharmonic. Historical UI comparisons explicitly support the former project name.
 
 **Current scope — 2 November 2026:** both iPhone and Android apps are live-only. Delayed playback, rolling rewind history, the listening-position slider and Resume Where Paused are removed until a server is acquired and a server-backed implementation is designed and tested. Play after a pause joins live; old saved delay preferences are discarded without resetting appearance, autoplay, sleep defaults or scheduled starts. Ordinary HLS transport headroom remains; live streaming is not zero-latency audio. See [the live-only update](docs/live_only_2026-11-02.md).
 
@@ -8,8 +11,8 @@ Earlier playback, scheduling, widget and interface validation remains documented
 
 ## Windows build and installation
 
-1. Extract the KUSC folder and publish its contents at the root of a public GitHub repository, including `.github`. Keep the app bundle prefix stable and leave `DEVELOPMENT_TEAM` blank for this route.
-2. The **Build unsigned iPhone apps** workflow runs Foundation tests and unsigned device builds on a standard `macos-26` runner. Download the appropriate `KUSC-SE-unsigned-ipa` or `KUSC-17-unsigned-ipa` artifact.
+1. Extract the philharmonic folder and publish its contents at the root of a public GitHub repository, including `.github`. Keep the app bundle prefix stable and leave `DEVELOPMENT_TEAM` blank for this route.
+2. The **Build unsigned iPhone apps** workflow runs Foundation tests and unsigned device builds on a standard `macos-26` runner. Download the appropriate `Philharmonic-SE-unsigned-ipa` or `Philharmonic-17-unsigned-ipa` artifact.
 3. Extract the artifact ZIP. Import its IPA using **AltStore Classic → My Apps → +**, with AltServer for Windows reachable. Keep the widget extension in either build; the iPhone 17 extension also provides Live Activities.
 4. Enable Developer Mode and verify initial playback and manual Refresh All. Background refresh is attempted automatically; a missed refresh still requires intervention. The existing build is re-signed without a weekly source rebuild.
 
@@ -19,16 +22,20 @@ The two ordinary schemes already exclude restricted entitlements and serve as th
 
 Direct Mac/Xcode installation remains available in [mac_installation.md](docs/mac_installation.md). No existing app feature was removed to support unsigned compilation.
 
-The KUSC app itself needs no third-party SDKs, API keys, backend, analytics, or account system. AltStore installation uses the owner's Apple Account separately. Project generation is already complete. `scripts/generate_project.py` can regenerate the project after source-file changes; it uses Python's standard library. The app icon is included in every required PNG size, with its original vector source.
+The Philharmonic app itself needs no third-party SDKs, API keys, backend, analytics, or account system. AltStore installation uses the owner's Apple Account separately. Project generation is already complete. `scripts/generate_project.py` can regenerate the project after source-file changes; it uses Python's standard library. The app icon is included in every required PNG size, with its original vector source.
 
 | Scheme | Minimum OS | Features |
 |---|---|---|
-| KUSC-SE | iOS 16.0 | Shared full player, native system media controls |
-| KUSC-17 | iOS 26.0 | Shared player plus interactive Live Activity |
-| KUSC-SE-CarPlay | iOS 16.0 | SE build plus restricted CarPlay audio entitlement |
-| KUSC-17-CarPlay | iOS 26.0 | iPhone 17 build plus restricted CarPlay audio entitlement |
+| Philharmonic-SE | iOS 16.0 | Shared full player, native system media controls |
+| Philharmonic-17 | iOS 26.0 | Shared player plus interactive Live Activity |
+| Philharmonic-SE-CarPlay | iOS 16.0 | SE build plus restricted CarPlay audio entitlement |
+| Philharmonic-17-CarPlay | iOS 26.0 | iPhone 17 build plus restricted CarPlay audio entitlement |
 
 CarPlay variants intentionally use the corresponding normal app's bundle identifier. Install one variant per device; installing another updates/replaces that app. Default schemes do not request the restricted entitlement.
+
+## Versioning
+
+The iPhone app uses major.minor.patch: major updates increment the first number, small features the second, and bug fixes the third. Settings shows the version and separate build number. CI assigns its workflow run number to each build; local builds use the build number supplied to the build script.
 
 ## Implemented behavior
 
@@ -100,4 +107,4 @@ swift test
 ./scripts/build_and_test.sh
 ```
 
-The script runs Foundation tests and unsigned simulator builds for all four schemes. It does not sign, install, or claim a hardware pass. For hosted XCTest execution, select `KUSC-SE`, choose an installed iPhone simulator, and press Command-U. Complete the separate physical-device checklist with the debugger detached. No test depends on live station availability; source fixtures are captured station data used only in tests.
+The script runs Foundation tests and unsigned simulator builds for all four schemes. It does not sign, install, or claim a hardware pass. For hosted XCTest execution, select `Philharmonic-SE`, choose an installed iPhone simulator, and press Command-U. Complete the separate physical-device checklist with the debugger detached. No test depends on live station availability; source fixtures are captured station data used only in tests.

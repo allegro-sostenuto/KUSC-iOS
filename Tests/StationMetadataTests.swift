@@ -1,12 +1,12 @@
 import Foundation
 import XCTest
-#if canImport(UIKit) && !canImport(KUSCCore)
+#if canImport(UIKit) && !canImport(PhilharmonicCore)
 import UIKit
 #endif
-#if canImport(KUSCCore)
-@testable import KUSCCore
+#if canImport(PhilharmonicCore)
+@testable import PhilharmonicCore
 #else
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 #endif
 
 final class StationMetadataTests: XCTestCase {
@@ -31,7 +31,7 @@ final class StationMetadataTests: XCTestCase {
         XCTAssertEqual(clock.update(station: nil, seconds: 0, now: start.addingTimeInterval(700), advancing: true), start.addingTimeInterval(700))
     }
 
-    #if canImport(UIKit) && !canImport(KUSCCore)
+    #if canImport(UIKit) && !canImport(PhilharmonicCore)
     @MainActor func testChangedInlineArtworkForTheSamePieceGetsANewCacheURL() throws {
         let store = StationArtworkStore()
         let id = "artwork-regression-\(UUID().uuidString)"
@@ -200,7 +200,7 @@ final class StationMetadataTests: XCTestCase {
     }
 }
 
-#if canImport(UIKit) && !canImport(KUSCCore)
+#if canImport(UIKit) && !canImport(PhilharmonicCore)
 private final class MetadataResponseProtocol: URLProtocol {
     static var failRequests = false
     static var current = Data()

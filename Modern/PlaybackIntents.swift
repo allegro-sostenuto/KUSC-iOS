@@ -1,7 +1,7 @@
 import AppIntents
 
-struct ToggleKUSCPlaybackIntent: LiveActivityIntent, AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Play or pause KUSC"
+struct TogglePhilharmonicPlaybackIntent: LiveActivityIntent, AudioPlaybackIntent {
+    static var title: LocalizedStringResource = "Play or pause Philharmonic"
     func perform() async throws -> some IntentResult {
         // AudioPlaybackIntent dispatches this intent to the app process. This source is
         // also compiled into the extension so WidgetKit can encode its identity.
@@ -15,7 +15,7 @@ struct ToggleKUSCPlaybackIntent: LiveActivityIntent, AudioPlaybackIntent {
     }
 }
 struct GoLiveIntent: LiveActivityIntent, AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "KUSC Live"
+    static var title: LocalizedStringResource = "Philharmonic Live"
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
         await MainActor.run { AppModel.shared.goLive() }

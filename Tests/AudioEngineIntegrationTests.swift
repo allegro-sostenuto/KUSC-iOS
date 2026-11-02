@@ -1,10 +1,10 @@
-// These exercise AVFoundation ownership, so they run in the native KUSCTests
+// These exercise AVFoundation ownership, so they run in the native PhilharmonicTests
 // target rather than the portable policy package. No station request is used.
-#if DEBUG && canImport(AVFoundation) && !canImport(KUSCCore)
+#if DEBUG && canImport(AVFoundation) && !canImport(PhilharmonicCore)
 import AVFoundation
 import Foundation
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
     func testOrdinaryEngineIgnoresLegacyRetentionAndCannotSeek() async throws {

@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>com.apple.security.application-groups</key>
-    <array><string>group.$(KUSC_BUNDLE_PREFIX).$(KUSC_PROFILE).widgets</string></array>
+    <array><string>group.$(PHILHARMONIC_BUNDLE_PREFIX).$(PHILHARMONIC_PROFILE).widgets</string></array>
 </dict>
 </plist>

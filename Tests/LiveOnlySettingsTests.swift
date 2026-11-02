@@ -1,6 +1,6 @@
-#if canImport(UIKit) && !canImport(KUSCCore)
+#if canImport(UIKit) && !canImport(PhilharmonicCore)
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 final class LiveOnlySettingsTests: XCTestCase {
     func testOldHistoryAndResumePreferencesAreRemovedWithoutLosingOtherSettings() throws {

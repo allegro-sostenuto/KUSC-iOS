@@ -1,10 +1,10 @@
 # Scheduled-start updates — 5–12 October 2026
 
-The original build **29**, source `b5097ffd01dc8da3a5565fe4eb4cc14dd32f64ae`, passed [its CI workflow](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/37312008040) after the owner's reports about stale interruption state, silent standby stopping other apps, and pulsing dark-menu text. The current follow-up is **build 35**, described below.
+The original build **29**, source `b5097ffd01dc8da3a5565fe4eb4cc14dd32f64ae`, passed [its CI workflow](https://github.com/allegro-sostenuto/philharmonic/actions/runs/37312008040) after the owner's reports about stale interruption state, silent standby stopping other apps, and pulsing dark-menu text. The current follow-up is **build 35**, described below.
 
 ## October 12 follow-up verification
 
-[Build 35](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/38157185728), source `5f59da3b6702f547bbca7e0bf0a86181d2529257`, passes both device packages, 123 portable tests, 25 focused native audio tests, and 198 hosted plus nine UI tests on each simulator profile. Each profile produces 47 validated captures. The regression tests exercise all output modes with delayed readiness, the full minute at the real AVPlayer/sample-buffer volume boundary, expiry while waiting/paused/playing/fading, completed-request relaunch, and the retained battery safeguard. Metadata tests cover missing/frozen programme dates, slow day-history responses, HTTP cache bypass and corrected inline artwork. Both downloaded IPAs match their artifact digests and embedded source revision; hashes are in [the widget/package report](home_screen_widgets.md).
+[Build 35](https://github.com/allegro-sostenuto/philharmonic/actions/runs/38157185728), source `5f59da3b6702f547bbca7e0bf0a86181d2529257`, passes both device packages, 123 portable tests, 25 focused native audio tests, and 198 hosted plus nine UI tests on each simulator profile. Each profile produces 47 validated captures. The regression tests exercise all output modes with delayed readiness, the full minute at the real AVPlayer/sample-buffer volume boundary, expiry while waiting/paused/playing/fading, completed-request relaunch, and the retained battery safeguard. Metadata tests cover missing/frozen programme dates, slow day-history responses, HTTP cache bypass and corrected inline artwork. Both downloaded IPAs match their artifact digests and embedded source revision; hashes are in [the widget/package report](home_screen_widgets.md).
 
 Build 34 passed the same production tests but failed one UI assertion per profile that still expected the obsolete manual-deletion wording. Build 35 changes that assertion to verify both automatic expiry and earlier deletion; the production source is unchanged from build 34. The audible phone fade and live WidgetKit delivery remain physical checks in [the test plan](manual_test_plan.md#october-12-scheduled-start-and-metadata-follow-up).
 
@@ -48,8 +48,8 @@ Both downloaded IPAs pass artifact-digest, IPA-checksum, embedded-source, bundle
 
 | Package | SHA-256 |
 |---|---|
-| KUSC-17-unsigned.ipa | `ed561d635a1155e9d2b65b951d8d10a8944730ea3216d782917285ae78c4b38d` |
-| KUSC-SE-unsigned.ipa | `6872362d3e086609a915c857365ad9002857c1bd8055ea56f5d178f229954261` |
+| Philharmonic-17-unsigned.ipa | `ed561d635a1155e9d2b65b951d8d10a8944730ea3216d782917285ae78c4b38d` |
+| Philharmonic-SE-unsigned.ipa | `6872362d3e086609a915c857365ad9002857c1bd8055ea56f5d178f229954261` |
 
 Packages, test logs and verification records are under `artifacts/ci-37312008040/`.
 

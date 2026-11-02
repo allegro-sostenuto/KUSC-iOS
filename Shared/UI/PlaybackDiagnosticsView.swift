@@ -59,7 +59,7 @@ struct PlaybackDiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("1. Start a new capture here before reproducing the problem.")
                     Text("2. Return to Now Playing and tap Play. Repeat the actions that cause the problem, such as pausing, resuming or changing audio output.")
-                    Text("3. Keep KUSC open for at least 45 seconds, or until the failure is captured.")
+                    Text("3. Keep Philharmonic open for at least 45 seconds, or until the failure is captured.")
                     Text("4. After the problem occurs, return here to share or copy the report.")
                 }
                 .font(.subheadline)
@@ -89,20 +89,20 @@ struct PlaybackDiagnosticsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.kuscBackground)
-        .foregroundStyle(Color.kuscInk)
-        .tint(.kuscRed)
+        .background(Color.philharmonicBackground)
+        .foregroundStyle(Color.philharmonicInk)
+        .tint(.philharmonicRed)
         .navigationTitle("Playback Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.kuscBackground, for: .navigationBar)
+        .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
     }
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Color.kuscSurface)
+            .fill(Color.philharmonicSurface)
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.kuscSeparator, lineWidth: 0.75)
+                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
             }
     }
 }

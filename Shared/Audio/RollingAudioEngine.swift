@@ -113,7 +113,7 @@ final class RollingAudioEngine {
     private var runDirectory: URL?
 
     private static var bufferDirectory: URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("KUSC-RollingAudio", isDirectory: true)
+        FileManager.default.temporaryDirectory.appendingPathComponent("Philharmonic-RollingAudio", isDirectory: true)
     }
 
     init(prepareDirectStream: @escaping (URL) async throws -> URL = { url in
@@ -698,11 +698,11 @@ final class RollingAudioEngine {
     private func recordDiagnostic(_ event: String) {
         diagnostics.record("generation=\(generation.uuidString.prefix(8)) \(event)")
         #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-KUSCAudioDiagnostics") else { return }
+        guard ProcessInfo.processInfo.arguments.contains("-PhilharmonicAudioDiagnostics") else { return }
         let line = "\(ProcessInfo.processInfo.systemUptime) session=\(generation) \(event)"
         diagnosticEvents.append(line)
         if diagnosticEvents.count > 256 { diagnosticEvents.removeFirst(diagnosticEvents.count - 256) }
-        print("[KUSC audio] \(line)")
+        print("[Philharmonic audio] \(line)")
         #endif
     }
 

@@ -1,6 +1,6 @@
-#if canImport(UIKit) && !canImport(KUSCCore) && DEBUG
+#if canImport(UIKit) && !canImport(PhilharmonicCore) && DEBUG
 import XCTest
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 final class PlaybackDiagnosticsIntegrationTests: XCTestCase {
     @MainActor func testFirstFailureSurvivesImmediatePausedEngineTeardown() {

@@ -4,8 +4,8 @@ import Foundation
 /// AudioPlaybackIntent executes in the containing app, including a cold launch.
 /// Encode the action shown on the button; stale widgets must not invert intent.
 @available(iOS 17.0, *)
-struct SetKUSCWidgetPlaybackIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "Set KUSC playback"
+struct SetPhilharmonicWidgetPlaybackIntent: AudioPlaybackIntent {
+    static var title: LocalizedStringResource = "Set Philharmonic playback"
     static var isDiscoverable: Bool = false
     @Parameter(title: "Play") var playing: Bool
 
@@ -22,7 +22,7 @@ struct SetKUSCWidgetPlaybackIntent: AudioPlaybackIntent {
 
 enum WidgetPlaybackLink {
     static func url(playing: Bool) -> URL {
-        let scheme = Bundle.main.object(forInfoDictionaryKey: "KUSCURLScheme") as? String ?? "kusc-modern"
+        let scheme = Bundle.main.object(forInfoDictionaryKey: "PhilharmonicURLScheme") as? String ?? "kusc-modern"
         return URL(string: "\(scheme)://playback/\(playing ? "play" : "pause")")!
     }
 

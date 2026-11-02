@@ -1,4 +1,4 @@
-# KUSC installation guides — Windows, iPhone SE, and iPhone 17
+# Philharmonic installation guides — Windows, iPhone SE, and iPhone 17
 
 The supported zero-cost workflow is **public GitHub repository → standard macOS GitHub Actions runner → unsigned iPhone IPA → AltStore Classic with AltServer for Windows**. No local Mac, cloud-Mac subscription, paid Apple membership, or Apple credentials in GitHub are required. The Mac/Xcode runtime still performs compilation, on GitHub's runner. Standard runners are free for public repositories. [GitHub runner policy](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
@@ -8,41 +8,41 @@ The workflow and packaging checks are included. No GitHub build or physical AltS
 
 ## 1. Select the device build
 
-| Phone | KUSC minimum OS | Actions artifact | File inside artifact ZIP |
+| Phone | Philharmonic minimum OS | Actions artifact | File inside artifact ZIP |
 |---|---|---|---|
-| iPhone SE, 2nd generation (2020) | iOS 16.0 | `KUSC-SE-unsigned-ipa` | `KUSC-SE-unsigned.ipa` |
-| iPhone SE, 3rd generation (2022) | iOS 16.0 | `KUSC-SE-unsigned-ipa` | `KUSC-SE-unsigned.ipa` |
-| iPhone 17 | iOS 26.0 | `KUSC-17-unsigned-ipa` | `KUSC-17-unsigned.ipa` |
+| iPhone SE, 2nd generation (2020) | iOS 16.0 | `Philharmonic-SE-unsigned-ipa` | `Philharmonic-SE-unsigned.ipa` |
+| iPhone SE, 3rd generation (2022) | iOS 16.0 | `Philharmonic-SE-unsigned-ipa` | `Philharmonic-SE-unsigned.ipa` |
+| iPhone 17 | iOS 26.0 | `Philharmonic-17-unsigned-ipa` | `Philharmonic-17-unsigned.ipa` |
 | Original iPhone SE (2016) | Unsupported | None | None |
 
 Check **Settings → General → About** for the phone model and iOS version. The original SE cannot meet this project's iOS 16 deployment minimum. [Apple iOS 16 device compatibility](https://support.apple.com/en-us/103267).
 
-**AltStore has its own OS requirement.** Current AltStore Classic 2.3 requires iOS 17.4 or later. For an SE still on iOS 16–17.3, current AltServer's documented compatibility selection downloads the latest compatible older AltStore release. Its availability and successful install must be checked on that phone; the current 2.3 IPA cannot be installed by ignoring its minimum OS. KUSC-SE itself retains the requested iOS 16 minimum. [AltStore release notes](https://faq.altstore.io/release-notes/altstore), [AltServer compatibility selection](https://faq.altstore.io/release-notes/altserver).
+**AltStore has its own OS requirement.** Current AltStore Classic 2.3 requires iOS 17.4 or later. For an SE still on iOS 16–17.3, current AltServer's documented compatibility selection downloads the latest compatible older AltStore release. Its availability and successful install must be checked on that phone; the current 2.3 IPA cannot be installed by ignoring its minimum OS. Philharmonic-SE itself retains the requested iOS 16 minimum. [AltStore release notes](https://faq.altstore.io/release-notes/altstore), [AltServer compatibility selection](https://faq.altstore.io/release-notes/altserver).
 
 Both packages include one Home Screen widget extension. The iPhone 17 extension also provides the Live Activity and Dynamic Island presentation. Both contain the same player core. Neither CI artifact includes the restricted full CarPlay app.
 
 ## 2. Put the source in a public GitHub repository
 
-Install Git for Windows from [the official Git website](https://git-scm.com/downloads/win). Extract `KUSC_iOS_App.zip`. Work inside its `KUSC` directory, which contains `KUSC.xcodeproj`, `Shared`, `scripts`, and `.github`.
+Install Git for Windows from [the official Git website](https://git-scm.com/downloads/win). Clone or download [the Philharmonic repository](https://github.com/allegro-sostenuto/philharmonic). Work at the source root, which contains `Philharmonic.xcodeproj`, `Shared`, `scripts`, and `.github`. The owner's local checkout is `F:\projects\philharmonic`.
 
-On GitHub, create an empty **public** repository named `KUSC`. Do not initialize it with another README or other files. [GitHub: create a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository).
+On GitHub, create an empty **public** repository named `philharmonic`. Do not initialize it with another README or other files. [GitHub: create a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository).
 
-Open PowerShell in the extracted `KUSC` directory. Replace `YOUR_GITHUB_NAME` in the remote URL:
+Open PowerShell in the extracted `philharmonic` directory. Replace `YOUR_GITHUB_NAME` in the remote URL:
 
 ```powershell
 git init
 git branch -M main
 git add .
-git commit -m "Add KUSC iPhone app and unsigned build workflow"
-git remote add origin https://github.com/YOUR_GITHUB_NAME/KUSC.git
+git commit -m "Add Philharmonic iPhone app and unsigned build workflow"
+git remote add origin https://github.com/YOUR_GITHUB_NAME/philharmonic.git
 git push -u origin main
 ```
 
 Complete GitHub's normal sign-in if requested. If Git requests a commit author, configure the intended Git username and email; GitHub supplies an optional no-reply address under account Email settings. This login is separate from Apple signing.
 
-**Repository layout matters:** `.github/workflows/ios-device-build.yml` and `KUSC.xcodeproj` must both be at the repository root. Uploading the outer `KUSC` directory as a nested folder without moving `.github` to the root will prevent workflow discovery. Uploading only the ZIP does not create a buildable repository. Git includes the supplied `.github` directory through `git add .`.
+**Repository layout matters:** `.github/workflows/ios-device-build.yml` and `Philharmonic.xcodeproj` must both be at the repository root. Uploading the outer `philharmonic` directory as a nested folder without moving `.github` to the root will prevent workflow discovery. Uploading only the ZIP does not create a buildable repository. Git includes the supplied `.github` directory through `git add .`.
 
-Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this route. Keep `KUSC_BUNDLE_PREFIX = org.personal.kusc` stable unless deliberately changing app identity. CI disables signing and does not need a unique registered developer identifier. AltStore performs personal provisioning during installation. Keep Apple passwords, certificates, profiles, and device identifiers outside the repository and GitHub secrets.
+Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this route. Keep `PHILHARMONIC_BUNDLE_PREFIX = org.personal.kusc` stable unless deliberately changing app identity. CI disables signing and does not need a unique registered developer identifier. AltStore performs personal provisioning during installation. Keep Apple passwords, certificates, profiles, and device identifiers outside the repository and GitHub secrets.
 
 ## 3. Compile both device IPAs on GitHub
 
@@ -52,11 +52,11 @@ Leave `DEVELOPMENT_TEAM` blank in `Configuration/Signing.xcconfig` for this rout
 4. Open the successful run's summary and download the artifact matching the phone from the table above. Artifact download may require signing into GitHub. [GitHub artifact downloads](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/downloading-workflow-artifacts).
 5. Extract the downloaded artifact ZIP. The resulting `.ipa` is the file imported into AltStore. Keep a local copy; Actions artifacts in this workflow expire after 14 days.
 
-The supplied workflow uses standard `macos-26`, an explicitly selected Xcode 26 installation, shared `KUSC-SE` / `KUSC-17` schemes, Release configuration, and **`generic/platform=iOS`**. The build is a device binary, not a simulator app. Apple identity signing is disabled; packaging adds an identity-free ad-hoc signature carrying the widget App Group entitlement for AltStore. Checks verify the app/extension structure, matching group, device architecture/platform, deployment versions, and absence of provisioning material before artifact upload.
+The supplied workflow uses standard `macos-26`, an explicitly selected Xcode 26 installation, shared `Philharmonic-SE` / `Philharmonic-17` schemes, Release configuration, and **`generic/platform=iOS`**. The build is a device binary, not a simulator app. Apple identity signing is disabled; packaging adds an identity-free ad-hoc signature carrying the widget App Group entitlement for AltStore. Checks verify the app/extension structure, matching group, device architecture/platform, deployment versions, and absence of provisioning material before artifact upload.
 
 The workflow runs only for public repositories. It excludes CarPlay schemes and contains no weekly schedule. GitHub rebuilds are needed after source changes or when an artifact needs to be regenerated; seven-day signing renewal happens through AltStore. Keep the standard runner label; larger runners are billed separately. [GitHub billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
-The September 20 update preserves the app and extension identifiers. Install its IPA over the existing KUSC app using the same Apple account and retain the iPhone 17 extension. The `native-ui-screenshots` artifact, when present, is simulator evidence, not an installable app. Scheduled output preferences refer to an output actually selected through iOS; keep that device connected and selected until the start, or explicitly choose current-output fallback. Automatic playback and fades still require on-device verification after installing the update.
+The September 20 update preserves the app and extension identifiers. Install its IPA over the existing Philharmonic app using the same Apple account and retain the iPhone 17 extension. The `native-ui-screenshots` artifact, when present, is simulator evidence, not an installable app. Scheduled output preferences refer to an output actually selected through iOS; keep that device connected and selected until the start, or explicitly choose current-output fallback. Automatic playback and fades still require on-device verification after installing the update.
 
 If the job fails, open its failing step. A failed build produces no usable IPA. Xcode-image selection errors are resolved against GitHub's current [macOS 26 image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md), without switching the build to a simulator destination or adding Apple signing credentials.
 
@@ -78,9 +78,9 @@ Use the current Windows AltServer release, particularly on recent iOS 26 version
 ## 5. Install on iPhone SE
 
 1. Complete AltServer setup for the second- or third-generation SE. On iOS 16–17.3, verify that AltServer selected a compatible older AltStore; 2.3 requires iOS 17.4.
-2. Download and extract `KUSC-SE-unsigned-ipa`, then place **`KUSC-SE-unsigned.ipa`** in the SE's Files app. A direct download to the phone also works; extract the GitHub artifact ZIP first.
+2. Download and extract `Philharmonic-SE-unsigned-ipa`, then place **`Philharmonic-SE-unsigned.ipa`** in the SE's Files app. A direct download to the phone also works; extract the GitHub artifact ZIP first.
 3. Keep AltServer available on the same Wi-Fi network, or keep the phone connected by USB. Open **AltStore Classic → My Apps → +**, choose the IPA from Files, and complete the install.
-4. Confirm that **KUSC** appears under AltStore's My Apps and shows an expiry date. Open KUSC from the Home Screen.
+4. Confirm that **Philharmonic** appears under AltStore's My Apps and shows an expiry date. Open Philharmonic from the Home Screen.
 5. Confirm audio, lock-screen Play/Pause, background playback, rotation, and the in-app Live button. The buffer defaults to zero; its wheel setting is under the top-right gear.
 6. Run **Refresh All** once while AltServer is reachable. Installation alone does not prove that refresh works.
 
@@ -89,13 +89,13 @@ Use the SE IPA even if the SE is updated to a newer supported iOS version. Keep 
 ## 6. Install on iPhone 17
 
 1. Complete AltServer setup for the iPhone 17 on iOS 26 or later.
-2. Download and extract `KUSC-17-unsigned-ipa`, then place **`KUSC-17-unsigned.ipa`** in Files.
+2. Download and extract `Philharmonic-17-unsigned-ipa`, then place **`Philharmonic-17-unsigned.ipa`** in Files.
 3. With AltServer reachable, open **AltStore Classic → My Apps → +**, select the IPA, and install it.
 4. If AltStore offers to remove app extensions, **keep the widget extension**. Removing it removes the Home Screen widgets and, on the iPhone 17 build, the custom Dynamic Island presentation. Each build uses one app App ID plus one extension App ID; AltStore's own registrations and other apps also consume the account's quota. [AltStore App ID accounting](https://faq.altstore.io/altstore-classic/app-ids).
-5. Open KUSC and start playback in the foreground. Allow Live Activities in the phone's KUSC settings if offered. Inspect the compact and expanded activity, then test Play/Pause and Live. Its exact placement and lifetime remain controlled by iOS.
-6. Run **Refresh All** once and verify that both AltStore and KUSC receive renewed expiration dates.
+5. Open Philharmonic and start playback in the foreground. Allow Live Activities in the phone's Philharmonic settings if offered. Inspect the compact and expanded activity, then test Play/Pause and Live. Its exact placement and lifetime remain controlled by iOS.
+6. Run **Refresh All** once and verify that both AltStore and Philharmonic receive renewed expiration dates.
 
-The Home Screen widgets use an App Group shared with their containing app; AltStore provisions and re-signs both bundles. After installation, open KUSC once, then add any of the six entries from the Home Screen widget gallery. The Live Activity still uses local updates without APNs. Verify transport controls and metadata sharing on the installed phone, including after AltStore refresh. System media controls continue working independently. Widget details and device checks are in [home_screen_widgets.md](docs/home_screen_widgets.md).
+The Home Screen widgets use an App Group shared with their containing app; AltStore provisions and re-signs both bundles. After installation, open Philharmonic once, then add any of the six entries from the Home Screen widget gallery. The Live Activity still uses local updates without APNs. Verify transport controls and metadata sharing on the installed phone, including after AltStore refresh. System media controls continue working independently. Widget details and device checks are in [home_screen_widgets.md](docs/home_screen_widgets.md).
 
 ## 7. Keep the existing build refreshed
 
@@ -105,9 +105,9 @@ For the local AltServer route documented here:
 - Keep AltStore's Background Refresh enabled, along with its applicable iOS Background App Refresh setting. Allow the computer to remain awake during refresh opportunities.
 - Check that a manual **My Apps → Refresh All** succeeds after setup. Background refresh is a separate behavior that must be observed before relying on it.
 - If refresh fails, reconnect to AltServer and use **Refresh All** before expiry. No new GitHub build or IPA download is required.
-- If AltStore itself has expired, reinstall AltStore through AltServer using the same account, without deleting AltStore first; then refresh the managed KUSC app. [AltServer operation and recovery](https://faq.altstore.io/altstore-classic/altserver).
+- If AltStore itself has expired, reinstall AltStore through AltServer using the same account, without deleting AltStore first; then refresh the managed Philharmonic app. [AltServer operation and recovery](https://faq.altstore.io/altstore-classic/altserver).
 
-Do not rely on AltServer's separate direct **Sideload .ipa** command for this workflow. The documented direct-only route needs manual reinstall; importing through AltStore Classic puts KUSC under its refresh management. [AltServer sideloading and refresh](https://faq.altstore.io/release-notes/altserver).
+Do not rely on AltServer's separate direct **Sideload .ipa** command for this workflow. The documented direct-only route needs manual reinstall; importing through AltStore Classic puts Philharmonic under its refresh management. [AltServer sideloading and refresh](https://faq.altstore.io/release-notes/altserver).
 
 AltStore Classic 2.3 also introduces Remote AltServer. That is a separate configuration; this guide does not require it. Same-network/USB instructions above apply to the local Windows AltServer route, not to every possible AltStore configuration. [AltStore 2.3 release notes](https://faq.altstore.io/release-notes/altstore).
 
@@ -119,18 +119,18 @@ Commit and push changes from the same repository:
 
 ```powershell
 git add .
-git commit -m "Update KUSC"
+git commit -m "Update Philharmonic"
 git push
 ```
 
-Download the new matching artifact and import its IPA through AltStore again using the same Apple Account. Keep the existing bundle prefix and app variant so the install is an update to the same app. CI supplies the run number as the build version for the app and extension together. Do not delete KUSC before an ordinary update; verify that settings remain after the first update.
+Download the new matching artifact and import its IPA through AltStore again using the same Apple Account. Keep the existing bundle prefix and app variant so the install is an update to the same app. CI supplies the run number as the build version for the app and extension together. Do not delete Philharmonic before an ordinary update; verify that settings remain after the first update.
 
 | Operation | Recompile on GitHub? | Import a new IPA? |
 |---|---|---|
 | Renew the current seven-day profile | No | No; use AltStore refresh |
 | Install a changed source build | Yes | Yes |
 | Reinstall an already-downloaded unchanged build | No | Use the saved IPA |
-| Recover an expired AltStore | No KUSC rebuild | Reinstall AltStore through AltServer, then refresh KUSC |
+| Recover an expired AltStore | No Philharmonic rebuild | Reinstall AltStore through AltServer, then refresh Philharmonic |
 
 ## 9. Capability boundary and troubleshooting
 
@@ -145,7 +145,7 @@ Download the new matching artifact and import its IPA through AltStore again usi
 | Too many App IDs or active apps | Inspect AltStore's App ID/active-app lists; extensions count toward IDs. |
 | AltStore cannot find AltServer | Check Wi-Fi sync, private-network firewall access, Windows wake state, or USB. |
 | SE reports incompatible AltStore | Use AltServer's latest-compatible-version selection; current Classic 2.3 requires iOS 17.4. |
-| KUSC stops opening after a week | Restore AltServer connectivity and refresh; recover expired AltStore first if necessary. |
+| Philharmonic stops opening after a week | Restore AltServer connectivity and refresh; recover expired AltStore first if necessary. |
 | Recent iOS 26 app crashes after signing | Update Windows AltServer; 1.7.4 includes the documented iOS 26.4 signing fix. |
 | Dynamic Island missing | Verify the 17 IPA, retained extension, Live Activities permission, and foreground playback start. |
 | CarPlay entitlement failure | Use one of the two ordinary CI artifacts. |

@@ -2,6 +2,12 @@ name: Build unsigned iPhone apps
 
 on:
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: Build IPAs without running the test suites
+        type: boolean
+        default: false
+        required: false
   pull_request:
     paths-ignore:
       - '**.md'
@@ -22,7 +28,7 @@ concurrency:
 jobs:
   native-audio:
     name: Native playback regression tests
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -53,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scheme: [KUSC-SE, KUSC-17]
+        scheme: [Philharmonic-SE, Philharmonic-17]
     env:
       # Available on the documented macos-26 image; avoid the Xcode 27 preview.
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
@@ -76,14 +82,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/validate_source.py
-          swift test
+          if [ "${{ inputs.build_only }}" != "true" ]; then swift test; fi
 
       - name: Build and validate unsigned IPA
         shell: bash
         env:
-          KUSC_SCHEME: ${{ matrix.scheme }}
-          KUSC_BUILD_NUMBER: ${{ github.run_number }}
-        run: bash scripts/build_unsigned_ipa.sh "$KUSC_SCHEME" dist
+          PHILHARMONIC_SCHEME: ${{ matrix.scheme }}
+          PHILHARMONIC_BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/build_unsigned_ipa.sh "$PHILHARMONIC_SCHEME" dist
 
       - name: Upload IPA and build record
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -99,7 +105,7 @@ jobs:
 
   screenshots:
     name: Native ${{ matrix.profile }} simulator layout capture
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)
     runs-on: macos-26
     timeout-minutes: 35
     strategy:
@@ -108,7 +114,7 @@ jobs:
         profile: [iphone17, se]
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      KUSC_CAPTURE_PROFILE: ${{ matrix.profile }}
+      PHILHARMONIC_CAPTURE_PROFILE: ${{ matrix.profile }}
     steps:
       - name: Check out source and baseline history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

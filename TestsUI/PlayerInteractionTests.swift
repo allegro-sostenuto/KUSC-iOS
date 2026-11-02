@@ -63,8 +63,8 @@ final class PlayerInteractionTests: XCTestCase {
                 if fixture.state.hasPrefix("reveal-") {
                     let identifier = fixture.state == "reveal-programme-right" ? "programme-scroll" : "now-playing-scroll"
                     let delta = app.scrollViews[identifier].frame.minX - (restingPanelX[fixture.landscape] ?? 0)
-                    if fixture.state == "reveal-left" {
-                        XCTAssertLessThan(delta, -50, "The capture must show a partial reveal even after rotation")
+                    if fixture.state == "reveal-programme-right" {
+                        XCTAssertEqual(delta, 0, accuracy: 1, "Program stays underneath during the return")
                     } else {
                         XCTAssertGreaterThan(delta, 50, "The capture must show the panel displaced from rest")
                     }
@@ -88,10 +88,10 @@ final class PlayerInteractionTests: XCTestCase {
                 }
                 if fixture.state.hasPrefix("widget-") {
                     if fixture.state.contains("-only") {
-                        XCTAssertFalse(app.buttons["Play KUSC"].exists)
-                        XCTAssertFalse(app.buttons["Pause KUSC"].exists)
+                        XCTAssertFalse(app.buttons["Play Philharmonic"].exists)
+                        XCTAssertFalse(app.buttons["Pause Philharmonic"].exists)
                     } else {
-                        let label = fixture.state.contains("empty") ? "Play KUSC" : "Pause KUSC"
+                        let label = fixture.state.contains("empty") ? "Play Philharmonic" : "Pause Philharmonic"
                         XCTAssertTrue(app.buttons[label].isHittable, "Widget playback control must remain reachable")
                     }
                     XCTAssertFalse(app.buttons["Live"].exists)
@@ -245,9 +245,9 @@ final class PlayerInteractionTests: XCTestCase {
     func testDarkMenuBrightnessStaysStableDuringPlaybackUpdates() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchEnvironment["KUSC_UI_STATE"] = "live"
-        app.launchEnvironment["KUSC_UI_DARK"] = "1"
-        app.launchEnvironment["KUSC_UI_REPEAT_MODEL_UPDATES"] = "1"
+        app.launchEnvironment["PHILHARMONIC_UI_STATE"] = "live"
+        app.launchEnvironment["PHILHARMONIC_UI_DARK"] = "1"
+        app.launchEnvironment["PHILHARMONIC_UI_REPEAT_MODEL_UPDATES"] = "1"
         app.launch()
         defer { app.terminate() }
         let more = app.buttons["More controls"]
@@ -294,12 +294,15 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    func testEitherSwipeDirectionSwitchesBothPanelsAndShortDragCancels() {
+    func testRightSwipeOpensProgramAndLeftSwipeReturns() {
         let app = launchFixture("live")
         defer { app.terminate() }
         let nowPlaying = app.scrollViews["now-playing-scroll"]
         let programme = app.staticTexts["Programme layout fixture"]
-        for direction in [-1.0, 1.0] {
+        swipePanel(nowPlaying, direction: -1)
+        XCTAssertTrue(nowPlaying.isHittable, "A left swipe must not open Program")
+        XCTAssertFalse(programme.exists)
+        for direction in [1.0] {
             let scroll = app.scrollViews["now-playing-scroll"]
             let restingX = scroll.frame.minX
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
@@ -322,7 +325,9 @@ final class PlayerInteractionTests: XCTestCase {
             app.staticTexts["programme-header"].tap()
             XCTAssertTrue(programme.exists, "Tapping the heading must not change panels")
             swipePanel(app.scrollViews["programme-scroll"], direction: direction)
-            XCTAssertTrue(nowPlaying.waitForExistence(timeout: 5), "The same direction must also return to Now Playing")
+            XCTAssertTrue(programme.exists, "A right swipe must not close Program")
+            swipePanel(app.scrollViews["programme-scroll"], direction: -direction)
+            XCTAssertTrue(nowPlaying.waitForExistence(timeout: 5), "The reverse direction must return to Now Playing")
             XCTAssertFalse(programme.exists)
             XCTAssertTrue(app.buttons["Pause"].isHittable)
         }
@@ -444,11 +449,11 @@ final class PlayerInteractionTests: XCTestCase {
     private func startFixture(_ fixture: CaptureFixture) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchEnvironment["KUSC_UI_STATE"] = fixture.state
-        app.launchEnvironment["KUSC_UI_ROTATION_DRIVER"] = "xctest"
-        app.launchEnvironment["KUSC_UI_LANDSCAPE"] = fixture.landscape ? "1" : "0"
-        app.launchEnvironment["KUSC_UI_LARGE_TEXT"] = fixture.largeText ? "1" : "0"
-        app.launchEnvironment["KUSC_UI_DARK"] = fixture.dark ? "1" : "0"
+        app.launchEnvironment["PHILHARMONIC_UI_STATE"] = fixture.state
+        app.launchEnvironment["PHILHARMONIC_UI_ROTATION_DRIVER"] = "xctest"
+        app.launchEnvironment["PHILHARMONIC_UI_LANDSCAPE"] = fixture.landscape ? "1" : "0"
+        app.launchEnvironment["PHILHARMONIC_UI_LARGE_TEXT"] = fixture.largeText ? "1" : "0"
+        app.launchEnvironment["PHILHARMONIC_UI_DARK"] = fixture.dark ? "1" : "0"
         app.launch()
         if fixture.landscape { XCUIDevice.shared.orientation = .landscapeRight }
         return app

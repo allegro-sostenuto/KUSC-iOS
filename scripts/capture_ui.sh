@@ -1,7 +1,7 @@
 #!/bin/bash
 # Capture real SwiftUI/UIKit simulator output with DEBUG-only, silent layout data.
 # Usage: bash scripts/capture_ui.sh [artifact-directory] [all|iphone17|se]
-# KUSC_CAPTURE_PROFILE selects the profile when the second argument is omitted.
+# PHILHARMONIC_CAPTURE_PROFILE selects the profile when the second argument is omitted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ "$(uname -s)" != Darwin ] || ! command -v xcodebuild >/dev/null; then
@@ -11,16 +11,16 @@ fi
 
 root="$(pwd)"
 output="${1:-artifacts/native-ui}"
-profile="${2:-${KUSC_CAPTURE_PROFILE:-all}}"
+profile="${2:-${PHILHARMONIC_CAPTURE_PROFILE:-all}}"
 case "$profile" in
     all|iphone17|se) ;;
     *) echo 'Capture profile must be all, iphone17, or se.' >&2; exit 2 ;;
 esac
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
-work="$(mktemp -d "${TMPDIR:-/tmp}/kusc-ui.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/philharmonic-ui.XXXXXX")"
 baseline="$work/baseline"
-baseline_ref="${KUSC_BASELINE_REF:-1cc5ae6236f9d113c61c10778ee1aa3ccf926715}"
+baseline_ref="${PHILHARMONIC_BASELINE_REF:-1cc5ae6236f9d113c61c10778ee1aa3ccf926715}"
 simulators="$work/simulators.tsv"
 touch "$simulators"
 report="$output/capture-report.txt"
@@ -32,7 +32,7 @@ cleanup() {
     done < "$simulators"
     if [ -d "$baseline" ]; then git worktree remove --force "$baseline" >/dev/null 2>&1 || true; fi
     # Only this invocation's mktemp directory is removed.
-    case "$work" in */kusc-ui.*) rm -rf "$work" ;; esac
+    case "$work" in */philharmonic-ui.*) rm -rf "$work" ;; esac
 }
 trap cleanup EXIT
 
@@ -48,7 +48,7 @@ trap cleanup EXIT
     echo 'Output names, when available, come from the simulator audio session; no devices are fabricated.'
     echo 'These screenshots do not verify real playback, background scheduling, Bluetooth or AirPlay.'
     echo 'More menu capture is requested by native XCUITest using a real tap; test outcomes are recorded below.'
-    echo 'All updated-layout screenshots use KUSC-SE shared UI; both simulator schemes are built, and KUSC-17 is installed on the iPhone17 profile.'
+    echo 'All updated-layout screenshots use Philharmonic-SE shared UI; both simulator schemes are built, and Philharmonic-17 is installed on the iPhone17 profile.'
     echo 'Updated layouts wait for visible fixture controls in XCTest; no fixed launch delay accepts a blank image.'
     echo 'Large text uses accessibility3. Landscape rotates XCUIDevice and asserts the logical app.frame orientation.'
     echo 'Full-screen XCUIScreen captures avoid app-window cropping; raw dimensions, EXIF and logical orientation are recorded independently.'
@@ -82,7 +82,7 @@ with open(sys.argv[1], 'w') as stream:
     for label, kind in selections:
         if not kind:
             raise SystemExit(f'Required simulator device type unavailable: {label}')
-        device = sim('create', 'KUSC layout '+label, kind['identifier'], runtime).strip()
+        device = sim('create', 'Philharmonic layout '+label, kind['identifier'], runtime).strip()
         stream.write('|'.join([label, device, kind['name'], runtime])+'\n')
         stream.flush()
 PY
@@ -90,13 +90,16 @@ PY
 python3 scripts/generate_project.py
 build_app() {
     local source="$1" scheme="$2" destination="$3" log="$4"
-    xcodebuild -project "$source/KUSC.xcodeproj" -scheme "$scheme" \
+    local project="$source/Philharmonic.xcodeproj"
+    # Historical comparison commits predate the project rename.
+    if [ ! -d "$project" ]; then project="$source/KUSC.xcodeproj"; scheme="${scheme/Philharmonic/KUSC}"; fi
+    xcodebuild -project "$project" -scheme "$scheme" \
         -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
         -derivedDataPath "$destination" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
         CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" build > "$log" 2>&1
 }
-build_app "$root" KUSC-SE "$work/current-se" "$output/build-KUSC-SE.log"
-build_app "$root" KUSC-17 "$work/current-modern" "$output/build-KUSC-17.log"
+build_app "$root" Philharmonic-SE "$work/current-se" "$output/build-Philharmonic-SE.log"
+build_app "$root" Philharmonic-17 "$work/current-modern" "$output/build-Philharmonic-17.log"
 
 # The original UI is built from the recorded starting commit. Its sole source
 # change is a fixture guard suppressing launch/foreground work, not a UI edit.
@@ -112,11 +115,12 @@ text = path.read_text()
 for signature in ['func launch() {', 'func onForeground() {']:
     if text.count(signature) != 1:
         raise SystemExit('Cannot inject baseline fixture guard: '+signature)
-    text = text.replace(signature, signature+'\n        if ProcessInfo.processInfo.environment["KUSC_UI_BASELINE"] == "1" { settings.autoplay = false; return }')
+    text = text.replace(signature, signature+'\n        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_BASELINE"] == "1" { settings.autoplay = false; return }')
 path.write_text(text)
 PY
-    if build_app "$baseline" KUSC-SE "$work/before" "$output/build-baseline.log"; then
-        baseline_app="$work/before/Build/Products/Debug-iphonesimulator/KUSC-SE.app"
+    if build_app "$baseline" Philharmonic-SE "$work/before" "$output/build-baseline.log"; then
+        baseline_app="$work/before/Build/Products/Debug-iphonesimulator/Philharmonic-SE.app"
+        if [ ! -d "$baseline_app" ]; then baseline_app="$work/before/Build/Products/Debug-iphonesimulator/KUSC-SE.app"; fi
         echo "Baseline built: $baseline_ref; only launch/foreground networking was disabled." >> "$report"
     else
         echo 'UNEXECUTED: baseline capture; original source failed to build. See build-baseline.log.' >> "$report"
@@ -135,26 +139,26 @@ while IFS='|' read -r label device type runtime; do
     if [ -n "$baseline_app" ]; then
         bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$baseline_app/Info.plist")"
         xcrun simctl install "$device" "$baseline_app"
-        SIMCTL_CHILD_KUSC_UI_BASELINE=1 xcrun simctl launch "$device" "$bundle" >> "$report" 2>&1
+        SIMCTL_CHILD_PHILHARMONIC_UI_BASELINE=1 xcrun simctl launch "$device" "$bundle" >> "$report" 2>&1
         sleep 3
         xcrun simctl io "$device" screenshot "$output/$label/before-unavailable.png" >> "$report" 2>&1
         xcrun simctl terminate "$device" "$bundle" >/dev/null 2>&1 || true
         xcrun simctl uninstall "$device" "$bundle"
     fi
     if [ "$label" = iphone17 ]; then
-        app="$work/current-modern/Build/Products/Debug-iphonesimulator/KUSC-17.app"
+        app="$work/current-modern/Build/Products/Debug-iphonesimulator/Philharmonic-17.app"
     else
-        app="$work/current-se/Build/Products/Debug-iphonesimulator/KUSC-SE.app"
+        app="$work/current-se/Build/Products/Debug-iphonesimulator/Philharmonic-SE.app"
     fi
     bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
     xcrun simctl install "$device" "$app"
     result="$output/$label/Interactions.xcresult"
-    if xcodebuild -project "$root/KUSC.xcodeproj" -scheme KUSC-SE -configuration Debug \
+    if xcodebuild -project "$root/Philharmonic.xcodeproj" -scheme Philharmonic-SE -configuration Debug \
         -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/ui-tests" \
         -resultBundlePath "$result" -parallel-testing-enabled NO \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
         test 2>&1 | tee "$output/$label/ui-tests.log"; then
-        echo "PASS: $label hosted KUSCTests and native More menu, landscape slider/paging and large-text slider/paging tests." >> "$report"
+        echo "PASS: $label hosted PhilharmonicTests and native More menu, live-only settings, landscape controls/paging and large-text controls/paging tests." >> "$report"
     else
         echo "FAIL: $label hosted unit or native interaction tests; inspect ui-tests.log and Interactions.xcresult." >> "$report"
         test_failures=$((test_failures + 1))

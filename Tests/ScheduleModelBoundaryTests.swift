@@ -1,7 +1,7 @@
-#if canImport(UIKit) && !canImport(KUSCCore) && DEBUG
+#if canImport(UIKit) && !canImport(PhilharmonicCore) && DEBUG
 import XCTest
 import UserNotifications
-@testable import KUSC_SE
+@testable import Philharmonic_SE
 
 /// Hosted iOS tests, not Swift Package policy tests. These invoke actual
 /// AppModel actions and read the real RollingAudioEngine.volume boundary.
