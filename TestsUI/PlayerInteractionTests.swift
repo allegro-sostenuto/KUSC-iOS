@@ -32,7 +32,6 @@ final class PlayerInteractionTests: XCTestCase {
             CaptureFixture(name: "schedule-power-dark", state: "schedule-power", dark: true),
             CaptureFixture(name: "reveal-left", state: "reveal-left"),
             CaptureFixture(name: "reveal-right-dark", state: "reveal-right", dark: true),
-            CaptureFixture(name: "reveal-left-landscape", state: "reveal-left", landscape: true),
             CaptureFixture(name: "reveal-programme-right", state: "reveal-programme-right"),
             CaptureFixture(name: "programme-dark", state: "programme", dark: true)
         ]
@@ -295,7 +294,7 @@ final class PlayerInteractionTests: XCTestCase {
 
     @MainActor
     func testFirstSwipeOpensProgramWithoutWarmup() {
-        for (state, landscape) in [("live", false), ("dark", false), ("live", true)] {
+        for (state, landscape) in [("live", false), ("dark", false)] {
             let app = launchFixture(state, landscape: landscape)
             let station = app.staticTexts["station-header"]
             XCTAssertTrue(station.waitForExistence(timeout: 5))
@@ -333,6 +332,36 @@ final class PlayerInteractionTests: XCTestCase {
             XCTAssertTrue(app.buttons["Pause"].isHittable)
             app.terminate()
         }
+    }
+
+    @MainActor
+    func testProgramStaysPortraitUntilReturningToPlayer() {
+        let app = launchFixture("live")
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        swipePanel(app.scrollViews["now-playing-scroll"], direction: 1)
+        let opened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.buttons["programme-page"].isSelected && app.scrollViews["programme-scroll"].isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 5), .completed)
+        XCUIDevice.shared.orientation = .landscapeRight
+        XCTAssertLessThan(app.frame.width, app.frame.height, "Program must stay portrait when the phone turns")
+        XCTAssertTrue(app.scrollViews["programme-scroll"].isHittable)
+        attach(app, named: "program-portrait-lock")
+        swipePanel(app.scrollViews["programme-scroll"], direction: -1)
+        let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.scrollViews["now-playing-scroll"].isHittable &&
+                !app.scrollViews["programme-scroll"].isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 5), .completed)
+        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.orientation = .landscapeRight
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.frame.width > app.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed,
+                       "The artwork player must support landscape after leaving Program")
+        XCTAssertFalse(app.buttons["programme-page"].exists)
+        attach(app, named: "landscape-player-after-program")
     }
 
     @MainActor
@@ -420,7 +449,14 @@ final class PlayerInteractionTests: XCTestCase {
             app.frame.width > app.frame.height
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [orientation], timeout: 10), .completed)
-        exerciseLiveControlsAndPaging(app, attachment: "landscape-live-and-programme")
+        let player = app.scrollViews["now-playing-scroll"]
+        XCTAssertTrue(player.isHittable)
+        swipePanel(player, direction: 1)
+        XCTAssertTrue(player.isHittable)
+        XCTAssertFalse(app.buttons["programme-page"].exists, "Program is unavailable in landscape")
+        XCTAssertFalse(app.scrollViews["programme-scroll"].exists)
+        XCTAssertTrue(app.staticTexts["station-header"].label.contains("KUSC"))
+        attach(app, named: "landscape-artwork-player")
     }
 
     @MainActor
@@ -462,12 +498,10 @@ final class PlayerInteractionTests: XCTestCase {
         pull(scroll, distance: 240)
         XCTAssertTrue(app.staticTexts["Refreshed layout fixture 1"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Play"].exists, "Refresh must not resume paused audio")
-        app.buttons["programme-page"].tap()
-        let programme = app.scrollViews["programme-scroll"]
-        XCTAssertTrue(programme.waitForExistence(timeout: 5))
-        pull(programme, distance: 240)
-        XCTAssertTrue(app.staticTexts["Refreshed programme fixture 2"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["programme-page"].exists)
+        XCTAssertFalse(app.scrollViews["programme-scroll"].exists)
         XCTAssertTrue(app.buttons["Play"].exists)
+
     }
 
     @MainActor

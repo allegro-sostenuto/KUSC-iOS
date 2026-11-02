@@ -36,7 +36,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
             VStack(spacing: 0) {
-                header(width: geometry.size.width)
+                header(width: geometry.size.width, landscape: landscape)
                 if model.settings.minimalist {
                     ScrollView {
                         playbackControls(landscape: landscape)
@@ -48,7 +48,7 @@ struct ContentView: View {
                     panels(size: geometry.size)
                     VStack(spacing: 0) {
                         anchoredControls(landscape: landscape, height: geometry.size.height)
-                        pageIndicators(width: geometry.size.width)
+                        if !landscape { pageIndicators(width: geometry.size.width) }
                     }
                     .frame(maxWidth: landscape ? 560 : .infinity)
                     .padding(.horizontal, landscape ? 32 : 0)
@@ -57,10 +57,13 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.philharmonicBackground.ignoresSafeArea())
-            .onChange(of: geometry.size) { _ in
+            .onChange(of: geometry.size) { dimensions in
                 resetPanelDrag()
+                if dimensions.width > dimensions.height { showingProgramme = false }
                 #if DEBUG
-                applyPanelRevealFixture(width: geometry.size.width)
+                if dimensions.width < dimensions.height {
+                    applyPanelRevealFixture(width: dimensions.width)
+                }
                 #endif
             }
         }
@@ -89,6 +92,9 @@ struct ContentView: View {
         } message: {
             Text("Playback is paused. Choose what happens to the sleep timer.")
         }
+        .onChange(of: showingProgramme) { visible in
+            PlayerOrientation.setProgrammeVisible(visible)
+        }
         .onChange(of: model.settings.minimalist) { enabled in
             resetPanelDrag()
             if enabled { showingProgramme = false }
@@ -97,13 +103,15 @@ struct ContentView: View {
             if request != nil { choosingPauseBehavior = false; sheet = .schedule }
         }
         .onAppear {
+            PlayerOrientation.setProgrammeVisible(showingProgramme)
+            PlayerOrientation.refresh()
             if model.scheduleManagementRequest != nil { sheet = .schedule }
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { model.onForeground() }
+            if phase == .active { model.onForeground(); PlayerOrientation.refresh() }
             else { resetPanelDrag() }
         }
-        .onDisappear { resetPanelDrag() }
+        .onDisappear { resetPanelDrag(); PlayerOrientation.setProgrammeVisible(false) }
         #if DEBUG
         .onAppear {
             guard let fixture = UIFixture.state else { return }
@@ -120,8 +128,8 @@ struct ContentView: View {
         #endif
     }
 
-    private func header(width: CGFloat) -> some View {
-        let progress = (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
+    private func header(width: CGFloat, landscape: Bool) -> some View {
+        let progress = landscape ? 0 : (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
         return HStack(alignment: .center, spacing: 10) {
             RollingChannelHeader(progress: progress, showingProgramme: showingProgramme)
                 .allowsHitTesting(false)
@@ -138,43 +146,53 @@ struct ContentView: View {
     private func panels(size: CGSize) -> some View {
         let transitionID = panelTransition?.id
         return GeometryReader { viewport in
-            ZStack {
-                // Keep both layers mounted; a first drag must not replace its
-                // own ScrollView or recognizer when Program appears underneath.
-                panel(programme: true, size: size, height: viewport.size.height)
-                    .allowsHitTesting(showingProgramme && panelTransition == nil)
-                    .accessibilityHidden(!showingProgramme)
-                panel(programme: false, size: size, height: viewport.size.height)
-                    .overlay(alignment: .leading) {
-                        if isSwipingPanel {
-                            Rectangle().fill(Color.philharmonicSeparator).frame(width: 1)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
+            if size.width > size.height {
+                // Keep the established artwork-left / details-right layout.
+                // Program and its recognizer do not exist in landscape.
+                landscapePlayer(width: size.width, height: viewport.size.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.philharmonicBackground)
+            } else {
+                ZStack {
+                    // Keep both layers mounted; a first drag must not replace its
+                    // own ScrollView or recognizer when Program appears underneath.
+                    panel(programme: true, size: size, height: viewport.size.height)
+                        .allowsHitTesting(showingProgramme && panelTransition == nil)
+                        .accessibilityHidden(!showingProgramme)
+                    panel(programme: false, size: size, height: viewport.size.height)
+                        .overlay(alignment: .leading) {
+                            if isSwipingPanel {
+                                Rectangle().fill(Color.philharmonicSeparator).frame(width: 1)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
                         }
-                    }
-                    .offset(x: showingProgramme ? viewport.size.width + panelOffset : panelOffset)
-                    .modifier(PanelOffsetCompletion(offset: panelOffset) {
-                        finishPanelTransition(id: transitionID)
-                    })
-                    .allowsHitTesting(!showingProgramme && panelTransition == nil)
-                    .accessibilityHidden(showingProgramme)
+                        .offset(x: showingProgramme ? viewport.size.width + panelOffset : panelOffset)
+                        .modifier(PanelOffsetCompletion(offset: panelOffset) {
+                            finishPanelTransition(id: transitionID)
+                        })
+                        .allowsHitTesting(!showingProgramme && panelTransition == nil)
+                        .accessibilityHidden(showingProgramme)
+                }
+                .background {
+                    PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist &&
+                                        sheet == nil && !choosingPauseBehavior && scenePhase == .active,
+                                    opening: !showingProgramme,
+                                    changed: { panelDragChanged($0, width: viewport.size.width) },
+                                    ended: { x, velocity, cancelled in
+                                        panelDragEnded(x, velocity: velocity, cancelled: cancelled,
+                                                       width: viewport.size.width)
+                                    })
+                    .accessibilityHidden(true)
+                }
+                .coordinateSpace(name: "player-panels")
+                .clipped()
             }
-            .background {
-                PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist &&
-                                    sheet == nil && !choosingPauseBehavior && scenePhase == .active,
-                                opening: !showingProgramme,
-                                changed: { panelDragChanged($0, width: viewport.size.width) },
-                                ended: { x, velocity, cancelled in
-                                    panelDragEnded(x, velocity: velocity, cancelled: cancelled,
-                                                   width: viewport.size.width)
-                                })
-                .accessibilityHidden(true)
-            }
-            .coordinateSpace(name: "player-panels")
-            .clipped()
         }
         #if DEBUG
-        .onAppear { applyPanelRevealFixture(width: size.width) }
+        .onAppear {
+            if size.width < size.height { applyPanelRevealFixture(width: size.width) }
+        }
         #endif
     }
 

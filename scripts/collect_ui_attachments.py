@@ -16,7 +16,7 @@ CAPTURES = {
     "landscape", "minimal-landscape", "large-text", "programme-large-text", "schedule-large-text", "sleep-large-text",
     "settings-dark", "sleep-dark", "schedule-output-dark", "more", "diagnostics-recording",
     "schedule-power", "schedule-power-dark", "reveal-left", "reveal-right-dark",
-    "reveal-left-landscape", "reveal-programme-right", "programme-dark",
+    "reveal-programme-right", "programme-dark",
     "widget-playback", "widget-playback-dark", "widget-artwork", "widget-artwork-dark",
     "widget-details", "widget-details-dark", "widget-everything", "widget-everything-dark",
     "widget-everything-empty", "widget-details-large-text",
@@ -177,7 +177,7 @@ def collect(exported, destination):
                 failures.append(f"Invalid native logical frame: {name}: {frame}")
             else:
                 logical_orientation = "landscape" if logical_width > logical_height else "portrait"
-                expected = "landscape" if name in {"landscape", "minimal-landscape", "reveal-left-landscape"} else "portrait"
+                expected = "landscape" if name in {"landscape", "minimal-landscape"} else "portrait"
                 if (logical_orientation != expected or evidence.get("requestedOrientation") != expected):
                     failures.append(f"Wrong logical UI orientation for {name}: {frame}")
         captures.append({"capture": name, "file": target.name, "sha256": digest,

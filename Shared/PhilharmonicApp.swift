@@ -36,6 +36,10 @@ final class PhilharmonicAppDelegate: NSObject, UIApplicationDelegate {
         NotificationCoordinator.shared.install()
         return true
     }
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        PlayerOrientation.supported
+    }
     #if CARPLAY
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
