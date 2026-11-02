@@ -112,21 +112,24 @@ public struct ScheduledStartRequest: Codable, Equatable {
     public let date: Date
     public let output: ScheduledOutputPreference
     public let options: ScheduledStartOptions
+    public let stationID: String
     public var requiresDeletionToCancel: Bool { output.mode == .speaker && options.batteryOnlyStop }
     public var survivesInterruption: Bool { output.mode == .speaker }
     public init(id: UUID = UUID(), date: Date, output: ScheduledOutputPreference = .currentOutput,
-                options: ScheduledStartOptions = .init()) {
+                options: ScheduledStartOptions = .init(), stationID: String = "kusc") {
         self.id = id; self.date = date; self.output = output
+        self.stationID = StationCatalog.station(id: stationID)?.id ?? StationCatalog.defaultStation.id
         self.options = .init(allowOnBattery: options.allowOnBattery,
                              batteryOnlyStop: output.mode == .speaker && options.batteryOnlyStop,
                              batteryPercent: options.batteryPercent, lowBatteryMinutes: options.lowBatteryMinutes)
     }
-    private enum CodingKeys: String, CodingKey { case id, date, output, options }
+    private enum CodingKeys: String, CodingKey { case id, date, output, options, stationID }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try values.decode(UUID.self, forKey: .id), date: try values.decode(Date.self, forKey: .date),
                   output: try values.decode(ScheduledOutputPreference.self, forKey: .output),
-                  options: try values.decodeIfPresent(ScheduledStartOptions.self, forKey: .options) ?? .init())
+                  options: try values.decodeIfPresent(ScheduledStartOptions.self, forKey: .options) ?? .init(),
+                  stationID: try values.decodeIfPresent(String.self, forKey: .stationID) ?? "kusc")
     }
 }
 

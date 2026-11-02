@@ -89,13 +89,14 @@ struct AlbumArtwork: View {
 }
 
 struct NowPlayingMetadata: View {
+    @EnvironmentObject private var model: AppModel
     let item: ProgrammeItem?
     @ScaledMetric(relativeTo: .title2) private var workSize = 25
     @ScaledMetric(relativeTo: .title3) private var movementSize = 20
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let item {
-                Text(item.work.isEmpty ? "KUSC FM 91.5" : item.work)
+                Text(item.work.isEmpty ? model.selectedStation.name : item.work)
                     .font(.system(size: workSize, weight: .semibold)).tracking(-0.6)
                 if let movement = item.movement, !movement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(movement).font(.system(size: movementSize))
@@ -107,7 +108,7 @@ struct NowPlayingMetadata: View {
                     Text(item.performers).font(.subheadline).foregroundStyle(.secondary)
                 }
             } else {
-                Text("KUSC FM 91.5").font(.system(size: workSize, weight: .semibold))
+                Text(model.selectedStation.name).font(.system(size: workSize, weight: .semibold))
                 Text("Programme information is currently unavailable.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
@@ -195,17 +196,34 @@ struct PlayerControls: View {
     }
 
     private var playbackStatus: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Circle().fill(Color.philharmonicRed).frame(width: 4, height: 4)
-                Text(model.state == .playingLive ? "Listening live" : model.statusText)
-                    .foregroundStyle(.secondary)
-            }.font(.caption)
-            if case .reconnecting(let since) = model.state {
-                ProgressView(value: min(60, max(0, Date().timeIntervalSince(since))), total: 60)
-                    .tint(.philharmonicRed).accessibilityLabel("Reconnection time used")
-            }
+        HStack(spacing: 4) {
+            stationButton(previous: true)
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.philharmonicRed).frame(width: 4, height: 4)
+                    Text(model.state == .playingLive ? "Listening live" : model.statusText)
+                        .foregroundStyle(.secondary)
+                }.font(.caption)
+                if case .reconnecting(let since) = model.state {
+                    ProgressView(value: min(60, max(0, Date().timeIntervalSince(since))), total: 60)
+                        .tint(.philharmonicRed).accessibilityLabel("Reconnection time used")
+                }
+            }.frame(maxWidth: .infinity)
+            stationButton(previous: false)
         }
+    }
+
+    private func stationButton(previous: Bool) -> some View {
+        Button {
+            if previous { model.previousStation() } else { model.nextStation() }
+        } label: {
+            Image(systemName: previous ? "backward.end.fill" : "forward.end.fill")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+                .philharmonicControlSurface(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(previous ? "Previous station" : "Next station")
     }
 }
 

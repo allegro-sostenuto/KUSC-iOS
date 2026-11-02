@@ -18,6 +18,10 @@ import UIKit
     @Published var scheduleDescription: String?
     @Published var notice: String?
     @Published var settings = AppSettings.load()
+    @Published private(set) var selectedStation = StationCatalog.defaultStation
+    @Published private(set) var stationPreferences = StationPreferences.load()
+    var orderedStations: [RadioStation] { stationPreferences.orderedIDs.compactMap { StationCatalog.station(id: $0) } }
+    var scheduledStation: RadioStation { StationCatalog.station(id: scheduleRequest?.stationID ?? selectedStation.id) ?? StationCatalog.defaultStation }
     @Published private(set) var schedulePhase: ScheduledStartPhase?
     @Published private(set) var scheduleManagementRequest: UUID?
     @Published private(set) var currentOutputRoute = ObservedAudioRoute(ports: [])
@@ -57,7 +61,8 @@ import UIKit
     }
 
     private let engine = RollingAudioEngine()
-    private let metadata = MetadataService()
+    private var metadata = MetadataService()
+    private var stationGeneration = UUID()
     private var timeline = PlaybackTimeline()
     private let artworkCache = ArtworkCache()
     private var artworkTask: Task<Void, Never>?
@@ -147,12 +152,21 @@ import UIKit
     private let standby = SilentStandby()
     private lazy var nowPlaying = NowPlayingController(play: { [weak self] in self?.play() },
         pause: { [weak self] in self?.pauseRemote() },
-        toggle: { [weak self] in guard let self else { return }; self.isPlaying ? self.pauseRemote() : self.play() })
+        toggle: { [weak self] in guard let self else { return }; self.isPlaying ? self.pauseRemote() : self.play() },
+        next: { [weak self] in self?.nextStation() }, previous: { [weak self] in self?.previousStation() })
     #if MODERN
     private let liveActivity = LiveActivityCoordinator()
     #endif
 
     private init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_RESET_STATIONS"] == "1" {
+            stationPreferences = StationPreferences()
+            stationPreferences.save()
+        }
+        #endif
+        selectedStation = StationCatalog.station(id: stationPreferences.selectedID) ?? StationCatalog.defaultStation
+        metadata = MetadataService(station: selectedStation)
         NotificationCoordinator.shared.install()
         engine.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
         engine.onFailure = { [weak self] error in self?.connectionFailed(error) }
@@ -196,7 +210,61 @@ import UIKit
     func handleWidgetURL(_ url: URL) {
         guard let scheme = Bundle.main.object(forInfoDictionaryKey: "PhilharmonicURLScheme") as? String,
               let playing = WidgetPlaybackLink.action(for: url, scheme: scheme) else { return }
-        setPlaybackFromWidget(playing)
+        handleStationPlaybackIntent(playing: playing, stationID: WidgetPlaybackLink.stationID(for: url))
+    }
+
+    func handleStationPlaybackIntent(playing: Bool?, stationID: String?) {
+        receivedWidgetCommand = true
+        guard stationID == nil || stationID == selectedStation.id else { refreshSystemSurfaces(); return }
+        setPlaybackFromWidget(playing ?? !isPlaying)
+    }
+
+    func handleStationLiveIntent(stationID: String?) {
+        receivedWidgetCommand = true
+        guard stationID == nil || stationID == selectedStation.id else { refreshSystemSurfaces(); return }
+        goLive()
+    }
+
+    func selectStation(_ id: String) { switchStation(id) }
+    func nextStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: 1)) }
+    func previousStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: -1)) }
+    func setStationDisplayMode(_ mode: StationDisplayMode) {
+        stationPreferences.displayMode = mode; stationPreferences.save()
+    }
+    func moveStation(_ id: String, by offset: Int) {
+        stationPreferences.move(id: id, by: offset); stationPreferences.save()
+    }
+    func moveStation(_ id: String, before destination: String) {
+        stationPreferences.move(id: id, before: destination); stationPreferences.save()
+    }
+
+    /// Selection is independent of playback intent and of an already saved start.
+    /// Retire the whole old session before publishing the new station identity.
+    private func switchStation(_ id: String, reconnect: Bool = true) {
+        guard let station = StationCatalog.station(id: id), station.id != selectedStation.id else { return }
+        stationGeneration = UUID(); connectionGeneration = UUID(); metadataGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        metadataTask?.cancel(); metadataTask = nil
+        manualRefreshTask?.cancel(); manualRefreshTask = nil
+        artworkTask?.cancel(); artworkTask = nil
+        metadata.cancel()
+        hasStartedEngine = false; engine.stop(); audioIsAdvancing = false
+        reconnectStarted = nil; nextRetry = .distantPast
+        acquisitionIsStale = false; bufferFailureMessage = nil; bufferWindow = nil
+        pausedAt = nil; heardAt = Date(); metadataTimestamp = nil
+        timeline = PlaybackTimeline(); currentItem = nil; previousItems = []; upcomingItems = []
+        programmeName = nil; hostName = nil; artwork = nil; lastArtworkURL = nil
+        lastArtworkAttempt = .distantPast; lastMetadataFetch = .distantPast
+        selectedStation = station
+        stationPreferences.selectedID = station.id; stationPreferences.save()
+        metadata = MetadataService(station: station)
+        invalidateSleepEndpoint()
+        state = wantsPlayback ? .connecting : .pausedLive
+        refreshSystemSurfaces()
+        fetchMetadata()
+        if reconnect && wantsPlayback && !interruptionActive {
+            startConnection(preserveScheduledGain: true)
+        }
     }
 
     func updateSettings() {
@@ -367,7 +435,7 @@ import UIKit
         guard output.mode != .selected || output.route?.isIdentifiable == true else { throw ScheduleError.missingOutput }
         clearSchedule(stopOwnedPlayback: true)
         let generation = scheduleGeneration.begin()
-        let request = ScheduledStartRequest(date: date, output: output, options: options)
+        let request = ScheduledStartRequest(date: date, output: output, options: options, stationID: selectedStation.id)
         pendingProtectedSchedule = request.requiresDeletionToCancel
         do { try await NotificationCoordinator.shared.schedule(request) }
         catch {
@@ -403,7 +471,7 @@ import UIKit
     func startFromNotification(requestID: UUID? = nil) {
         resolveExpiredSchedule()
         guard let request = scheduleRequest, request.id == requestID else { return }
-        if schedulePausedUntil != nil { play(); return }
+        if schedulePausedUntil != nil { switchStation(request.stationID, reconnect: false); play(); return }
         if scheduleOwnsPlayback { return } // Duplicate delivery cannot restart an envelope.
         if wantsPlayback && protectedSchedule { evaluateSchedule(); return }
         if wantsPlayback { clearSchedule(stopOwnedPlayback: false); return }
@@ -544,7 +612,7 @@ import UIKit
         scheduleTestEnvironment = environment
         sessionActivationAttempts = []
         audioRecoveryTestConnections = 0
-        scheduleRequest = .init(date: environment.now.addingTimeInterval(secondsUntilStart), output: output, options: options)
+        scheduleRequest = .init(date: environment.now.addingTimeInterval(secondsUntilStart), output: output, options: options, stationID: selectedStation.id)
         currentOutputRoute = environment.route
         notificationOnly = false
         evaluateSchedule()
@@ -609,9 +677,13 @@ import UIKit
     #endif
 
     private func startConnection(preserveScheduledGain: Bool = false) {
+        #if DEBUG
+        guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
+        #endif
         bufferFailureMessage = nil
         connectionTask?.cancel()
         let generation = UUID(); connectionGeneration = generation
+        let station = selectedStation
         if scheduleOwnsPlayback && !preserveScheduledGain { scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         if reconnectStarted == nil { state = .connecting }
         hasStartedEngine = true
@@ -624,7 +696,7 @@ import UIKit
         connectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             do {
-                try await engine.start(url: StationConfiguration.audioURL, retentionMinutes: 0)
+                try await engine.start(url: station.audioURL, retentionMinutes: 0)
                 guard !Task.isCancelled, connectionGeneration == generation else { return }
                 applyGain()
                 if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
@@ -865,6 +937,13 @@ import UIKit
         }
         guard scheduleUptime >= scheduleRetryUptime else { return }
         if scheduleOwnsPlayback {
+            if wantsPlayback && !scheduleDidStart && now >= request.date && selectedStation.id != request.stationID {
+                // Browsing during silent preparation cannot retarget a saved
+                // start. Pause, power, route and interruption policy run first.
+                switchStation(request.stationID, reconnect: false)
+                scheduleEnvelope = nil; scheduleGain = 0; applyGain()
+                startConnection()
+            }
             guard validateScheduledRoute(request) else { return }
             updateGains(); return
         }
@@ -976,6 +1055,7 @@ import UIKit
 
     private func beginScheduledPlayback(_ request: ScheduledStartRequest) {
         guard scheduleRequest?.id == request.id, !scheduleOwnsPlayback, !interruptionActive else { return }
+        switchStation(request.stationID, reconnect: false)
         completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
         completedPlaybackUsesSpeaker = false
         scheduleOwnsPlayback = true
@@ -1208,6 +1288,9 @@ import UIKit
         let now = scheduleNow
         resolveExpiredSchedule()
         if scheduleOwnsPlayback, let request = scheduleRequest {
+            if !scheduleDidStart && selectedStation.id != request.stationID {
+                scheduleGain = 0; applyGain(); return
+            }
             guard schedulePowerPermits(now: now) else {
                 scheduleFallback("The scheduled start stopped because of its power settings."); return
             }
@@ -1298,12 +1381,14 @@ import UIKit
     /// history, so an older response cannot overwrite the manual refresh.
     func refreshMetadata() async {
         if let manualRefreshTask { await manualRefreshTask.value; return }
+        let sessionID = stationGeneration
         let task = Task { [weak self] in
             guard let self else { return }
             #if DEBUG
             if isUIFixture {
                 // Deterministic gesture evidence without station access or audio.
                 try? await Task.sleep(nanoseconds: 600_000_000)
+                guard !Task.isCancelled, stationGeneration == sessionID else { return }
                 fixtureRefreshCount += 1
                 currentItem?.work = "Refreshed layout fixture \(fixtureRefreshCount)"
                 programmeName = "Refreshed programme fixture \(fixtureRefreshCount)"
@@ -1311,21 +1396,23 @@ import UIKit
             }
             #endif
             await metadataTask?.value
+            guard !Task.isCancelled, stationGeneration == sessionID else { return }
             fetchMetadata(force: true)
             await metadataTask?.value
             await artworkTask?.value
+            guard !Task.isCancelled, stationGeneration == sessionID else { return }
             // The station can correct an image without changing its remote URL.
             // Keep the last usable image visible if this request fails.
             if let url = currentItem?.artworkURL,
                let image = await artworkCache.image(at: url, forceReload: true),
-               lastArtworkURL == url {
+               !Task.isCancelled, stationGeneration == sessionID, lastArtworkURL == url {
                 artwork = image
                 refreshSystemSurfaces()
             }
         }
         manualRefreshTask = task
         await task.value
-        manualRefreshTask = nil
+        if stationGeneration == sessionID { manualRefreshTask = nil }
     }
 
     private func fetchMetadata(force: Bool = false) {
@@ -1335,11 +1422,12 @@ import UIKit
         guard metadataTask == nil else { return }
         lastMetadataFetch = Date()
         let generation = UUID(); metadataGeneration = generation
+        let service = metadata
         metadataTask = Task { [weak self] in
             guard let self else { return }
             defer { if metadataGeneration == generation { metadataTask = nil } }
             do {
-                let items = try await metadata.fetch(force: force) { [weak self] items in
+                let items = try await service.fetch(force: force) { [weak self] items in
                     guard let self, !Task.isCancelled, self.metadataGeneration == generation else { return }
                     self.timeline.merge(items); self.resolveMetadata()
                 }
@@ -1367,10 +1455,11 @@ import UIKit
         if artwork == nil, artworkTask == nil, Date().timeIntervalSince(lastArtworkAttempt) >= 5 {
             if let url {
                 lastArtworkAttempt = Date()
+                let sessionID = stationGeneration
                 artworkTask = Task { [weak self] in
                     guard let self else { return }
                     let image = await artworkCache.image(at: url)
-                    guard !Task.isCancelled, lastArtworkURL == url else { return }
+                    guard !Task.isCancelled, stationGeneration == sessionID, lastArtworkURL == url else { return }
                     artworkTask = nil; artwork = image; refreshSystemSurfaces()
                 }
             }
@@ -1378,7 +1467,7 @@ import UIKit
         refreshSystemSurfaces()
     }
     private func refreshSystemSurfaces() {
-        nowPlaying.update(item: currentItem, artwork: artwork, playing: isAudible)
+        nowPlaying.update(item: currentItem, artwork: artwork, playing: isAudible, station: selectedStation)
         refreshHomeWidgets()
         #if MODERN
         let surfaceStatus: String?
@@ -1389,7 +1478,7 @@ import UIKit
         default: surfaceStatus = statusText
         }
         liveActivity.update(item: currentItem, artwork: artwork, playing: isAudible,
-                            requested: isPlaying, status: surfaceStatus, visible: hasStartedEngine)
+                            requested: isPlaying, status: surfaceStatus, visible: hasStartedEngine, station: selectedStation)
         #endif
         NotificationCenter.default.post(name: .philharmonicPlaybackChanged, object: self)
     }
@@ -1399,7 +1488,7 @@ import UIKit
         guard !isUIFixture else { return }
         #endif
         homeWidgets.update(item: currentItem, programme: programmeName, host: hostName,
-                           artwork: artwork, requested: isPlaying)
+                           artwork: artwork, requested: isPlaying, station: selectedStation)
     }
 
     private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {

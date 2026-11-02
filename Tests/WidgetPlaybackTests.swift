@@ -40,5 +40,15 @@ final class WidgetPlaybackTests: XCTestCase {
             XCTAssertNil(WidgetPlaybackLink.action(for: URL(string: url)!, scheme: "kusc-classic"))
         }
     }
+
+    func testStationWidgetLinksAcceptOnlyOneExplicitIdentity() {
+        let valid = URL(string: "kusc-classic://playback/play?station=sr-p2")!
+        XCTAssertEqual(WidgetPlaybackLink.action(for: valid, scheme: "kusc-classic"), true)
+        XCTAssertEqual(WidgetPlaybackLink.stationID(for: valid), "sr-p2")
+        for address in ["kusc-classic://playback/play?station=", "kusc-classic://playback/play?station=kusc&station=sr-p2",
+                        "kusc-classic://playback/play?station=kusc&extra=1"] {
+            XCTAssertNil(WidgetPlaybackLink.action(for: URL(string: address)!, scheme: "kusc-classic"))
+        }
+    }
 }
 #endif

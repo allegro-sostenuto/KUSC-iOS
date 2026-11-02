@@ -35,15 +35,20 @@ struct HomeWidgetView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             case .playback:
                 GeometryReader { proxy in
-                    control(size: min(proxy.size.width, proxy.size.height) * 0.78)
+                    VStack(spacing: 7) {
+                        control(size: min(proxy.size.width, proxy.size.height) * 0.66)
+                        stationLabel
+                    }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .artwork:
                 GeometryReader { proxy in
                     HStack(spacing: 20) {
                         cover.frame(width: min(proxy.size.height, proxy.size.width * 0.52), height: proxy.size.height)
-                        control(size: min(76, proxy.size.height * 0.65))
-                            .frame(maxWidth: .infinity)
+                        VStack(spacing: 8) {
+                            control(size: min(76, proxy.size.height * 0.65))
+                            stationLabel
+                        }.frame(maxWidth: .infinity)
                     }
                 }
             case .details:
@@ -60,8 +65,9 @@ struct HomeWidgetView: View {
                         HStack(alignment: .center, spacing: 18) {
                             cover.frame(width: min(136, proxy.size.height * 0.43), height: min(136, proxy.size.height * 0.43))
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(snapshot.programme.isEmpty ? "Philharmonic" : snapshot.programme)
+                                Text(snapshot.programme.isEmpty ? snapshot.stationName : snapshot.programme)
                                     .font(.subheadline.weight(.semibold)).lineLimit(2)
+                                if !snapshot.programme.isEmpty { stationLabel }
                                 if !snapshot.host.isEmpty {
                                     Text(snapshot.host).font(.caption).foregroundStyle(ink.opacity(0.75)).lineLimit(2)
                                 }
@@ -82,6 +88,7 @@ struct HomeWidgetView: View {
 
     private func details(large: Bool) -> some View {
         VStack(alignment: .leading, spacing: large ? 5 : 3) {
+            stationLabel
             Text(snapshot.work).font(large ? .headline : .subheadline.weight(.semibold))
                 .lineLimit(2).minimumScaleFactor(0.85).layoutPriority(1)
             if !snapshot.movement.isEmpty {
@@ -96,6 +103,11 @@ struct HomeWidgetView: View {
         }.accessibilityElement(children: .combine)
     }
 
+    private var stationLabel: some View {
+        Text(snapshot.stationName).font(.caption2.weight(.semibold))
+            .foregroundStyle(ink.opacity(0.75)).lineLimit(2)
+    }
+
     private var cover: some View {
         albumArtwork(cornerRadius: 12, outlined: true)
     }
@@ -106,7 +118,12 @@ struct HomeWidgetView: View {
                 if let data = snapshot.artwork, let image = UIImage(data: data) {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    paper.overlay { Image(systemName: "music.note").font(.system(size: 36, weight: .light)) }
+                    paper.overlay {
+                        VStack(spacing: 8) {
+                            Image(systemName: "music.note").font(.system(size: 36, weight: .light))
+                            stationLabel.multilineTextAlignment(.center)
+                        }.padding(8)
+                    }
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -114,17 +131,17 @@ struct HomeWidgetView: View {
             .overlay {
                 if outlined { RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(ink.opacity(0.22), lineWidth: 1) }
             }
-        }.accessibilityLabel(snapshot.artwork == nil ? "Album artwork unavailable" : "Album artwork")
+        }.accessibilityLabel("\(snapshot.stationName) · \(snapshot.artwork == nil ? "Album artwork unavailable" : "Album artwork")")
     }
 
     @ViewBuilder private func control(size: CGFloat) -> some View {
         if #available(iOS 17.0, *) {
-            Button(intent: SetPhilharmonicWidgetPlaybackIntent(playing: !playing)) { controlImage(size: size) }
+            Button(intent: SetPhilharmonicWidgetPlaybackIntent(playing: !playing, stationID: snapshot.stationID)) { controlImage(size: size) }
                 .buttonStyle(.plain)
-                .accessibilityLabel(playing ? "Pause Philharmonic" : "Play Philharmonic")
+                .accessibilityLabel("\(playing ? "Pause" : "Play") \(snapshot.stationName)")
         } else {
-            Link(destination: WidgetPlaybackLink.url(playing: !playing)) { controlImage(size: size) }
-                .accessibilityLabel(playing ? "Pause Philharmonic" : "Play Philharmonic")
+            Link(destination: WidgetPlaybackLink.url(playing: !playing, stationID: snapshot.stationID)) { controlImage(size: size) }
+                .accessibilityLabel("\(playing ? "Pause" : "Play") \(snapshot.stationName)")
         }
     }
 

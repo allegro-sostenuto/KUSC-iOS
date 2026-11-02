@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sheet: PlayerSheet?
+    @State private var choosingStation = false
     @State private var showingProgramme = false
     @State private var choosingPauseBehavior = false
     @State private var accessibleControlsHeight: CGFloat = 0
@@ -70,6 +71,11 @@ struct ContentView: View {
         .foregroundStyle(Color.philharmonicInk)
         .tint(.philharmonicRed)
         .preferredColorScheme(colorScheme)
+        .fullScreenCover(isPresented: $choosingStation) {
+            StationPickerView()
+                .environmentObject(model)
+                .preferredColorScheme(colorScheme)
+        }
         .sheet(item: $sheet, onDismiss: { model.clearScheduleManagementRequest() }) { selected in
             Group {
                 switch selected {
@@ -131,8 +137,25 @@ struct ContentView: View {
     private func header(width: CGFloat, landscape: Bool) -> some View {
         let progress = landscape ? 0 : (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
         return HStack(alignment: .center, spacing: 10) {
-            RollingChannelHeader(progress: progress, showingProgramme: showingProgramme)
-                .allowsHitTesting(false)
+            ZStack(alignment: .leading) {
+                RollingChannelHeader(progress: progress, showingProgramme: showingProgramme,
+                                     station: model.selectedStation)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .allowsHitTesting(false)
+                Button {
+                    resetPanelDrag()
+                    PlayerOrientation.setProgrammeVisible(false)
+                    choosingStation = true
+                } label: {
+                    Color.clear.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(!showingProgramme)
+                .accessibilityHidden(showingProgramme)
+                .accessibilityLabel("Choose station, \(model.selectedStation.name)")
+                .accessibilityIdentifier("choose-station")
+            }
+            .frame(height: 44)
             Spacer(minLength: 8)
             Button { sheet = .settings } label: {
                 Image(systemName: "gearshape").font(.system(size: 19))
@@ -374,6 +397,7 @@ struct ContentView: View {
 private struct RollingChannelHeader: View, Animatable {
     var progress: CGFloat
     let showingProgramme: Bool
+    let station: RadioStation
     var animatableData: CGFloat {
         get { progress }
         set { progress = newValue }
@@ -384,10 +408,25 @@ private struct RollingChannelHeader: View, Animatable {
         let roll = CGFloat(PanelSwipeState.headerProgress(Double(progress)))
         let font = Font.system(size: 25, weight: .semibold)
         ZStack(alignment: .topLeading) {
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text(StationConfiguration.name).font(font).tracking(-1.2)
-                Text("91.5 FM").font(.system(size: 10, weight: .medium)).tracking(1.4)
-                    .foregroundStyle(Color.philharmonicRed)
+            Group {
+                if station.id == "kusc" {
+                    HStack(alignment: .firstTextBaseline, spacing: 9) {
+                        Text(station.name).font(font).tracking(-1.2)
+                        if let subtitle = station.subtitle {
+                            Text(subtitle).font(.system(size: 10, weight: .medium)).tracking(1.4)
+                                .foregroundStyle(Color.philharmonicRed)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(station.name).font(font).tracking(-0.7)
+                            .lineLimit(1).minimumScaleFactor(0.5)
+                        if let subtitle = station.subtitle {
+                            Text(subtitle).font(.system(size: 10, weight: .medium))
+                                .lineLimit(1).foregroundStyle(Color.philharmonicRed)
+                        }
+                    }
+                }
             }
             .frame(height: rowHeight)
             .offset(y: -roll * rowHeight)

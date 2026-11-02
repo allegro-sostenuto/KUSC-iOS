@@ -7,7 +7,8 @@ import WidgetKit
     private var lastArtwork: UIImage?
     private var thumbnail: Data?
 
-    func update(item: ProgrammeItem?, programme: String?, host: String?, artwork: UIImage?, requested: Bool) {
+    func update(item: ProgrammeItem?, programme: String?, host: String?, artwork: UIImage?, requested: Bool,
+                station: RadioStation = StationCatalog.defaultStation) {
         guard let store else { return }
         if lastArtwork !== artwork {
             lastArtwork = artwork
@@ -23,7 +24,8 @@ import WidgetKit
             }
         }
         let snapshot = WidgetPlaybackSnapshot(playbackRequested: requested, item: item,
-                                              programme: programme, host: host, artwork: thumbnail)
+                                              programme: programme, host: host, artwork: thumbnail,
+                                              stationID: station.id, stationName: station.name)
         // Publish on content changes and keep a short lease alive during audio.
         // This bounds a stale Pause button after the process is force-quit.
         if let last = lastSnapshot, snapshot.hasSameContent(as: last),

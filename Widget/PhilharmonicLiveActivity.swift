@@ -17,11 +17,12 @@ struct PhilharmonicLiveActivity: Widget {
             HStack(spacing: 12) {
                 ActivityArtwork(data: context.state.artwork).frame(width: 54, height: 54)
                 VStack(alignment: .leading) {
+                    Text(context.state.stationName ?? "KUSC").font(.caption.weight(.semibold)).lineLimit(1)
                     Text(context.state.title).font(.headline).lineLimit(2)
                     Text(context.state.composer).font(.subheadline).lineLimit(1)
                     HStack {
-                        Button(intent: TogglePhilharmonicPlaybackIntent()) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
-                        Button("Live", intent: GoLiveIntent())
+                        Button(intent: TogglePhilharmonicPlaybackIntent(stationID: context.state.stationID)) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
+                        Button("Live", intent: GoLiveIntent(stationID: context.state.stationID))
                     }.buttonStyle(ActivityControlStyle())
                     if let status = context.state.status { Text(status).font(.caption).foregroundStyle(.secondary) }
                 }
@@ -33,6 +34,7 @@ struct PhilharmonicLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(alignment: .leading) {
+                        Text(context.state.stationName ?? "KUSC").font(.caption2.weight(.semibold)).lineLimit(1)
                         Text(context.state.title).font(.headline).lineLimit(2)
                         Text(context.state.composer).font(.caption).lineLimit(1)
                         if let status = context.state.status { Text(status).font(.caption2).lineLimit(1) }
@@ -40,11 +42,11 @@ struct PhilharmonicLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 28) {
-                        Button(intent: TogglePhilharmonicPlaybackIntent()) {
+                        Button(intent: TogglePhilharmonicPlaybackIntent(stationID: context.state.stationID)) {
                             Label((context.state.playbackRequested ?? context.state.playing) ? "Pause" : "Play",
                                   systemImage: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill")
                         }
-                        Button("Live", intent: GoLiveIntent())
+                        Button("Live", intent: GoLiveIntent(stationID: context.state.stationID))
                     }.buttonStyle(ActivityControlStyle()).tint(.white)
                 }
             } compactLeading: {

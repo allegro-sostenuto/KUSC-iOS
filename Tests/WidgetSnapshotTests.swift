@@ -64,4 +64,22 @@ final class WidgetSnapshotTests: XCTestCase {
             "group.org.personal.kusc.classic.widgets.TEAM", group + ".TEAM", group + "unrelated"
         ]), [group + ".TEAM", group])
     }
+
+    func testVersionOneSnapshotMigratesToKUSCWithoutLosingPlaybackOrArtwork() throws {
+        let original = WidgetPlaybackSnapshot(playbackRequested: true, artwork: Data([4, 5]))
+        let encoded = try JSONEncoder().encode(original)
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        payload.removeValue(forKey: "stationID")
+        payload.removeValue(forKey: "stationName")
+        let legacy = try JSONSerialization.data(withJSONObject: payload)
+        XCTAssertEqual(try JSONDecoder().decode(WidgetPlaybackSnapshot.self, from: legacy), original)
+    }
+
+    func testStationSwitchPublishesEvenWhenBothStationsHaveNoTrackMetadata() throws {
+        let original = WidgetPlaybackSnapshot(playbackRequested: false)
+        let next = WidgetPlaybackSnapshot(playbackRequested: false, stationID: "sr-p2", stationName: "Sveriges Radio P2")
+        XCTAssertFalse(original.hasSameContent(as: next))
+        XCTAssertEqual(next.work, "Sveriges Radio P2")
+        XCTAssertEqual(try JSONDecoder().decode(WidgetPlaybackSnapshot.self, from: JSONEncoder().encode(next)), next)
+    }
 }

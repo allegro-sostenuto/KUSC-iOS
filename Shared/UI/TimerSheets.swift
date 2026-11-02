@@ -105,6 +105,9 @@ struct ScheduledStartView: View {
                 Text("Within the next 24 hours")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Text("Station: \(model.scheduledStation.name)")
+                    .font(.subheadline)
+                    .accessibilityIdentifier("scheduled-station")
                 DatePicker("Start playback at", selection: $selectedDate,
                            in: createdAt...createdAt.addingTimeInterval(24 * 60 * 60),
                            displayedComponents: [.date, .hourAndMinute])

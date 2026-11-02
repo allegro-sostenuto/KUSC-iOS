@@ -16,12 +16,14 @@ final class MetadataService {
     }
 
     private let session: URLSession
+    private let station: RadioStation
     private let artwork = StationArtworkStore()
     private var days: [String: DayCache] = [:]
     private var artworkByID: [String: URL] = [:]
     private(set) var lastWarning: String?
 
-    init(session suppliedSession: URLSession? = nil) {
+    init(session suppliedSession: URLSession? = nil, station: RadioStation = StationCatalog.defaultStation) {
+        self.station = station
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = StationConfiguration.metadataRequestTimeout
         configuration.timeoutIntervalForResource = StationConfiguration.metadataRequestTimeout + 5
@@ -30,6 +32,8 @@ final class MetadataService {
         configuration.httpCookieStorage = nil
         session = suppliedSession ?? URLSession(configuration: configuration)
     }
+
+    func cancel() { session.invalidateAndCancel() }
 
     func programme(at timestamp: Date) -> StationProgramme? {
         days.values.flatMap(\.programmes).first { timestamp >= $0.start && timestamp < $0.end }
@@ -42,9 +46,22 @@ final class MetadataService {
     /// The owner starts/stops polling with playback. No independent background polling task
     /// survives a stopped player. Partial failures keep usable station data available.
     func fetch(force: Bool = false, onCurrent: ([ProgrammeItem]) -> Void = { _ in }) async throws -> [ProgrammeItem] {
+        try Task.checkCancellation()
+        switch station.metadataCapability {
+        case .stationOnly: return []
+        case .hrt, .srP2:
+            let url = station.metadataCapability == .hrt ? BroadcastMetadataParser.hrtURL : BroadcastMetadataParser.srP2URL
+            let data = try await Self.download(url, session: session).get()
+            try Task.checkCancellation()
+            let items = station.metadataCapability == .hrt
+                ? try BroadcastMetadataParser.hrt(data) : try BroadcastMetadataParser.srP2(data)
+            onCurrent(items)
+            return items
+        case .kusc: break
+        }
         let now = Date()
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = StationConfiguration.stationTimeZone
+        calendar.timeZone = TimeZone(identifier: station.timeZoneIdentifier) ?? StationConfiguration.stationTimeZone
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -77,6 +94,7 @@ final class MetadataService {
             success = true
         } catch { failure = error }
         for response in await dayResponses {
+            try Task.checkCancellation()
             do {
                 let parsed = try StationMetadataParser.combined(response.result.get())
                 days[response.key] = DayCache(records: parsed.records, programmes: parsed.programmes, fetched: now)
@@ -131,7 +149,7 @@ final class MetadataService {
         do {
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
                                      timeoutInterval: StationConfiguration.metadataRequestTimeout)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json, application/xml, text/xml", forHTTPHeaderField: "Accept")
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

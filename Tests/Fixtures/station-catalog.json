@@ -1,0 +1,123 @@
+[
+  {
+    "id": "kusc",
+    "name": "KUSC",
+    "subtitle": "91.5 FM",
+    "websiteURL": "https://www.classicalcalifornia.org",
+    "logoAssetName": "station-kusc",
+    "timeZoneIdentifier": "America/Los_Angeles",
+    "audioURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8",
+    "audioFormat": "hls",
+    "metadataCapability": "kusc"
+  },
+  {
+    "id": "radio-swiss-classic",
+    "name": "Radio Swiss Classic",
+    "subtitle": null,
+    "websiteURL": "https://www.radioswissclassic.ch",
+    "logoAssetName": "station-swiss",
+    "timeZoneIdentifier": "Europe/Zurich",
+    "audioURL": "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192",
+    "audioFormat": "aac",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "sr-p2",
+    "name": "Sveriges Radio P2",
+    "subtitle": "P2 Musik",
+    "websiteURL": "https://www.sverigesradio.se/kanaler/p2",
+    "logoAssetName": "station-p2",
+    "timeZoneIdentifier": "Europe/Stockholm",
+    "audioURL": "https://live1.sr.se/p2-aac-320",
+    "audioFormat": "aac",
+    "metadataCapability": "srP2"
+  },
+  {
+    "id": "france-musique-classique-easy",
+    "name": "France Musique · Classique Easy",
+    "subtitle": null,
+    "websiteURL": "https://www.radiofrance.fr/francemusique",
+    "logoAssetName": "station-france-musique",
+    "timeZoneIdentifier": "Europe/Paris",
+    "audioURL": "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac",
+    "audioFormat": "aac",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "france-musique-la-baroque",
+    "name": "France Musique · La Baroque",
+    "subtitle": null,
+    "websiteURL": "https://www.radiofrance.fr/francemusique",
+    "logoAssetName": "station-france-musique",
+    "timeZoneIdentifier": "Europe/Paris",
+    "audioURL": "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac",
+    "audioFormat": "aac",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "wdr3",
+    "name": "WDR 3",
+    "subtitle": null,
+    "websiteURL": "https://www1.wdr.de/radio/wdr3",
+    "logoAssetName": "station-wdr3",
+    "timeZoneIdentifier": "Europe/Berlin",
+    "audioURL": "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "radio-chopin",
+    "name": "Polskie Radio Chopin",
+    "subtitle": null,
+    "websiteURL": "https://chopin.polskieradio.pl",
+    "logoAssetName": "station-chopin",
+    "timeZoneIdentifier": "Europe/Warsaw",
+    "audioURL": "https://stream85.polskieradio.pl/live/rytm.sdp/playlist.m3u8",
+    "audioFormat": "hls",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "orpheus-large-scale",
+    "name": "Orpheus · Large-Scale Works",
+    "subtitle": "Классика крупных форм",
+    "websiteURL": "https://radio.orpheus.ru/player/8",
+    "logoAssetName": "station-orpheus",
+    "timeZoneIdentifier": "Europe/Moscow",
+    "audioURL": "https://radio.orpheus.ru:8000/Chan_8_192.mp3",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "orpheus-russian-classical",
+    "name": "Orpheus · Russian Classical Music",
+    "subtitle": "Классика российской музыки",
+    "websiteURL": "https://radio.orpheus.ru/player/17",
+    "logoAssetName": "station-orpheus",
+    "timeZoneIdentifier": "Europe/Moscow",
+    "audioURL": "https://radio.orpheus.ru:8000/Chan_17_192.mp3",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "orpheus-camerata",
+    "name": "Orpheus · Camerata",
+    "subtitle": "Камерата",
+    "websiteURL": "https://radio.orpheus.ru/player/76",
+    "logoAssetName": "station-orpheus",
+    "timeZoneIdentifier": "Europe/Moscow",
+    "audioURL": "https://radio.orpheus.ru:8000/Chan_76_256.mp3",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "hr-klasik",
+    "name": "HR Klasik",
+    "subtitle": "Hrvatski radio Klasik",
+    "websiteURL": "https://radio.hrt.hr/stream/25",
+    "logoAssetName": "station-hr-klasik",
+    "timeZoneIdentifier": "Europe/Zagreb",
+    "audioURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/HR_CLASSICS.mp3",
+    "audioFormat": "mp3",
+    "metadataCapability": "hrt"
+  }
+]

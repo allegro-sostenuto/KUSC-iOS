@@ -5,6 +5,8 @@ struct WidgetPlaybackSnapshot: Codable, Equatable {
     static let lifetime: TimeInterval = 120
     var updatedAt: Date
     var playbackRequested: Bool
+    var stationID: String
+    var stationName: String
     var work: String
     var movement: String
     var composer: String
@@ -15,16 +17,39 @@ struct WidgetPlaybackSnapshot: Codable, Equatable {
 
     init(updatedAt: Date = Date(), playbackRequested: Bool = false,
          item: ProgrammeItem? = nil, programme: String? = nil, host: String? = nil,
-         artwork: Data? = nil) {
+         artwork: Data? = nil, stationID: String = "kusc", stationName: String = "KUSC") {
         self.updatedAt = updatedAt
         self.playbackRequested = playbackRequested
-        work = String((item?.work ?? "KUSC").prefix(240))
+        self.stationID = String(stationID.prefix(100))
+        self.stationName = String(stationName.prefix(160))
+        work = String((item?.work ?? stationName).prefix(240))
         movement = String((item?.movement ?? "").prefix(200))
         composer = String((item?.composer ?? "").prefix(160))
         performers = String((item?.performers ?? "").prefix(240))
         self.programme = String((programme ?? item?.programme ?? "").prefix(160))
         self.host = String((host ?? item?.host ?? "").prefix(160))
         self.artwork = artwork.flatMap { $0.count <= 120_000 ? $0 : nil }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case updatedAt, playbackRequested, stationID, stationName, work, movement, composer, performers, programme, host, artwork
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        playbackRequested = try values.decode(Bool.self, forKey: .playbackRequested)
+        // The existing app-group file and widget kinds remain compatible.
+        // Snapshots written by version 1 have no explicit station identity.
+        stationID = try values.decodeIfPresent(String.self, forKey: .stationID) ?? "kusc"
+        stationName = try values.decodeIfPresent(String.self, forKey: .stationName) ?? "KUSC"
+        work = try values.decode(String.self, forKey: .work)
+        movement = try values.decode(String.self, forKey: .movement)
+        composer = try values.decode(String.self, forKey: .composer)
+        performers = try values.decode(String.self, forKey: .performers)
+        programme = try values.decode(String.self, forKey: .programme)
+        host = try values.decode(String.self, forKey: .host)
+        artwork = try values.decodeIfPresent(Data.self, forKey: .artwork)
     }
 
     func requestingPlayback(at date: Date) -> Bool {

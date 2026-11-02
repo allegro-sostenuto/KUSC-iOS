@@ -5,6 +5,7 @@ import UIKit
 @MainActor final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var controller: CPInterfaceController?
     private var programme: CPListTemplate?
+    private var nowPlayingEntry: CPListItem?
     private var observer: NSObjectProtocol?
     private var contextKey: String?
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
@@ -21,7 +22,9 @@ import UIKit
         now.updateNowPlayingButtons([live])
         // The Now Playing template must be pushed into navigation; it is not a
         // supported tab root. A list row provides navigation without seeking audio.
-        let showNowPlaying = CPListItem(text: "KUSC FM 91.5", detailText: "Now Playing")
+        let station = AppModel.shared.selectedStation
+        let showNowPlaying = CPListItem(text: station.name, detailText: station.subtitle ?? "Now Playing")
+        nowPlayingEntry = showNowPlaying
         showNowPlaying.handler = { [weak self] _, completion in
             Task { @MainActor in
                 guard let controller = self?.controller else { completion(); return }
@@ -35,7 +38,7 @@ import UIKit
                 }
             }
         }
-        let playing = CPListTemplate(title: "KUSC", sections: [CPListSection(items: [showNowPlaying])])
+        let playing = CPListTemplate(title: "Philharmonic", sections: [CPListSection(items: [showNowPlaying])])
         playing.tabTitle = "Playing"; playing.tabImage = UIImage(systemName: "play.circle")
         let list = CPListTemplate(title: "Programme", sections: [])
         list.tabTitle = "Programme"; list.tabImage = UIImage(systemName: "list.bullet")
@@ -56,23 +59,26 @@ import UIKit
     }
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                   didDisconnect interfaceController: CPInterfaceController) {
-        controller = nil; programme = nil; contextKey = nil
+        controller = nil; programme = nil; nowPlayingEntry = nil; contextKey = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
     }
     private func updateProgramme() {
         let model = AppModel.shared
+        let station = model.selectedStation
         let items = [model.currentItem].compactMap { $0 } + model.previousItems + model.upcomingItems
         let contentKeys = items.map { [$0.id, $0.title, $0.composer].joined(separator: "\u{1f}") }
-        let key = ([model.programmeName ?? "", model.hostName ?? ""] + contentKeys).joined(separator: "\u{1e}")
+        let key = ([station.id, model.programmeName ?? "", model.hostName ?? ""] + contentKeys).joined(separator: "\u{1e}")
         guard key != contextKey else { return }; contextKey = key
+        nowPlayingEntry?.setText(station.name)
+        nowPlayingEntry?.setDetailText(station.subtitle ?? "Now Playing")
         func row(_ piece: ProgrammeItem) -> CPListItem {
             let item = CPListItem(text: piece.title, detailText: piece.composer)
             item.isEnabled = false // Informational only: no tap or seek handler.
             return item
         }
-        let context = CPListItem(text: model.programmeName ?? "Classical California",
-                                 detailText: model.hostName ?? "KUSC FM 91.5")
+        let context = CPListItem(text: model.programmeName ?? station.name,
+                                 detailText: model.hostName ?? station.subtitle ?? "Live radio")
         context.isEnabled = false
         var sections = [CPListSection(items: [context], header: "Programme", sectionIndexTitle: nil)]
         if let current = model.currentItem { sections.append(CPListSection(items: [row(current)], header: "Now heard", sectionIndexTitle: nil)) }

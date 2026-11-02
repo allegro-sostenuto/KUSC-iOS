@@ -30,7 +30,7 @@ struct PhilharmonicPlaybackWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: HomeWidgetLayout.playback.rawValue, provider: PhilharmonicWidgetProvider()) {
             HomeWidgetView(snapshot: $0.snapshot, date: $0.date, layout: .playback)
-                .widgetURL(WidgetPlaybackLink.url(playing: !$0.snapshot.requestingPlayback(at: $0.date)))
+                .widgetURL(WidgetPlaybackLink.url(playing: !$0.snapshot.requestingPlayback(at: $0.date), stationID: $0.snapshot.stationID))
         }.configurationDisplayName("Play / Pause").description("Just one button for Philharmonic.")
             .supportedFamilies([.systemSmall])
     }

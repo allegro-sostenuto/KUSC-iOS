@@ -10,6 +10,8 @@ struct PhilharmonicActivityAttributes: ActivityAttributes {
         // Optional fields keep existing activities decodable across app updates.
         var playbackRequested: Bool? = nil
         var status: String? = nil
+        var stationID: String? = nil
+        var stationName: String? = nil
     }
     var station = "KUSC"
 }

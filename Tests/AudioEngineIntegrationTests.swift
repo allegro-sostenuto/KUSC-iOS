@@ -7,6 +7,51 @@ import XCTest
 @testable import Philharmonic_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testProgressiveStreamsNeverEnterTheHLSPreparationPath() async throws {
+        var preparations = 0
+        let engine = RollingAudioEngine(prepareDirectStream: { url in
+            preparations += 1
+            return url
+        })
+        defer { engine.stop() }
+        for address in ["https://example.invalid/live.mp3", "https://example.invalid/live.aac", "https://example.invalid/aac/192"] {
+            let url = try XCTUnwrap(URL(string: address))
+            try await engine.start(url: url, retentionMinutes: 0, playbackRequested: false)
+            XCTAssertEqual(engine.directURLForTesting, url)
+        }
+        XCTAssertEqual(preparations, 0)
+    }
+
+    func testNonKUSCHLSUsesNativePlayerWithoutKUSCManifestRequirements() async throws {
+        let engine = RollingAudioEngine()
+        defer { engine.stop() }
+        let url = URL(string: "https://example.invalid/other-station/master.m3u8")!
+        try await engine.start(url: url, retentionMinutes: 0, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, url)
+    }
+
+    func testStationReplacementRetiresLatePreparedAudio() async throws {
+        let began = expectation(description: "First station preparation began")
+        var resume: CheckedContinuation<URL, Never>?
+        let engine = RollingAudioEngine(prepareDirectStream: { _ in
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                began.fulfill()
+            }
+        })
+        defer { engine.stop() }
+        let first = Task { try await engine.start(url: source, retentionMinutes: 0) }
+        await fulfillment(of: [began], timeout: 3)
+        let next = URL(string: "https://example.invalid/new-station.aac")!
+        try await engine.start(url: next, retentionMinutes: 0, playbackRequested: false)
+        resume?.resume(returning: URL(string: "https://example.invalid/obsolete.aac")!)
+        do {
+            try await first.value
+            XCTFail("Obsolete station must not install its prepared player")
+        } catch is CancellationError { }
+        XCTAssertEqual(engine.directURLForTesting, next)
+    }
+
     func testOrdinaryEngineIgnoresLegacyRetentionAndCannotSeek() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-live-only-\(UUID().uuidString)")
         let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)

@@ -247,6 +247,7 @@ final class PlayerInteractionTests: XCTestCase {
         app.launchEnvironment["PHILHARMONIC_UI_STATE"] = "live"
         app.launchEnvironment["PHILHARMONIC_UI_DARK"] = "1"
         app.launchEnvironment["PHILHARMONIC_UI_REPEAT_MODEL_UPDATES"] = "1"
+        app.launchEnvironment["PHILHARMONIC_UI_RESET_STATIONS"] = "1"
         app.launch()
         defer { app.terminate() }
         let more = app.buttons["More controls"]
@@ -548,6 +549,7 @@ final class PlayerInteractionTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["PHILHARMONIC_UI_STATE"] = fixture.state
+        app.launchEnvironment["PHILHARMONIC_UI_RESET_STATIONS"] = "1"
         app.launchEnvironment["PHILHARMONIC_UI_ROTATION_DRIVER"] = "xctest"
         app.launchEnvironment["PHILHARMONIC_UI_LANDSCAPE"] = fixture.landscape ? "1" : "0"
         app.launchEnvironment["PHILHARMONIC_UI_LARGE_TEXT"] = fixture.largeText ? "1" : "0"

@@ -38,13 +38,22 @@ PY
 python3 scripts/generate_project.py
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
+tests=(
+    -only-testing:PhilharmonicTests/BufferedAudioSampleSourceTests
+    -only-testing:PhilharmonicTests/BufferedAudioRendererTests
+    -only-testing:PhilharmonicTests/AudioEngineIntegrationTests
+    -only-testing:PhilharmonicTests/LiveOnlySettingsTests
+    -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests
+    -only-testing:PhilharmonicTests/StationSwitchTests
+    -only-testing:PhilharmonicTests/StationSourcePlaybackTests
+)
+if [ "${PHILHARMONIC_STATION_SOURCES_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicTests/StationSourcePlaybackTests)
+fi
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Audio.xcresult" -parallel-testing-enabled NO \
-    -only-testing:PhilharmonicTests/BufferedAudioSampleSourceTests \
-    -only-testing:PhilharmonicTests/BufferedAudioRendererTests \
-    -only-testing:PhilharmonicTests/AudioEngineIntegrationTests \
-    -only-testing:PhilharmonicTests/LiveOnlySettingsTests \
-    -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests \
+    "${tests[@]}" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
+xcrun xcresulttool export attachments --path "$output/Audio.xcresult" --output-path "$output/attachments"

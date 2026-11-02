@@ -17,6 +17,8 @@ struct ProgrammeView: View {
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
+                    Text("Times shown in \(stationTimeZone.localizedName(for: .generic, locale: .current) ?? stationTimeZone.identifier).")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 programmeSection("Previous", items: Array(model.previousItems.prefix(5).reversed()),
                                  emptyMessage: "Previous pieces are unavailable.")
@@ -119,13 +121,24 @@ struct ProgrammeView: View {
 
     private func timeLabel(_ item: ProgrammeItem, isCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(item.start, format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+            Text(stationTime(item.start))
                 .monospacedDigit()
-                .accessibilityLabel(item.start.formatted(date: .omitted, time: .shortened))
 
         }
         .font(.caption)
         .foregroundStyle(isCurrent ? Color.philharmonicRed : Color.secondary)
+    }
+
+    private var stationTimeZone: TimeZone {
+        TimeZone(identifier: model.selectedStation.timeZoneIdentifier) ?? TimeZone(secondsFromGMT: 0)!
+    }
+
+    private func stationTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.timeZone = stationTimeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 
     private func pieceLabel(_ item: ProgrammeItem, isCurrent: Bool) -> some View {

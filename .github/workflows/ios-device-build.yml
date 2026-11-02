@@ -36,6 +36,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  station-picker:
+    name: Station switching and native picker checks
+    if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check stations and capture picker layouts
+        run: bash scripts/test_station_picker.sh
+      - name: Upload station evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-station-results
+          path: artifacts/native-stations
+          retention-days: 14
+
   native-audio:
     name: Native playback regression tests
     if: github.event.repository.private == false && !(github.event_name == 'workflow_dispatch' && inputs.build_only)

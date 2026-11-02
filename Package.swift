@@ -12,7 +12,7 @@ let package = Package(
                           "System", "Timers", "UI", "Audio/RollingAudioEngine.swift", "Audio/HLSIngestor.swift", "Audio/PlaybackDiagnostics.swift",
                           "Audio/BufferedAudioSampleSource.swift", "Audio/BufferedAudioRenderer.swift"],
                 sources: ["Core", "Audio/ADTSParser.swift", "Audio/HLSManifest.swift",
-                          "Metadata/StationMetadataParser.swift"]),
+                          "Metadata/StationMetadataParser.swift", "Metadata/BroadcastMetadataParser.swift"]),
         .testTarget(name: "PhilharmonicCoreTests", dependencies: ["PhilharmonicCore"], path: "Tests",
                     resources: [.copy("Fixtures")])
     ]

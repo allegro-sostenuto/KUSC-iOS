@@ -17,18 +17,19 @@ import UIKit
         }
     }
 
-    func update(item: ProgrammeItem?, artwork: UIImage?, playing: Bool, requested: Bool, status: String?, visible: Bool) {
+    func update(item: ProgrammeItem?, artwork: UIImage?, playing: Bool, requested: Bool, status: String?, visible: Bool,
+                station: RadioStation = StationCatalog.defaultStation) {
         guard visible else {
             guard let activity else { return }
             self.activity = nil; lastState = nil
-            task?.cancel()
-            task = Task { await activity.end(nil, dismissalPolicy: .immediate) }
+            enqueue(always: true) { await activity.end(nil, dismissalPolicy: .immediate) }
             return
         }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        var state = PhilharmonicActivityAttributes.ContentState(title: String((item?.title ?? "KUSC FM 91.5").prefix(180)),
-            composer: String((item?.composer ?? "Classical California").prefix(100)),
-            playing: playing, artwork: thumbnail(artwork), playbackRequested: requested, status: status)
+        var state = PhilharmonicActivityAttributes.ContentState(title: String((item?.title ?? station.name).prefix(180)),
+            composer: String((item?.composer ?? station.subtitle ?? "Live radio").prefix(100)),
+            playing: playing, artwork: thumbnail(artwork), playbackRequested: requested, status: status,
+            stationID: station.id, stationName: station.name)
         if let activity, activity.activityState == .dismissed { return }
         if let activity, activity.activityState == .ended { self.activity = nil; lastState = nil }
         if ((try? JSONEncoder().encode(state).count) ?? 4096) > 3500 {
@@ -40,14 +41,25 @@ import UIKit
         // JSON size stays below ActivityKit's 4 KB limit, including Base64 encoding.
         let content = ActivityContent(state: state, staleDate: nil)
         if let activity, activity.activityState == .active || activity.activityState == .stale {
-            task?.cancel()
-            task = Task { await activity.update(content) }
+            enqueue { await activity.update(content) }
         } else {
             // The OS may refuse a request made while backgrounded, or remove the activity
             // at its maximum lifetime. The next foreground/state change can request again.
             guard UIApplication.shared.applicationState == .active else { lastState = nil; return }
-            do { activity = try Activity.request(attributes: PhilharmonicActivityAttributes(), content: content, pushType: nil) }
+            do { activity = try Activity.request(attributes: PhilharmonicActivityAttributes(station: station.id), content: content, pushType: nil) }
             catch { lastState = nil }
+        }
+    }
+
+    private func enqueue(always: Bool = false, _ operation: @escaping @MainActor () async -> Void) {
+        // ActivityKit update may finish after cancellation. Serializing updates
+        // ensures an old station can never overwrite a newer station's state.
+        let preceding = task
+        preceding?.cancel()
+        task = Task {
+            await preceding?.value
+            guard always || !Task.isCancelled else { return }
+            await operation()
         }
     }
     private func thumbnail(_ image: UIImage?) -> Data? {

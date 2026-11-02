@@ -30,7 +30,7 @@ import UserNotifications
     }
     private func notification(_ request: ScheduledStartRequest, body: String) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = "Philharmonic scheduled start"
+        content.title = "\(StationCatalog.station(id: request.stationID)?.name ?? "Philharmonic") scheduled start"
         content.body = body
         content.sound = .default
         content.userInfo = ["action": "start-live", "scheduleID": request.id.uuidString]
@@ -41,7 +41,7 @@ import UserNotifications
     func headsUpNotification(_ request: ScheduledStartRequest, now: Date = Date()) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = "Philharmonic scheduled start at \(request.date.formatted(date: .omitted, time: .shortened))"
-        content.body = "Tap to cancel. Opens Scheduled Start at Delete Scheduled Start."
+        content.body = "\(StationCatalog.station(id: request.stationID)?.name ?? "Philharmonic"). Tap to cancel. Opens Scheduled Start at Delete Scheduled Start."
         content.sound = .default
         content.categoryIdentifier = "scheduled-heads-up"
         content.userInfo = ["action": "manage-schedule", "scheduleID": request.id.uuidString]

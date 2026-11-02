@@ -117,7 +117,11 @@ final class RollingAudioEngine {
     }
 
     init(prepareDirectStream: @escaping (URL) async throws -> URL = { url in
-        try await HLSIngestor().resolveForDirectPlayback(url: url)
+        // Only KUSC's verified Triton endpoint uses the marked pre-roll protocol.
+        // Other broadcasters' HLS containers and progressive MP3/AAC streams
+        // belong to AVPlayer, without the retired ADTS/retention assumptions.
+        guard url == StationConfiguration.audioURL else { return url }
+        return try await HLSIngestor().resolveForDirectPlayback(url: url)
     }) {
         self.prepareDirectStream = prepareDirectStream
         // A process never restores buffered playback after termination.
@@ -132,6 +136,10 @@ final class RollingAudioEngine {
     var backendVolumeForTesting: Float? { bufferedPlayer?.volume ?? player?.volume }
     var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
     var directURLForTesting: URL? { (player?.currentItem?.asset as? AVURLAsset)?.url }
+    var directSecondsForTesting: TimeInterval? {
+        guard let seconds = player?.currentTime().seconds, seconds.isFinite else { return nil }
+        return seconds
+    }
     var retentionSwitchForTesting: Task<Void, Never>? { switchTask }
     /// Native XCTest fixture: exercise pending-seek ownership without fetching
     /// the station or requiring an AAC decoder to finish an asynchronous seek.
