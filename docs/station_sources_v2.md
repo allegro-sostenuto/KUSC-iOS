@@ -1,43 +1,54 @@
 # iPhone v2 station sources
 
-## 2.0.1 quality defaults
+## 2.0.1 quality choices
 
-Settings → Advanced → Audio quality now offers **Standard** (default) and **High**.
-The preference is global and saved. Standard targets KUSC's roughly 96 kbps,
-using a nearby broadcaster rate where necessary. These are source choices, not
-local transcoding. Codec/bitrate alone do not establish equal audible quality.
+Settings has a **Quality** section with channel names on the left and the saved
+kbps value on the right. Tap a value to open that channel's bitrate/codec menu.
+Selections are saved independently for each channel. Defaults target KUSC's
+roughly 96 kbps, using a nearby broadcaster rate where necessary. These are
+native broadcaster sources; codec/bitrate alone do not establish equal audible
+quality. Numbers are source encoding tiers, not measured network throughput.
 
-| Station | Standard | High |
+| Station | Default | Available dropdown choices |
 |---|---|---|
-| KUSC | AAC 96 kbps HLS | Same |
-| Radio Swiss Classic | [AAC 96 kbps](https://stream.srg-ssr.ch/srgssr/rsc_de/aac/96) | AAC 192 kbps |
-| P2 Musik | [AAC 128 kbps](https://live1.sr.se/p2-aac-128) | AAC 320 kbps |
-| France Musique Classique Easy | [MP3 128 kbps](https://icecast.radiofrance.fr/francemusiqueeasyclassique-midfi.mp3) | AAC ≈192 kbps |
-| France Musique La Baroque | [MP3 128 kbps](https://icecast.radiofrance.fr/francemusiquebaroque-midfi.mp3) | AAC ≈192 kbps |
-| WDR 3 | [AAC 96 kbps HLS](https://wdrhf.akamaized.net/hls/live/2027994/wdr3/96/seglist.m3u8) | MP3 256 kbps |
-| Radio Chopin | AAC ≈320 kbps HLS | Same; only verified source |
-| Orpheus Large-Scale Works | MP3 192 kbps | Same; only published choice |
-| Orpheus Russian Classical | MP3 192 kbps | Same; only published choice |
-| Orpheus Camerata | [MP3 128 kbps](https://radio.orpheus.ru:8000/Chan_76_128.mp3) | MP3 256 kbps |
-| HR Klasik | MP3 128 kbps | Same |
+| KUSC | AAC 96 kbps | AAC 96 |
+| Radio Swiss Classic | AAC 96 kbps | AAC 96 / 192; MP3 128 |
+| P2 Musik | AAC 128 kbps | AAC 32 / 128 / 320 |
+| France Musique Classique Easy | MP3 128 kbps | MP3 128; AAC 192 |
+| France Musique La Baroque | MP3 128 kbps | MP3 128; AAC 192 |
+| WDR 3 | AAC 96 kbps | AAC 96 / 192 (HLS); MP3 128 / 256 |
+| Radio Chopin | AAC ≈320 kbps | AAC 320; only verified source |
+| Orpheus Large-Scale Works | MP3 192 kbps | MP3 192; only published choice |
+| Orpheus Russian Classical | MP3 192 kbps | MP3 192; only published choice |
+| Orpheus Camerata | MP3 128 kbps | MP3 64 / 128 / 256 |
+| HR Klasik | MP3 128 kbps | MP3 128 |
 
-The new Swiss, P2, France and Camerata sources decoded in short ffprobe checks
-on 2 November 2026. Swiss measured 96.1 kbps AAC, P2 128.5 kbps AAC; the three
-MP3 sources measured 128 kbps. WDR's official linked HLS master publishes a
-96 kbps AAC child (about 102 kbps advertised transport bandwidth); that child
-decoded stereo AAC-LC at 48 kHz. Its link is retained directly to avoid selecting
-the master's 192 kbps variant. Swiss's reception page publishes 96 kbps; SR's
-quality guidance publishes the 128 kbps AAC tier. France's broadcaster server
-returned matching channel-specific Icecast names. The official Orpheus player
-publishes Camerata 64/128/256 choices and only 192 for channels 8 and 17.
-Chopin's currently published HLS master has only the ≈320 kbps rendition.
-No unverified lower-rate URL or relay is substituted for these exceptions.
+The new Swiss, P2, France, WDR and Camerata sources decoded in short ffprobe
+checks on 2 November 2026. Swiss AAC measured 96.1 kbps; P2 AAC measured 32.3
+and 128.5 kbps. New MP3 sources measured their listed 64/128 kbps. WDR's
+[official stream list](https://www1.wdr.de/unternehmen/der-wdr/empfang-technik/webradio-100.html)
+links an HLS master with explicit AAC 96/192 children (about 102/200 kbps
+advertised transport bandwidth). Both children decoded stereo AAC-LC at 48 kHz;
+the app selects a specific child so the requested rate stays explicit.
 
-Changing quality rejoins live when playing; paused intent, selected station,
-metadata and saved schedules survive. The existing native buffering and retry
+[Swiss reception options](https://www.radioswissclassic.ch/de/empfang/internet)
+publish AAC 96/192 and MP3 128. Its webpage also contains an AAC `/48` URL,
+but a live probe returned AAC ≈96 kbps and `icy-br: 96`; this duplicate is
+excluded rather than mislabeled as 48. SR's
+[quality guidance](https://vanliga-fragor-svar.sverigesradio.se/guide/ljudkvalitet-pa-sveriges-radios-digitala-plattformar)
+publishes AAC 32/128/320. A `/p2-mp3-96` probe actually estimated ≈162 kbps,
+so that misleadingly named source is excluded. France's broadcaster server
+returned matching channel-specific Icecast names for its 128 kbps MP3 mounts.
+The official Orpheus player publishes Camerata 64/128/256, and only 192 for
+channels 8 and 17. Chopin's currently published HLS master has only the ≈320
+kbps rendition. No unverified lower-rate URL or relay replaces those exceptions.
+
+Changing the active channel's quality rejoins live while preserving Play/Pause
+intent, metadata and saved schedules. Changing another channel's preference
+leaves current playback running. The existing native buffering and retry
 settings remain unchanged. See [2.0.1 validation](ios_v2_0_1.md).
 
-## Original sources retained by High
+## Original higher-rate and single-source probes
 
 Checked 2 November 2026. `Shared/Core/StationCatalog.swift` is the implemented iPhone catalogue; `Tests/Fixtures/station-catalog.json` is the portable parity contract for a later Android update. Android has not been expanded by this work. There are eleven approved entries, including the existing KUSC service. The two France Musique channels and three Orpheus channels have distinct IDs and labels even though each family shares a logo.
 
@@ -48,7 +59,7 @@ decoder-clock advancement on the disposable iPhone simulator in run 61. See the
 [validation record](ios_v2_validation_2026-11-02.md) for exact scope, the observed
 single-attempt Orpheus startup failure in an earlier run, and device limitations.
 
-| Entry | High or sole source | Original probe result | Metadata implemented |
+| Entry | Original or sole source | Original probe result | Metadata implemented |
 |---|---|---|---|
 | KUSC | [Broadcaster AAC HLS redirect](https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8) | AAC, 44.1 kHz, about 98 kbps; existing advertised 96 kbps service | Existing KUSC now/combined feeds, work, performers, artwork and programme data |
 | Radio Swiss Classic | [Official 192 kbps AAC service](https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192) | AAC, 48 kHz, about 192.4 kbps | Station/live information only |
@@ -66,7 +77,7 @@ P2's [official quality guidance](https://vanliga-fragor-svar.sverigesradio.se/gu
 
 HR Klasik's [official player](https://radio.hrt.hr/stream/25) configures the Triton/StreamTheWorld mount `HR_CLASSICS`. The [public provisioning response](https://playerservices.streamtheworld.com/api/livestream?version=1.8&mount=HR_CLASSICS&lang=en) advertises MP3 128 kbps/48 kHz. The MP3 redirect returned HTTP 200 with `icy-name: HR_CLASSICS`, then a short probe of its resolved HTTPS target confirmed the format. A speculative `.aac` suffix returned 404 and is not used. The app saves the stable broadcaster redirect, not the transient CDN destination.
 
-Radio Chopin's current homepage JavaScript explicitly configures the `rytm.sdp` HLS URL above. That historical pathname is not inferred to be a different station, but the decoded source was not audibly identified during these probes. Orpheus's current player configuration publishes only the selected 192 kbps source for channels 8 and 17, and publishes 64/128/256 kbps MP3 choices for channel 76. Camerata uses 128 by default and 256 with High. The main Orpheus FM stream is not added.
+Radio Chopin's current homepage JavaScript explicitly configures the `rytm.sdp` HLS URL above. That historical pathname is not inferred to be a different station, but the decoded source was not audibly identified during these probes. Orpheus's current player configuration publishes only the selected 192 kbps source for channels 8 and 17, and publishes 64/128/256 kbps MP3 choices for channel 76. Camerata uses 128 by default, with 64 and 256 also selectable. The main Orpheus FM stream is not added.
 
 Other source attribution: [Swiss official reception options](https://www.radioswissclassic.ch/en/reception/internet), [Radio France's station offering](https://www.radiofrance.com/presentation-de-nos-antennes), [France Musique](https://www.radiofrance.fr/francemusique), [WDR official stream list](https://www1.wdr.de/unternehmen/der-wdr/empfang-technik/webradio-100.html), [Radio Chopin official player](https://chopin.polskieradio.pl/), and official Orpheus player entries [8](https://radio.orpheus.ru/player/8), [17](https://radio.orpheus.ru/player/17), [76](https://radio.orpheus.ru/player/76).
 

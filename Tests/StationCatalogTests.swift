@@ -7,35 +7,37 @@ import XCTest
 #endif
 
 final class StationCatalogTests: XCTestCase {
-    func testStandardQualityMatchesKUSCTargetWithExplicitSingleSourceExceptions() {
+    func testDefaultQualityMatchesKUSCTargetWithExplicitSingleSourceExceptions() {
         let exceptions = Set(["radio-chopin", "orpheus-large-scale", "orpheus-russian-classical"])
         for station in StationCatalog.stations {
-            let standard = station.audioSource(for: .standard)
+            let standard = station.defaultAudioSource
             XCTAssertEqual(standard.url, station.audioURL)
             XCTAssertEqual(standard.format, station.audioFormat)
             if exceptions.contains(station.id) {
-                XCTAssertEqual(standard, station.audioSource(for: .high))
+                XCTAssertEqual(station.audioSources, [standard])
             } else {
                 XCTAssertTrue((96...128).contains(standard.bitrateKbps), station.id)
             }
         }
-        XCTAssertEqual(StationCatalog.defaultStation.audioSource(for: .standard).bitrateKbps, 96)
+        XCTAssertEqual(StationCatalog.defaultStation.defaultAudioSource.bitrateKbps, 96)
     }
 
-    func testHighQualityPreservesOriginalStreamsAndNativeFormats() throws {
+    func testExplicitQualitiesPreserveAvailableRatesAndNativeFormats() throws {
         let swiss = try XCTUnwrap(StationCatalog.station(id: "radio-swiss-classic"))
-        XCTAssertTrue(swiss.audioSource(for: .high).url.absoluteString.hasSuffix("/aac/192"))
+        XCTAssertEqual(swiss.audioSources.map(\.id), ["aac-96", "mp3-128", "aac-192"])
         let p2 = try XCTUnwrap(StationCatalog.station(id: "sr-p2"))
-        XCTAssertTrue(p2.audioSource(for: .high).url.absoluteString.hasSuffix("p2-aac-320"))
+        XCTAssertEqual(p2.audioSources.map(\.id), ["aac-32", "aac-128", "aac-320"])
         let france = try XCTUnwrap(StationCatalog.station(id: "france-musique-la-baroque"))
-        XCTAssertEqual(france.audioSource(for: .standard).format, .mp3)
-        XCTAssertEqual(france.audioSource(for: .high).format, .aac)
+        XCTAssertEqual(france.audioSources.map(\.id), ["mp3-128", "aac-192"])
         let wdr = try XCTUnwrap(StationCatalog.station(id: "wdr3"))
-        XCTAssertEqual(wdr.audioSource(for: .standard).format, .hls)
-        XCTAssertEqual(wdr.audioSource(for: .high).format, .mp3)
+        XCTAssertEqual(wdr.audioSources.map(\.id), ["hls-96", "mp3-128", "hls-192", "mp3-256"])
         XCTAssertEqual(Set(StationCatalog.stations.flatMap { station in
-            StationAudioQuality.allCases.map { station.audioSource(for: $0).url }
-        }).count, 17)
+            station.audioSources.map(\.url)
+        }).count, 22)
+        for station in StationCatalog.stations {
+            XCTAssertEqual(Set(station.audioSources.map(\.id)).count, station.audioSources.count)
+            XCTAssertTrue(station.audioSources.contains(station.defaultAudioSource))
+        }
     }
 
     func testApprovedCatalogueMatchesPortableParityFixture() throws {

@@ -12,12 +12,16 @@ struct AppSettings: Codable, Equatable {
     var lastSleepMinutes = 0
     var scheduledStartDefaults: ScheduledStartOptions?
     var scheduledOutputDefault: ScheduledOutputPreference?
-    // Optional storage preserves settings.v1 on upgrade; unknown future values
-    // also use Standard without discarding appearance or scheduled defaults.
-    private var audioQualityPreference: String?
-    var audioQuality: StationAudioQuality {
-        get { audioQualityPreference.flatMap(StationAudioQuality.init(rawValue:)) ?? .standard }
-        set { audioQualityPreference = newValue.rawValue }
+    // Optional storage preserves settings.v1 on upgrade. Unknown/retired source
+    // IDs use that station's default without discarding unrelated preferences.
+    private var stationAudioSources: [String: String]?
+    func audioSource(for station: RadioStation) -> StationAudioSource {
+        station.audioSources.first { $0.id == stationAudioSources?[station.id] } ?? station.defaultAudioSource
+    }
+    mutating func setAudioSource(_ sourceID: String, for station: RadioStation) {
+        guard station.audioSources.contains(where: { $0.id == sourceID }) else { return }
+        if stationAudioSources == nil { stationAudioSources = [:] }
+        stationAudioSources?[station.id] = sourceID
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AppSettings {

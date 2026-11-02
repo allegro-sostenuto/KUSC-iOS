@@ -43,14 +43,11 @@ final class StationSourcePlaybackTests: XCTestCase {
         try audio.setActive(true)
         defer { try? audio.setActive(false, options: .notifyOthersOnDeactivation) }
         var results: [Result] = []
-        var sources: [(RadioStation, StationAudioQuality, StationAudioSource)] = []
+        var sources: [(RadioStation, StationAudioSource)] = []
         for station in StationCatalog.stations {
-            let standard = station.audioSource(for: .standard)
-            let high = station.audioSource(for: .high)
-            sources.append((station, .standard, standard))
-            if high != standard { sources.append((station, .high, high)) }
+            sources += station.audioSources.map { (station, $0) }
         }
-        for (station, quality, source) in sources {
+        for (station, source) in sources {
             let began = ProcessInfo.processInfo.systemUptime
             let deadline = began + 60
             var attempts: [Attempt] = []
@@ -71,13 +68,13 @@ final class StationSourcePlaybackTests: XCTestCase {
             let elapsed = ProcessInfo.processInfo.systemUptime - began
             let last = try XCTUnwrap(attempts.last)
             let result = Result(stationID: station.id, name: station.name,
-                source: source.url.absoluteString, format: source.format.rawValue, quality: quality.rawValue,
+                source: source.url.absoluteString, format: source.format.rawValue, quality: source.description,
                 ready: last.ready, advancing: last.advancing, elapsedSeconds: elapsed,
                 decoderSeconds: last.decoderSeconds, error: last.error,
                 firstFailure: attempts.compactMap(\.error).first,
                 attemptCount: attempts.count, attempts: attempts)
             results.append(result)
-            print("[station-source] \(station.id) quality=\(quality.rawValue) ready=\(result.ready) advancing=\(result.advancing) attempts=\(result.attemptCount) elapsed=\(elapsed) decoderDelta=\(result.decoderSeconds) firstFailure=\(result.firstFailure ?? "none") error=\(result.error ?? "none")")
+            print("[station-source] \(station.id) quality=\(source.description) ready=\(result.ready) advancing=\(result.advancing) attempts=\(result.attemptCount) elapsed=\(elapsed) decoderDelta=\(result.decoderSeconds) firstFailure=\(result.firstFailure ?? "none") error=\(result.error ?? "none")")
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let report = try encoder.encode(results)

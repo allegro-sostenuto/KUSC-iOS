@@ -23,9 +23,9 @@ struct SettingsView: View {
                             .padding(.vertical, 10)
                         divider
                         NavigationLink {
-                            AdvancedPlaybackSettingsView()
+                            PlaybackDiagnosticsView(diagnostics: model.diagnostics)
                         } label: {
-                            Text("Advanced")
+                            Text("Playback Diagnostics")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 12)
                         }
@@ -37,6 +37,46 @@ struct SettingsView: View {
                     Text("Playback")
                 } footer: {
                     Text("Playback is live-only. Play returns to live after a pause.")
+                }
+
+                Section {
+                    ForEach(model.orderedStations) { station in
+                        HStack(spacing: 12) {
+                            Text(station.name)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Menu {
+                                ForEach(station.audioSources) { source in
+                                    Button {
+                                        model.setAudioSource(source.id, for: station.id)
+                                    } label: {
+                                        if model.settings.audioSource(for: station).id == source.id {
+                                            Label(source.description, systemImage: "checkmark")
+                                        } else {
+                                            Text(source.description)
+                                        }
+                                    }
+                                    .accessibilityIdentifier("audio-source-\(source.id)")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
+                                        .monospacedDigit()
+                                    Image(systemName: "chevron.down").font(.caption2)
+                                }
+                                .fixedSize()
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("\(station.name) quality")
+                            .accessibilityValue(model.settings.audioSource(for: station).description)
+                            .accessibilityIdentifier("quality-menu-\(station.id)")
+                        }
+                        .listRowBackground(cardBackground)
+                    }
+                } header: {
+                    Text("Quality")
+                } footer: {
+                    Text("Tap a bitrate to choose that channel's quality. Defaults are near 96–128 kbps where available. Each channel's choice is saved. Changing the playing channel's quality rejoins live; a paused player stays paused.")
                 }
 
                 Section("Interface") {
@@ -101,64 +141,4 @@ struct SettingsView: View {
             }
     }
 
-}
-
-private struct AdvancedPlaybackSettingsView: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Audio quality", selection: Binding(
-                    get: { model.settings.audioQuality },
-                    set: { model.setAudioQuality($0) }
-                )) {
-                    Text("Standard").tag(StationAudioQuality.standard)
-                    Text("High").tag(StationAudioQuality.high)
-                }
-                .pickerStyle(.segmented)
-                .padding(.vertical, 8)
-                .listRowBackground(cardBackground)
-            } header: {
-                Text("Audio quality")
-            } footer: {
-                Text("Standard targets 96–128 kbps, similar to KUSC. High uses a higher-rate stream where available. Stations without a lower-rate source keep their available quality.")
-            }
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(model.selectedStation.name)
-                    Text(model.selectedAudioSource.description)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("selected-audio-quality")
-                }
-                .padding(.vertical, 6)
-                .listRowBackground(cardBackground)
-            } header: {
-                Text("Current station")
-            } footer: {
-                Text("Changing quality rejoins live. A paused player stays paused. Your choice applies to all stations and is saved for next time.")
-            }
-            Section {
-                NavigationLink("Playback Diagnostics") {
-                    PlaybackDiagnosticsView(diagnostics: model.diagnostics)
-                }
-                .listRowBackground(cardBackground)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(Color.philharmonicBackground)
-        .foregroundStyle(Color.philharmonicInk)
-        .navigationTitle("Advanced")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Color.philharmonicSurface)
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
-            }
-    }
 }

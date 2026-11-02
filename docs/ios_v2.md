@@ -1,7 +1,7 @@
 # Philharmonic iOS 2.0.0
 
-The [2.0.1 patch](ios_v2_0_1.md) adds Standard/High audio quality in Advanced
-settings and defaults to roughly KUSC's bitrate where a suitable source exists.
+The [2.0.1 patch](ios_v2_0_1.md) adds per-channel bitrate dropdowns under Settings → Quality
+and defaults to roughly KUSC's bitrate where a suitable source exists.
 
 The iPhone player offers eleven approved live channels. Android's multi-station
 update remains deferred. Installation identifiers, App Groups, widget kinds,

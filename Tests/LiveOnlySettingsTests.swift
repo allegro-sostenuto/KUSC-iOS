@@ -3,7 +3,7 @@ import XCTest
 @testable import Philharmonic_SE
 
 final class LiveOnlySettingsTests: XCTestCase {
-    func testQualityDefaultsToStandardAndPersistsWithoutLosingLegacySettings() throws {
+    func testPerStationQualityPersistsWithoutLosingLegacySettings() throws {
         let suite = "quality-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -12,16 +12,22 @@ final class LiveOnlySettingsTests: XCTestCase {
         original.scheduledStartDefaults = .init(allowOnBattery: true)
         original.save(to: defaults)
         var loaded = AppSettings.load(from: defaults)
-        XCTAssertEqual(loaded.audioQuality, .standard)
+        let swiss = try XCTUnwrap(StationCatalog.station(id: "radio-swiss-classic"))
+        let p2 = try XCTUnwrap(StationCatalog.station(id: "sr-p2"))
+        XCTAssertEqual(loaded.audioSource(for: swiss).bitrateKbps, 96)
         XCTAssertEqual(loaded, original)
-        loaded.audioQuality = .high
+        loaded.setAudioSource("aac-192", for: swiss)
+        loaded.setAudioSource("aac-32", for: p2)
         loaded.save(to: defaults)
         XCTAssertEqual(AppSettings.load(from: defaults), loaded)
+        XCTAssertEqual(AppSettings.load(from: defaults).audioSource(for: swiss).bitrateKbps, 192)
+        XCTAssertEqual(AppSettings.load(from: defaults).audioSource(for: p2).bitrateKbps, 32)
         var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(loaded)) as? [String: Any])
-        fields["audioQualityPreference"] = "future-quality"
+        fields["stationAudioSources"] = [swiss.id: "retired-source", p2.id: "aac-32"]
         defaults.set(try JSONSerialization.data(withJSONObject: fields), forKey: "settings.v1")
         let future = AppSettings.load(from: defaults)
-        XCTAssertEqual(future.audioQuality, .standard)
+        XCTAssertEqual(future.audioSource(for: swiss).bitrateKbps, 96)
+        XCTAssertEqual(future.audioSource(for: p2).bitrateKbps, 32)
         XCTAssertFalse(future.autoplay)
         XCTAssertEqual(future.appearance, "dark")
         XCTAssertEqual(future.lastSleepMinutes, 90)

@@ -28,7 +28,7 @@ import UIKit
     @Published private(set) var acquisitionIsStale = false
     @Published private(set) var bufferFailureMessage: String?
     var diagnostics: PlaybackDiagnostics { engine.diagnostics }
-    var selectedAudioSource: StationAudioSource { selectedStation.audioSource(for: settings.audioQuality) }
+    var selectedAudioSource: StationAudioSource { settings.audioSource(for: selectedStation) }
 
     // Transport exposes intent so Pause remains available while waiting or seeking.
     var isPlaying: Bool { wantsPlayback }
@@ -277,10 +277,12 @@ import UIKit
         bufferFailureMessage = nil
     }
 
-    func setAudioQuality(_ quality: StationAudioQuality) {
-        guard settings.audioQuality != quality else { return }
+    func setAudioSource(_ sourceID: String, for stationID: String) {
+        guard let station = StationCatalog.station(id: stationID),
+              station.audioSources.contains(where: { $0.id == sourceID }),
+              settings.audioSource(for: station).id != sourceID else { return }
         let previous = selectedAudioSource
-        settings.audioQuality = quality
+        settings.setAudioSource(sourceID, for: station)
         settings.save()
         guard selectedAudioSource != previous else { return }
         let hadEngine = hasStartedEngine

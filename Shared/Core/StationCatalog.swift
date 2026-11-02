@@ -4,14 +4,11 @@ public enum StationAudioFormat: String, Codable, Sendable {
     case hls, aac, mp3
 }
 
-public enum StationAudioQuality: String, Codable, CaseIterable, Sendable {
-    case standard, high
-}
-
-public struct StationAudioSource: Equatable, Sendable {
+public struct StationAudioSource: Identifiable, Equatable, Sendable {
     public let url: URL
     public let format: StationAudioFormat
     public let bitrateKbps: Int
+    public var id: String { "\(format.rawValue)-\(bitrateKbps)" }
     public var description: String {
         "\(format == .mp3 ? "MP3" : "AAC") · \(bitrateKbps) kbps"
     }
@@ -36,31 +33,48 @@ public struct RadioStation: Identifiable, Codable, Equatable, Sendable {
     public var timeZone: TimeZone { TimeZone(identifier: timeZoneIdentifier) ?? TimeZone(secondsFromGMT: 0)! }
     public var isHLS: Bool { audioFormat == .hls }
     public var supportsProgrammes: Bool { metadataCapability == .kusc }
-    public func audioSource(for quality: StationAudioQuality) -> StationAudioSource {
-        if quality == .high, let source = StationCatalog.highQualitySources[id] { return source }
+    public var defaultAudioSource: StationAudioSource {
         return StationAudioSource(url: audioURL, format: audioFormat,
-                                  bitrateKbps: StationCatalog.standardBitrates[id] ?? 96)
+                                  bitrateKbps: StationCatalog.defaultBitrates[id] ?? 96)
+    }
+    public var audioSources: [StationAudioSource] {
+        ([defaultAudioSource] + (StationCatalog.additionalAudioSources[id] ?? [])).sorted {
+            $0.bitrateKbps == $1.bitrateKbps ? $0.id < $1.id : $0.bitrateKbps < $1.bitrateKbps
+        }
     }
 }
 
 /// Approved catalogue. Tests/Fixtures/station-catalog.json is its platform parity contract.
 /// URLs are broadcaster-owned sources, not directories or relays; see docs/station_sources_v2.md.
 public enum StationCatalog {
-    // Standard follows KUSC's roughly 96 kbps target, using 128 where offered.
+    // Defaults follow KUSC's roughly 96 kbps target, using 128 where offered.
     // Chopin and Orpheus 8/17 retain their only verified broadcaster source.
-    fileprivate static let standardBitrates = [
+    fileprivate static let defaultBitrates = [
         "kusc": 96, "radio-swiss-classic": 96, "sr-p2": 128,
         "france-musique-classique-easy": 128, "france-musique-la-baroque": 128,
         "wdr3": 96, "radio-chopin": 320, "orpheus-large-scale": 192,
         "orpheus-russian-classical": 192, "orpheus-camerata": 128, "hr-klasik": 128
     ]
-    fileprivate static let highQualitySources: [String: StationAudioSource] = [
-        "radio-swiss-classic": .init(url: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192")!, format: .aac, bitrateKbps: 192),
-        "sr-p2": .init(url: URL(string: "https://live1.sr.se/p2-aac-320")!, format: .aac, bitrateKbps: 320),
-        "france-musique-classique-easy": .init(url: URL(string: "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac")!, format: .aac, bitrateKbps: 192),
-        "france-musique-la-baroque": .init(url: URL(string: "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac")!, format: .aac, bitrateKbps: 192),
-        "wdr3": .init(url: URL(string: "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3")!, format: .mp3, bitrateKbps: 256),
-        "orpheus-camerata": .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_256.mp3")!, format: .mp3, bitrateKbps: 256)
+    fileprivate static let additionalAudioSources: [String: [StationAudioSource]] = [
+        "radio-swiss-classic": [
+            .init(url: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192")!, format: .aac, bitrateKbps: 192),
+            .init(url: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/mp3/128")!, format: .mp3, bitrateKbps: 128)
+        ],
+        "sr-p2": [
+            .init(url: URL(string: "https://live1.sr.se/p2-aac-32")!, format: .aac, bitrateKbps: 32),
+            .init(url: URL(string: "https://live1.sr.se/p2-aac-320")!, format: .aac, bitrateKbps: 320)
+        ],
+        "france-musique-classique-easy": [.init(url: URL(string: "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac")!, format: .aac, bitrateKbps: 192)],
+        "france-musique-la-baroque": [.init(url: URL(string: "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac")!, format: .aac, bitrateKbps: 192)],
+        "wdr3": [
+            .init(url: URL(string: "https://wdrhf.akamaized.net/hls/live/2027994/wdr3/192/seglist.m3u8")!, format: .hls, bitrateKbps: 192),
+            .init(url: URL(string: "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3")!, format: .mp3, bitrateKbps: 128),
+            .init(url: URL(string: "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3")!, format: .mp3, bitrateKbps: 256)
+        ],
+        "orpheus-camerata": [
+            .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_64.mp3")!, format: .mp3, bitrateKbps: 64),
+            .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_256.mp3")!, format: .mp3, bitrateKbps: 256)
+        ]
     ]
     public static let stations: [RadioStation] = [
         RadioStation(id: "kusc", name: "KUSC", subtitle: "91.5 FM",

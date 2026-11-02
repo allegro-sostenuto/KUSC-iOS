@@ -12,15 +12,15 @@ final class StationSwitchTests: XCTestCase {
         model.selectStation("radio-swiss-classic")
         model.configureAudioRecoveryForTesting(playing: true)
         model.currentItem = .init(id: "same-work", start: Date(), work: "Current work")
-        model.setAudioQuality(.high)
+        model.setAudioSource("aac-192", for: "radio-swiss-classic")
         XCTAssertTrue(model.isPlaying)
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
         XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 192)
         XCTAssertEqual(model.currentItem?.id, "same-work")
-        model.setAudioQuality(.high)
+        model.setAudioSource("aac-192", for: "radio-swiss-classic")
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
         model.pauseRemote()
-        model.setAudioQuality(.standard)
+        model.setAudioSource("aac-96", for: "radio-swiss-classic")
         XCTAssertFalse(model.isPlaying)
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
         XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 96)
@@ -35,11 +35,16 @@ final class StationSwitchTests: XCTestCase {
         model.selectStation("kusc")
         model.configureAudioRecoveryForTesting(playing: true)
         let session = model.audioRecoveryStateForTesting.engineGeneration
-        model.setAudioQuality(.high)
-        XCTAssertEqual(model.settings.audioQuality, .high)
+        model.setAudioSource("hls-96", for: "kusc")
+        model.setAudioSource("aac-192", for: "radio-swiss-classic")
+        XCTAssertEqual(model.settings.audioSource(for: StationCatalog.defaultStation).bitrateKbps, 96)
+        XCTAssertEqual(model.selectedStation.id, "kusc")
         XCTAssertTrue(model.isPlaying)
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
         XCTAssertEqual(model.audioRecoveryStateForTesting.engineGeneration, session)
+        model.selectStation("radio-swiss-classic")
+        XCTAssertEqual(model.selectedAudioSource.id, "aac-192")
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
     }
 
     @MainActor func testQualitySwitchDuringInterruptionDefersConnectionUntilResume() {
@@ -47,7 +52,7 @@ final class StationSwitchTests: XCTestCase {
         defer { restore() }
         model.selectStation("radio-swiss-classic")
         model.configureAudioRecoveryForTesting(playing: true, interrupted: true)
-        model.setAudioQuality(.high)
+        model.setAudioSource("aac-192", for: "radio-swiss-classic")
         XCTAssertTrue(model.audioRecoveryStateForTesting.interrupted)
         XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
         model.endAudioInterruptionForTesting(shouldResume: true)
@@ -63,10 +68,10 @@ final class StationSwitchTests: XCTestCase {
             now: Date(), uptime: 1000, plugged: true, level: 1,
             route: .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")])))
         let request = model.scheduleIDForTesting
-        model.setAudioQuality(.high)
+        model.setAudioSource("aac-192", for: "radio-swiss-classic")
         XCTAssertFalse(model.isPlaying)
         model.advanceScheduleForTesting(seconds: 60)
-        model.setAudioQuality(.standard)
+        model.setAudioSource("aac-96", for: "radio-swiss-classic")
         XCTAssertEqual(model.scheduleIDForTesting, request)
         XCTAssertEqual(model.scheduledStation.id, "radio-swiss-classic")
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
@@ -222,7 +227,7 @@ final class StationSwitchTests: XCTestCase {
         let model = AppModel.shared
         let settings = model.settings
         let savedSettings = UserDefaults.standard.data(forKey: "settings.v1")
-        model.settings.audioQuality = .standard
+        model.settings = AppSettings()
         let preferences = model.stationPreferences
         let saved = UserDefaults.standard.data(forKey: StationPreferences.storageKey)
         let item = model.currentItem, previous = model.previousItems, upcoming = model.upcomingItems

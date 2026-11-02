@@ -4,7 +4,7 @@ import UIKit
 final class AudioQualityUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    @MainActor func testAdvancedQualityChoiceAndPausedPlaybackInLightAndDark() {
+    @MainActor func testChannelBitrateDropdownsAndPausedPlaybackInLightAndDark() {
         for dark in [false, true] {
             XCUIDevice.shared.orientation = .portrait
             let app = XCUIApplication()
@@ -18,24 +18,31 @@ final class AudioQualityUITests: XCTestCase {
             app.buttons["station-radio-swiss-classic"].tap()
             app.buttons["Back to player"].tap()
             app.buttons["Settings"].tap()
-            app.buttons["Advanced"].tap()
-            let standard = app.segmentedControls.buttons["Standard"]
-            let high = app.segmentedControls.buttons["High"]
-            XCTAssertTrue(standard.waitForExistence(timeout: 5))
-            XCTAssertTrue(standard.isSelected)
-            XCTAssertEqual(app.staticTexts["selected-audio-quality"].label, "AAC · 96 kbps")
-            high.tap()
-            XCTAssertTrue(high.isSelected)
-            XCTAssertEqual(app.staticTexts["selected-audio-quality"].label, "AAC · 192 kbps")
-            capture("audio-quality-high" + (dark ? "-dark" : "-light"))
-            standard.tap()
-            XCTAssertTrue(standard.isSelected)
-            XCTAssertEqual(app.staticTexts["selected-audio-quality"].label, "AAC · 96 kbps")
-            capture("audio-quality-standard" + (dark ? "-dark" : "-light"))
-            app.navigationBars.buttons["Settings"].tap()
+            let swiss = app.buttons["quality-menu-radio-swiss-classic"]
+            XCTAssertTrue(swiss.waitForExistence(timeout: 5))
+            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            XCTAssertLessThan(app.staticTexts["Radio Swiss Classic"].frame.minX, swiss.frame.minX)
+            capture("quality-channel-list" + (dark ? "-dark" : "-light"))
+            swiss.tap()
+            XCTAssertTrue(app.buttons["AAC · 192 kbps"].waitForExistence(timeout: 3))
+            XCTAssertTrue(app.buttons["MP3 · 128 kbps"].exists)
+            XCTAssertTrue(app.buttons["AAC · 96 kbps"].exists)
+            capture("quality-bitrate-dropdown" + (dark ? "-dark" : "-light"))
+            app.buttons["AAC · 192 kbps"].tap()
+            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
             app.buttons["Close"].tap()
             XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["Pause"].exists)
+            app.buttons["Settings"].tap()
+            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
+            swiss.tap()
+            app.buttons["MP3 · 128 kbps"].tap()
+            XCTAssertTrue((swiss.value as? String)?.contains("MP3 · 128 kbps") == true)
+            swiss.tap()
+            app.buttons["AAC · 96 kbps"].tap()
+            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            app.buttons["Close"].tap()
+            XCTAssertTrue(app.buttons["Play"].isHittable)
         }
     }
 
