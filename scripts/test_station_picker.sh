@@ -35,7 +35,8 @@ if kind is None:
 print(sim('create', 'Philharmonic station picker', kind['identifier'], runtimes[0]['identifier']).strip())
 PY
 )"
-python3 scripts/generate_project.py
+# This job runs UI tests only. Do not compile the unrelated hosted unit bundle.
+python3 scripts/generate_project.py --ui-tests-only
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
 set +e

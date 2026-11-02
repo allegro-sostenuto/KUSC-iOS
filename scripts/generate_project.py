@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Regenerate the dependency-free Xcode project with Python 3. No XcodeGen required."""
 from pathlib import Path
-import hashlib, json, plistlib
+import hashlib, json, plistlib, sys
 ROOT = Path(__file__).resolve().parents[1]
+ui_tests_only = '--ui-tests-only' in sys.argv[1:]
 objects = {}
 def oid(key): return hashlib.sha1(key.encode()).hexdigest()[:24].upper()
 def add(key, **fields):
@@ -86,7 +87,8 @@ for name,*_ in app_configs:
     tests_xml=''
     test_environment_xml=''
     if name=='Philharmonic-SE':
-        tests_xml=''.join(f'<TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:"+test)}" BuildableName="{test}.xctest" BlueprintName="{test}" ReferencedContainer="container:Philharmonic.xcodeproj"/></TestableReference>' for test in ['PhilharmonicTests','PhilharmonicUITests'])
+        selected_tests = ['PhilharmonicUITests'] if ui_tests_only else ['PhilharmonicTests','PhilharmonicUITests']
+        tests_xml=''.join(f'<TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target:"+test)}" BuildableName="{test}.xctest" BlueprintName="{test}" ReferencedContainer="container:Philharmonic.xcodeproj"/></TestableReference>' for test in selected_tests)
         test_environment_xml='<EnvironmentVariables><EnvironmentVariable key="PHILHARMONIC_UI_STATE" value="no-artwork" isEnabled="YES"/></EnvironmentVariables>'
     (schemes/(name+'.xcscheme')).write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2600" version="1.3">

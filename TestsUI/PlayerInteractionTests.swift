@@ -129,6 +129,16 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    private func attachPanelGestureTrace(_ app: XCUIApplication, named name: String) {
+        let probe = app.descendants(matching: .any).matching(identifier: "panel-gesture-trace").firstMatch
+        let value = probe.exists ? (probe.value as? String ?? "Trace value unavailable") : "Trace probe unavailable"
+        let attachment = XCTAttachment(string: value)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     private func footerFrames(in app: XCUIApplication) -> [CGRect] {
         let elements = [app.buttons["Pause"], app.buttons["Jump to live"], app.buttons["More controls"],
                         app.staticTexts["Listening live"]]
@@ -307,6 +317,7 @@ final class PlayerInteractionTests: XCTestCase {
             // short drag or page-button tap can prime the recognizers.
             let start = first.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.35))
             let end = first.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.42))
+            attachPanelGestureTrace(app, named: "before-first-swipe-" + state)
             start.press(forDuration: 0.05, thenDragTo: end)
             let program = app.staticTexts["programme-header"]
             let opened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -314,6 +325,7 @@ final class PlayerInteractionTests: XCTestCase {
                     app.scrollViews["programme-scroll"].isHittable && !first.isHittable
             }, object: nil)
             let firstSwipeResult = XCTWaiter.wait(for: [opened], timeout: 5)
+            attachPanelGestureTrace(app, named: "after-first-swipe-" + state)
             if firstSwipeResult != .completed {
                 attach(app, named: "failed-first-swipe-" + state)
                 let hierarchy = XCTAttachment(string: app.debugDescription)

@@ -71,6 +71,11 @@ struct ContentView: View {
         .foregroundStyle(Color.philharmonicInk)
         .tint(.philharmonicRed)
         .preferredColorScheme(colorScheme)
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if UIFixture.state != nil { PanelGestureTraceProbe().frame(width: 1, height: 1) }
+        }
+        #endif
         .fullScreenCover(isPresented: $choosingStation) {
             StationPickerView()
                 .environmentObject(model)
@@ -348,7 +353,7 @@ struct ContentView: View {
         let selected = direction == allowedDirection ? direction : nil
         #if DEBUG
         if UIFixture.state != nil {
-            print("Panel release: x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
+            PanelGestureTrace.record("release x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
         }
         #endif
         let remaining = abs((selected.map { CGFloat($0) * width } ?? 0) - panelOffset)
@@ -373,6 +378,9 @@ struct ContentView: View {
             return
         }
         panelTransition = PanelTransition(switchesPanel: direction != nil)
+        #if DEBUG
+        PanelGestureTrace.record("settle target=\(target), offset=\(panelOffset), switch=\(direction != nil)")
+        #endif
         // m = 1, k = 380, c = 2√(mk): critical damping slows gently without bounce.
         let motion: Animation = reduceMotion ? .easeOut(duration: 0.12)
             : .interpolatingSpring(mass: 1, stiffness: 380, damping: 2 * sqrt(380), initialVelocity: velocity)
@@ -381,6 +389,9 @@ struct ContentView: View {
 
     private func finishPanelTransition(id: UUID?) {
         guard let transition = panelTransition, transition.id == id else { return }
+        #if DEBUG
+        PanelGestureTrace.record("transition complete switch=\(transition.switchesPanel)")
+        #endif
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -390,6 +401,11 @@ struct ContentView: View {
     }
 
     private func resetPanelDrag() {
+        #if DEBUG
+        if draggingPanel || panelTransition != nil {
+            PanelGestureTrace.record("reset offset=\(panelOffset), transition=\(panelTransition != nil), showingProgram=\(showingProgramme)")
+        }
+        #endif
         panelTransition = nil
         panelSwipe = PanelSwipeState()
         draggingPanel = false

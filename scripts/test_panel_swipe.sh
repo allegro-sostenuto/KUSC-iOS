@@ -35,11 +35,13 @@ if kind is None:
 print(sim('create', 'Philharmonic panel swipe', kind['identifier'], runtimes[0]['identifier']).strip())
 PY
 )"
-python3 scripts/generate_project.py
+python3 scripts/generate_project.py --ui-tests-only
+if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" != true ]; then
+    swift test --filter PanelSwipeTests 2>&1 | tee "$output/policy-tests.log"
+fi
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
 checks=(
-    "-only-testing:PhilharmonicTests/PanelSwipeTests"
     "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup"
     "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt"
     "-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging"
