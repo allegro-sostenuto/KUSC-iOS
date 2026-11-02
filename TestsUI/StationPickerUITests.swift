@@ -174,11 +174,30 @@ final class StationPickerUITests: XCTestCase {
 
     @MainActor
     private func reach(_ id: String, app: XCUIApplication, horizontal: Bool) {
+        let station = app.buttons["station-" + id]
+        let scroll = app.scrollViews[horizontal ? "stations-horizontal-scroll" : "stations-vertical-scroll"]
         for _ in 0..<32 {
-            if app.buttons["station-" + id].isHittable { return }
-            if horizontal { app.scrollViews["stations-horizontal-scroll"].swipeLeft() }
-            else { app.scrollViews["stations-vertical-scroll"].swipeUp() }
+            // Lazy stacks expose placeholder accessibility entries before their
+            // native views exist. Asking XCTest for a placeholder's activation
+            // point throws instead of returning false, so first require a real
+            // finite frame and an on-screen centre inside this scroll viewport.
+            if station.exists {
+                let frame = station.frame
+                let viewport = scroll.frame.intersection(app.frame)
+                if frame.minX.isFinite, frame.minY.isFinite,
+                   frame.width.isFinite, frame.height.isFinite,
+                   frame.width > 0, frame.height > 0,
+                   viewport.contains(CGPoint(x: frame.midX, y: frame.midY)),
+                   station.isHittable { return }
+            }
+            if horizontal { scroll.swipeLeft() }
+            else { scroll.swipeUp() }
         }
+        capture("unreachable-station-" + id)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "unreachable-station-hierarchy-" + id
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
         XCTFail("Station was not reachable: " + id)
     }
 

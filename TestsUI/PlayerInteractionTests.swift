@@ -313,7 +313,15 @@ final class PlayerInteractionTests: XCTestCase {
                 app.buttons["programme-page"].isSelected &&
                     app.scrollViews["programme-scroll"].isHittable && !first.isHittable
             }, object: nil)
-            XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 5), .completed,
+            let firstSwipeResult = XCTWaiter.wait(for: [opened], timeout: 5)
+            if firstSwipeResult != .completed {
+                attach(app, named: "failed-first-swipe-" + state)
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "failed-first-swipe-hierarchy-" + state
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
+            }
+            XCTAssertEqual(firstSwipeResult, .completed,
                            "The first right swipe must actually select and reveal Program")
             XCTAssertTrue(program.exists)
             XCTAssertEqual(program.label, "Program")

@@ -61,6 +61,15 @@ jobs:
           name: native-station-results
           path: artifacts/native-stations
           retention-days: 14
+      - name: Upload station captures separately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-station-captures
+          path: |
+            artifacts/native-stations/attachments
+            artifacts/native-stations/tests.log
+          retention-days: 14
 
   native-audio:
     name: Native playback regression tests
@@ -106,6 +115,15 @@ jobs:
         with:
           name: native-swipe-results
           path: artifacts/native-swipe
+          retention-days: 14
+      - name: Upload swipe captures separately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-swipe-captures
+          path: |
+            artifacts/native-swipe/attachments
+            artifacts/native-swipe/tests.log
           retention-days: 14
 
   build:

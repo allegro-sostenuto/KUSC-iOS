@@ -337,11 +337,20 @@ struct ContentView: View {
     private func panelDragEnded(_ x: CGFloat, velocity: CGFloat, cancelled: Bool, width: CGFloat) {
         guard panelTransition == nil else { return }
         draggingPanel = false
+        // UIKit may coalesce changed samples during a busy first frame. Its
+        // recognizer has already locked the horizontal direction; include the
+        // final translation so a valid release cannot retain an undecided axis.
+        _ = panelSwipe.translation(x: Double(x), y: 0, width: Double(width))
         let predicted = x + velocity * 0.18
         let direction = cancelled ? nil : panelSwipe.releaseDirection(
             x: Double(x), predictedX: Double(predicted), width: Double(width))
         let allowedDirection = showingProgramme ? -1 : 1
         let selected = direction == allowedDirection ? direction : nil
+        #if DEBUG
+        if UIFixture.state != nil {
+            print("Panel release: x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
+        }
+        #endif
         let remaining = abs((selected.map { CGFloat($0) * width } ?? 0) - panelOffset)
         let signedSpeed = velocity * CGFloat(selected ?? 0)
         // Carry a modest release velocity into the spring without overshoot.

@@ -50,11 +50,19 @@ checks=(
 if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" = true ]; then
     checks=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging)
 fi
+set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Swipe.xcresult" -parallel-testing-enabled NO \
     "${checks[@]}" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
+test_status=${PIPESTATUS[0]}
+set -e
 
-xcrun xcresulttool export attachments --path "$output/Swipe.xcresult" --output-path "$output/attachments"
+export_status=0
+if [ -d "$output/Swipe.xcresult" ]; then
+    xcrun xcresulttool export attachments --path "$output/Swipe.xcresult" --output-path "$output/attachments" || export_status=$?
+fi
+if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+exit "$export_status"

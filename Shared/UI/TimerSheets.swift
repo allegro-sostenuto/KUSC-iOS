@@ -105,7 +105,7 @@ struct ScheduledStartView: View {
                 Text("Within the next 24 hours")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text("Station: \(model.scheduledStation.name)")
+                Text("Station: \(model.selectedStation.name)")
                     .font(.subheadline)
                     .accessibilityIdentifier("scheduled-station")
                 DatePicker("Start playback at", selection: $selectedDate,
@@ -139,7 +139,7 @@ struct ScheduledStartView: View {
             )
 
             if let description = model.scheduleDescription {
-                TimerStatusCard(title: "Current schedule", message: description, symbol: "clock")
+                TimerStatusCard(title: "Current schedule", message: "\(model.scheduledStation.name) · \(description)", symbol: "clock")
             }
 
             if model.scheduleDescription != nil {
