@@ -39,11 +39,15 @@ PY
 python3 scripts/generate_project.py --ui-tests-only
 xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
+tests=(-only-testing:PhilharmonicUITests/StationPickerUITests)
+if [ "${PHILHARMONIC_QUALITY_UI_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests)
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Stations.xcresult" -parallel-testing-enabled NO \
-    -only-testing:PhilharmonicUITests/StationPickerUITests \
+    "${tests[@]}" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
     test 2>&1 | tee "$output/tests.log"
 test_status=${PIPESTATUS[0]}

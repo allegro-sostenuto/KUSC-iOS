@@ -28,6 +28,7 @@ import UIKit
     @Published private(set) var acquisitionIsStale = false
     @Published private(set) var bufferFailureMessage: String?
     var diagnostics: PlaybackDiagnostics { engine.diagnostics }
+    var selectedAudioSource: StationAudioSource { selectedStation.audioSource(for: settings.audioQuality) }
 
     // Transport exposes intent so Pause remains available while waiting or seeking.
     var isPlaying: Bool { wantsPlayback }
@@ -274,6 +275,24 @@ import UIKit
         engine.setRetention(minutes: 0)
         bufferWindow = nil
         bufferFailureMessage = nil
+    }
+
+    func setAudioQuality(_ quality: StationAudioQuality) {
+        guard settings.audioQuality != quality else { return }
+        let previous = selectedAudioSource
+        settings.audioQuality = quality
+        settings.save()
+        guard selectedAudioSource != previous else { return }
+        let hadEngine = hasStartedEngine
+        stationSelectionKeepsActivity = stationSelectionKeepsActivity || hadEngine
+        connectionGeneration = UUID()
+        connectionTask?.cancel(); connectionTask = nil
+        hasStartedEngine = false; engine.stop(); audioIsAdvancing = false
+        reconnectStarted = nil; nextRetry = .distantPast
+        acquisitionIsStale = false; bufferWindow = nil; bufferFailureMessage = nil
+        if hadEngine { state = interruptionActive && wantsPlayback ? .interrupted : (wantsPlayback ? .connecting : .pausedLive) }
+        if wantsPlayback && !interruptionActive { startConnection(preserveScheduledGain: true) }
+        refreshSystemSurfaces()
     }
 
     func startPlaybackDiagnostics() {
@@ -687,7 +706,7 @@ import UIKit
         bufferFailureMessage = nil
         connectionTask?.cancel()
         let generation = UUID(); connectionGeneration = generation
-        let station = selectedStation
+        let source = selectedAudioSource
         if scheduleOwnsPlayback && !preserveScheduledGain { scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         if reconnectStarted == nil { state = .connecting }
         hasStartedEngine = true
@@ -700,7 +719,7 @@ import UIKit
         connectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             do {
-                try await engine.start(url: station.audioURL, retentionMinutes: 0)
+                try await engine.start(url: source.url, retentionMinutes: 0)
                 guard !Task.isCancelled, connectionGeneration == generation else { return }
                 applyGain()
                 if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }

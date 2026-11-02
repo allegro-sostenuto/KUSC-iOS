@@ -23,6 +23,7 @@ final class StationSourcePlaybackTests: XCTestCase {
         let name: String
         let source: String
         let format: String
+        let quality: String
         let ready: Bool
         let advancing: Bool
         let elapsedSeconds: Double
@@ -42,7 +43,14 @@ final class StationSourcePlaybackTests: XCTestCase {
         try audio.setActive(true)
         defer { try? audio.setActive(false, options: .notifyOthersOnDeactivation) }
         var results: [Result] = []
+        var sources: [(RadioStation, StationAudioQuality, StationAudioSource)] = []
         for station in StationCatalog.stations {
+            let standard = station.audioSource(for: .standard)
+            let high = station.audioSource(for: .high)
+            sources.append((station, .standard, standard))
+            if high != standard { sources.append((station, .high, high)) }
+        }
+        for (station, quality, source) in sources {
             let began = ProcessInfo.processInfo.systemUptime
             let deadline = began + 60
             var attempts: [Attempt] = []
@@ -52,7 +60,7 @@ final class StationSourcePlaybackTests: XCTestCase {
                 // Match the app's bounded live reconnect behavior. KUSC may
                 // spend its full remaining window preparing a marked pre-roll.
                 let attemptDeadline = min(deadline, now + (station.id == "kusc" ? 60 : 20))
-                let attempt = try await probe(station, number: number, deadline: attemptDeadline)
+                let attempt = try await probe(station, source: source, number: number, deadline: attemptDeadline)
                 attempts.append(attempt)
                 print("[station-source-attempt] \(station.id) attempt=\(number) ready=\(attempt.ready) advancing=\(attempt.advancing) elapsed=\(attempt.elapsedSeconds) decoderDelta=\(attempt.decoderSeconds) error=\(attempt.error ?? "none")")
                 if attempt.advancing { break }
@@ -63,13 +71,13 @@ final class StationSourcePlaybackTests: XCTestCase {
             let elapsed = ProcessInfo.processInfo.systemUptime - began
             let last = try XCTUnwrap(attempts.last)
             let result = Result(stationID: station.id, name: station.name,
-                source: station.audioURL.absoluteString, format: station.audioFormat.rawValue,
+                source: source.url.absoluteString, format: source.format.rawValue, quality: quality.rawValue,
                 ready: last.ready, advancing: last.advancing, elapsedSeconds: elapsed,
                 decoderSeconds: last.decoderSeconds, error: last.error,
                 firstFailure: attempts.compactMap(\.error).first,
                 attemptCount: attempts.count, attempts: attempts)
             results.append(result)
-            print("[station-source] \(station.id) ready=\(result.ready) advancing=\(result.advancing) attempts=\(result.attemptCount) elapsed=\(elapsed) decoderDelta=\(result.decoderSeconds) firstFailure=\(result.firstFailure ?? "none") error=\(result.error ?? "none")")
+            print("[station-source] \(station.id) quality=\(quality.rawValue) ready=\(result.ready) advancing=\(result.advancing) attempts=\(result.attemptCount) elapsed=\(elapsed) decoderDelta=\(result.decoderSeconds) firstFailure=\(result.firstFailure ?? "none") error=\(result.error ?? "none")")
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let report = try encoder.encode(results)
@@ -77,7 +85,7 @@ final class StationSourcePlaybackTests: XCTestCase {
         attachment.name = "Native station source results"; attachment.lifetime = .keepAlways
         add(attachment)
         let summary = results.map {
-            "\($0.stationID): \($0.advancing ? "PASS" : "FAIL") · attempts=\($0.attemptCount) · \($0.error ?? "ready and decoder advancing") · firstFailure=\($0.firstFailure ?? "none")"
+            "\($0.stationID) [\($0.quality)]: \($0.advancing ? "PASS" : "FAIL") · attempts=\($0.attemptCount) · \($0.error ?? "ready and decoder advancing") · firstFailure=\($0.firstFailure ?? "none")"
         }.joined(separator: "\n")
         let text = XCTAttachment(string: summary)
         text.name = "Native station source summary"; text.lifetime = .keepAlways
@@ -87,7 +95,7 @@ final class StationSourcePlaybackTests: XCTestCase {
         }
     }
 
-    @MainActor private func probe(_ station: RadioStation, number: Int, deadline: TimeInterval) async throws -> Attempt {
+    @MainActor private func probe(_ station: RadioStation, source: StationAudioSource, number: Int, deadline: TimeInterval) async throws -> Attempt {
         let engine = RollingAudioEngine()
         engine.volume = 0 // Decoder readiness is tested without audible output.
         engine.diagnostics.start(context: "Native station source \(station.id), attempt \(number)")
@@ -97,7 +105,7 @@ final class StationSourcePlaybackTests: XCTestCase {
         engine.onFailure = { if failure == nil { failure = Self.describe($0) } }
         let began = ProcessInfo.processInfo.systemUptime
         let starting = Task {
-            do { try await engine.start(url: station.audioURL, retentionMinutes: 0) }
+            do { try await engine.start(url: source.url, retentionMinutes: 0) }
             catch is CancellationError { }
             catch { if failure == nil { failure = Self.describe(error) } }
         }

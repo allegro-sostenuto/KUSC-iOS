@@ -1,6 +1,7 @@
 import Foundation
 
 struct AppSettings: Codable, Equatable {
+    init() {}
     var autoplay = true
     // Time shifting is unavailable until a server-backed implementation exists.
     // Computed values also ignore (and omit on save) legacy Codable preferences.
@@ -11,6 +12,13 @@ struct AppSettings: Codable, Equatable {
     var lastSleepMinutes = 0
     var scheduledStartDefaults: ScheduledStartOptions?
     var scheduledOutputDefault: ScheduledOutputPreference?
+    // Optional storage preserves settings.v1 on upgrade; unknown future values
+    // also use Standard without discarding appearance or scheduled defaults.
+    private var audioQualityPreference: String?
+    var audioQuality: StationAudioQuality {
+        get { audioQualityPreference.flatMap(StationAudioQuality.init(rawValue:)) ?? .standard }
+        set { audioQualityPreference = newValue.rawValue }
+    }
 
     static func load(from defaults: UserDefaults = .standard) -> AppSettings {
         guard let data = defaults.data(forKey: "settings.v1"),

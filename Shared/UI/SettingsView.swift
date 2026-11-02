@@ -23,9 +23,9 @@ struct SettingsView: View {
                             .padding(.vertical, 10)
                         divider
                         NavigationLink {
-                            PlaybackDiagnosticsView(diagnostics: model.diagnostics)
+                            AdvancedPlaybackSettingsView()
                         } label: {
-                            Text("Playback Diagnostics")
+                            Text("Advanced")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 12)
                         }
@@ -101,4 +101,64 @@ struct SettingsView: View {
             }
     }
 
+}
+
+private struct AdvancedPlaybackSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Audio quality", selection: Binding(
+                    get: { model.settings.audioQuality },
+                    set: { model.setAudioQuality($0) }
+                )) {
+                    Text("Standard").tag(StationAudioQuality.standard)
+                    Text("High").tag(StationAudioQuality.high)
+                }
+                .pickerStyle(.segmented)
+                .padding(.vertical, 8)
+                .listRowBackground(cardBackground)
+            } header: {
+                Text("Audio quality")
+            } footer: {
+                Text("Standard targets 96–128 kbps, similar to KUSC. High uses a higher-rate stream where available. Stations without a lower-rate source keep their available quality.")
+            }
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.selectedStation.name)
+                    Text(model.selectedAudioSource.description)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("selected-audio-quality")
+                }
+                .padding(.vertical, 6)
+                .listRowBackground(cardBackground)
+            } header: {
+                Text("Current station")
+            } footer: {
+                Text("Changing quality rejoins live. A paused player stays paused. Your choice applies to all stations and is saved for next time.")
+            }
+            Section {
+                NavigationLink("Playback Diagnostics") {
+                    PlaybackDiagnosticsView(diagnostics: model.diagnostics)
+                }
+                .listRowBackground(cardBackground)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.philharmonicBackground)
+        .foregroundStyle(Color.philharmonicInk)
+        .navigationTitle("Advanced")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(Color.philharmonicSurface)
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
+            }
+    }
 }

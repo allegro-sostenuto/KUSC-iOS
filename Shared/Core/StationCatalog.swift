@@ -4,6 +4,19 @@ public enum StationAudioFormat: String, Codable, Sendable {
     case hls, aac, mp3
 }
 
+public enum StationAudioQuality: String, Codable, CaseIterable, Sendable {
+    case standard, high
+}
+
+public struct StationAudioSource: Equatable, Sendable {
+    public let url: URL
+    public let format: StationAudioFormat
+    public let bitrateKbps: Int
+    public var description: String {
+        "\(format == .mp3 ? "MP3" : "AAC") · \(bitrateKbps) kbps"
+    }
+}
+
 /// Capabilities are explicit: an audio source does not imply a work or programme feed.
 public enum StationMetadataCapability: String, Codable, Sendable {
     case kusc, stationOnly, hrt, srP2
@@ -23,11 +36,32 @@ public struct RadioStation: Identifiable, Codable, Equatable, Sendable {
     public var timeZone: TimeZone { TimeZone(identifier: timeZoneIdentifier) ?? TimeZone(secondsFromGMT: 0)! }
     public var isHLS: Bool { audioFormat == .hls }
     public var supportsProgrammes: Bool { metadataCapability == .kusc }
+    public func audioSource(for quality: StationAudioQuality) -> StationAudioSource {
+        if quality == .high, let source = StationCatalog.highQualitySources[id] { return source }
+        return StationAudioSource(url: audioURL, format: audioFormat,
+                                  bitrateKbps: StationCatalog.standardBitrates[id] ?? 96)
+    }
 }
 
 /// Approved catalogue. Tests/Fixtures/station-catalog.json is its platform parity contract.
 /// URLs are broadcaster-owned sources, not directories or relays; see docs/station_sources_v2.md.
 public enum StationCatalog {
+    // Standard follows KUSC's roughly 96 kbps target, using 128 where offered.
+    // Chopin and Orpheus 8/17 retain their only verified broadcaster source.
+    fileprivate static let standardBitrates = [
+        "kusc": 96, "radio-swiss-classic": 96, "sr-p2": 128,
+        "france-musique-classique-easy": 128, "france-musique-la-baroque": 128,
+        "wdr3": 96, "radio-chopin": 320, "orpheus-large-scale": 192,
+        "orpheus-russian-classical": 192, "orpheus-camerata": 128, "hr-klasik": 128
+    ]
+    fileprivate static let highQualitySources: [String: StationAudioSource] = [
+        "radio-swiss-classic": .init(url: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192")!, format: .aac, bitrateKbps: 192),
+        "sr-p2": .init(url: URL(string: "https://live1.sr.se/p2-aac-320")!, format: .aac, bitrateKbps: 320),
+        "france-musique-classique-easy": .init(url: URL(string: "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac")!, format: .aac, bitrateKbps: 192),
+        "france-musique-la-baroque": .init(url: URL(string: "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac")!, format: .aac, bitrateKbps: 192),
+        "wdr3": .init(url: URL(string: "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3")!, format: .mp3, bitrateKbps: 256),
+        "orpheus-camerata": .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_256.mp3")!, format: .mp3, bitrateKbps: 256)
+    ]
     public static let stations: [RadioStation] = [
         RadioStation(id: "kusc", name: "KUSC", subtitle: "91.5 FM",
                      websiteURL: URL(string: "https://www.classicalcalifornia.org")!, logoAssetName: "station-kusc",
@@ -37,28 +71,28 @@ public enum StationCatalog {
         RadioStation(id: "radio-swiss-classic", name: "Radio Swiss Classic", subtitle: nil,
                      websiteURL: URL(string: "https://www.radioswissclassic.ch")!, logoAssetName: "station-swiss",
                      timeZoneIdentifier: "Europe/Zurich",
-                     audioURL: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192")!,
+                     audioURL: URL(string: "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/96")!,
                      audioFormat: .aac, metadataCapability: .stationOnly),
         RadioStation(id: "sr-p2", name: "Sveriges Radio P2", subtitle: "P2 Musik",
                      websiteURL: URL(string: "https://www.sverigesradio.se/kanaler/p2")!, logoAssetName: "station-p2",
                      timeZoneIdentifier: "Europe/Stockholm",
-                     audioURL: URL(string: "https://live1.sr.se/p2-aac-320")!,
+                     audioURL: URL(string: "https://live1.sr.se/p2-aac-128")!,
                      audioFormat: .aac, metadataCapability: .srP2),
         RadioStation(id: "france-musique-classique-easy", name: "France Musique · Classique Easy", subtitle: nil,
                      websiteURL: URL(string: "https://www.radiofrance.fr/francemusique")!, logoAssetName: "station-france-musique",
                      timeZoneIdentifier: "Europe/Paris",
-                     audioURL: URL(string: "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac")!,
-                     audioFormat: .aac, metadataCapability: .stationOnly),
+                     audioURL: URL(string: "https://icecast.radiofrance.fr/francemusiqueeasyclassique-midfi.mp3")!,
+                     audioFormat: .mp3, metadataCapability: .stationOnly),
         RadioStation(id: "france-musique-la-baroque", name: "France Musique · La Baroque", subtitle: nil,
                      websiteURL: URL(string: "https://www.radiofrance.fr/francemusique")!, logoAssetName: "station-france-musique",
                      timeZoneIdentifier: "Europe/Paris",
-                     audioURL: URL(string: "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac")!,
-                     audioFormat: .aac, metadataCapability: .stationOnly),
+                     audioURL: URL(string: "https://icecast.radiofrance.fr/francemusiquebaroque-midfi.mp3")!,
+                     audioFormat: .mp3, metadataCapability: .stationOnly),
         RadioStation(id: "wdr3", name: "WDR 3", subtitle: nil,
                      websiteURL: URL(string: "https://www1.wdr.de/radio/wdr3")!, logoAssetName: "station-wdr3",
                      timeZoneIdentifier: "Europe/Berlin",
-                     audioURL: URL(string: "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3")!,
-                     audioFormat: .mp3, metadataCapability: .stationOnly),
+                     audioURL: URL(string: "https://wdrhf.akamaized.net/hls/live/2027994/wdr3/96/seglist.m3u8")!,
+                     audioFormat: .hls, metadataCapability: .stationOnly),
         RadioStation(id: "radio-chopin", name: "Polskie Radio Chopin", subtitle: nil,
                      websiteURL: URL(string: "https://chopin.polskieradio.pl")!, logoAssetName: "station-chopin",
                      timeZoneIdentifier: "Europe/Warsaw",
@@ -77,7 +111,7 @@ public enum StationCatalog {
         RadioStation(id: "orpheus-camerata", name: "Orpheus · Camerata", subtitle: "Камерата",
                      websiteURL: URL(string: "https://radio.orpheus.ru/player/76")!, logoAssetName: "station-orpheus",
                      timeZoneIdentifier: "Europe/Moscow",
-                     audioURL: URL(string: "https://radio.orpheus.ru:8000/Chan_76_256.mp3")!,
+                     audioURL: URL(string: "https://radio.orpheus.ru:8000/Chan_76_128.mp3")!,
                      audioFormat: .mp3, metadataCapability: .stationOnly),
         RadioStation(id: "hr-klasik", name: "HR Klasik", subtitle: "Hrvatski radio Klasik",
                      websiteURL: URL(string: "https://radio.hrt.hr/stream/25")!, logoAssetName: "station-hr-klasik",

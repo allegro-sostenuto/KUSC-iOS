@@ -17,7 +17,7 @@
     "websiteURL": "https://www.radioswissclassic.ch",
     "logoAssetName": "station-swiss",
     "timeZoneIdentifier": "Europe/Zurich",
-    "audioURL": "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/192",
+    "audioURL": "https://stream.srg-ssr.ch/srgssr/rsc_de/aac/96",
     "audioFormat": "aac",
     "metadataCapability": "stationOnly"
   },
@@ -28,7 +28,7 @@
     "websiteURL": "https://www.sverigesradio.se/kanaler/p2",
     "logoAssetName": "station-p2",
     "timeZoneIdentifier": "Europe/Stockholm",
-    "audioURL": "https://live1.sr.se/p2-aac-320",
+    "audioURL": "https://live1.sr.se/p2-aac-128",
     "audioFormat": "aac",
     "metadataCapability": "srP2"
   },
@@ -39,8 +39,8 @@
     "websiteURL": "https://www.radiofrance.fr/francemusique",
     "logoAssetName": "station-france-musique",
     "timeZoneIdentifier": "Europe/Paris",
-    "audioURL": "https://icecast.radiofrance.fr/francemusiqueeasyclassique-hifi.aac",
-    "audioFormat": "aac",
+    "audioURL": "https://icecast.radiofrance.fr/francemusiqueeasyclassique-midfi.mp3",
+    "audioFormat": "mp3",
     "metadataCapability": "stationOnly"
   },
   {
@@ -50,8 +50,8 @@
     "websiteURL": "https://www.radiofrance.fr/francemusique",
     "logoAssetName": "station-france-musique",
     "timeZoneIdentifier": "Europe/Paris",
-    "audioURL": "https://icecast.radiofrance.fr/francemusiquebaroque-hifi.aac",
-    "audioFormat": "aac",
+    "audioURL": "https://icecast.radiofrance.fr/francemusiquebaroque-midfi.mp3",
+    "audioFormat": "mp3",
     "metadataCapability": "stationOnly"
   },
   {
@@ -61,8 +61,8 @@
     "websiteURL": "https://www1.wdr.de/radio/wdr3",
     "logoAssetName": "station-wdr3",
     "timeZoneIdentifier": "Europe/Berlin",
-    "audioURL": "https://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/256/stream.mp3",
-    "audioFormat": "mp3",
+    "audioURL": "https://wdrhf.akamaized.net/hls/live/2027994/wdr3/96/seglist.m3u8",
+    "audioFormat": "hls",
     "metadataCapability": "stationOnly"
   },
   {
@@ -105,7 +105,7 @@
     "websiteURL": "https://radio.orpheus.ru/player/76",
     "logoAssetName": "station-orpheus",
     "timeZoneIdentifier": "Europe/Moscow",
-    "audioURL": "https://radio.orpheus.ru:8000/Chan_76_256.mp3",
+    "audioURL": "https://radio.orpheus.ru:8000/Chan_76_128.mp3",
     "audioFormat": "mp3",
     "metadataCapability": "stationOnly"
   },

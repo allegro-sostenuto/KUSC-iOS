@@ -6,6 +6,73 @@ import UIKit
 /// Hosted coordinator boundaries. The fixture intercepts session activation and
 /// connection starts; these tests never contact a station or emit audio.
 final class StationSwitchTests: XCTestCase {
+    @MainActor func testQualitySwitchRejoinsPlayingStationAndPreservesPausedIntent() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.selectStation("radio-swiss-classic")
+        model.configureAudioRecoveryForTesting(playing: true)
+        model.currentItem = .init(id: "same-work", start: Date(), work: "Current work")
+        model.setAudioQuality(.high)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 192)
+        XCTAssertEqual(model.currentItem?.id, "same-work")
+        model.setAudioQuality(.high)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        model.pauseRemote()
+        model.setAudioQuality(.standard)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 96)
+        XCTAssertEqual(model.selectedStation.id, "radio-swiss-classic")
+        model.play()
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 2)
+    }
+
+    @MainActor func testSingleSourceQualityChoiceDoesNotInterruptPlayback() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.selectStation("kusc")
+        model.configureAudioRecoveryForTesting(playing: true)
+        let session = model.audioRecoveryStateForTesting.engineGeneration
+        model.setAudioQuality(.high)
+        XCTAssertEqual(model.settings.audioQuality, .high)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.engineGeneration, session)
+    }
+
+    @MainActor func testQualitySwitchDuringInterruptionDefersConnectionUntilResume() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.selectStation("radio-swiss-classic")
+        model.configureAudioRecoveryForTesting(playing: true, interrupted: true)
+        model.setAudioQuality(.high)
+        XCTAssertTrue(model.audioRecoveryStateForTesting.interrupted)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
+        model.endAudioInterruptionForTesting(shouldResume: true)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 192)
+    }
+
+    @MainActor func testQualitySwitchPreservesSavedStationDuringSilentSchedulePreparation() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.selectStation("radio-swiss-classic")
+        model.configureScheduleForTesting(secondsUntilStart: 120, environment: .init(
+            now: Date(), uptime: 1000, plugged: true, level: 1,
+            route: .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")])))
+        let request = model.scheduleIDForTesting
+        model.setAudioQuality(.high)
+        XCTAssertFalse(model.isPlaying)
+        model.advanceScheduleForTesting(seconds: 60)
+        model.setAudioQuality(.standard)
+        XCTAssertEqual(model.scheduleIDForTesting, request)
+        XCTAssertEqual(model.scheduledStation.id, "radio-swiss-classic")
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        XCTAssertTrue(model.isPlaying)
+    }
+
     @MainActor func testPausedStationBrowsingPreservesOnlyAnExistingPlaybackActivity() {
         let (model, restore) = fixture(playing: false)
         defer { restore() }
@@ -153,6 +220,9 @@ final class StationSwitchTests: XCTestCase {
 
     @MainActor private func fixture(playing: Bool) -> (AppModel, @MainActor () -> Void) {
         let model = AppModel.shared
+        let settings = model.settings
+        let savedSettings = UserDefaults.standard.data(forKey: "settings.v1")
+        model.settings.audioQuality = .standard
         let preferences = model.stationPreferences
         let saved = UserDefaults.standard.data(forKey: StationPreferences.storageKey)
         let item = model.currentItem, previous = model.previousItems, upcoming = model.upcomingItems
@@ -160,6 +230,9 @@ final class StationSwitchTests: XCTestCase {
         model.configureAudioRecoveryForTesting(playing: playing)
         return (model, {
             model.finishScheduleForTesting()
+            model.settings = settings
+            if let savedSettings { UserDefaults.standard.set(savedSettings, forKey: "settings.v1") }
+            else { UserDefaults.standard.removeObject(forKey: "settings.v1") }
             model.selectStation(preferences.selectedID)
             for id in preferences.orderedIDs.reversed() {
                 if let first = model.orderedStations.first { model.moveStation(id, before: first.id) }
