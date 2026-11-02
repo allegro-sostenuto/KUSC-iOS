@@ -43,6 +43,7 @@ xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuratio
     -resultBundlePath "$output/Swipe.xcresult" -parallel-testing-enabled NO \
     -only-testing:PhilharmonicTests/PanelSwipeTests \
     -only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup \
+    -only-testing:PhilharmonicUITests/PlayerInteractionTests/testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt \
     -only-testing:PhilharmonicUITests/PlayerInteractionTests/testHeaderRollPartialRevealCapture \
     -only-testing:PhilharmonicUITests/PlayerInteractionTests/testPullToRefreshBothPanelsPreservesPlaybackAndHorizontalPaging \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \

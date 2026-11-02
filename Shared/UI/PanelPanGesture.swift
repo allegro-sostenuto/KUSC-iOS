@@ -84,8 +84,8 @@ struct PanelPanGesture: UIViewRepresentable {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard configuration.enabled else { return false }
-            let distance = pan.translation(in: attachedWindow)
-            let velocity = pan.velocity(in: attachedWindow)
+            let distance = pan.translation(in: marker)
+            let velocity = pan.velocity(in: marker)
             let intent = abs(distance.x) + abs(distance.y) > 1 ? distance : velocity
             return abs(intent.x) > abs(intent.y) * 1.15 &&
                 (configuration.opening ? intent.x > 0 : intent.x < 0)
@@ -98,7 +98,7 @@ struct PanelPanGesture: UIViewRepresentable {
         }
 
         @objc private func handle(_ recognizer: UIPanGestureRecognizer) {
-            let x = recognizer.translation(in: attachedWindow).x
+            let x = recognizer.translation(in: marker).x
             switch recognizer.state {
             case .began:
                 active = true
@@ -110,7 +110,7 @@ struct PanelPanGesture: UIViewRepresentable {
             case .ended, .cancelled, .failed:
                 guard active else { return }
                 active = false
-                configuration.ended(x, recognizer.velocity(in: attachedWindow).x, recognizer.state != .ended)
+                configuration.ended(x, recognizer.velocity(in: marker).x, recognizer.state != .ended)
             default: break
             }
         }

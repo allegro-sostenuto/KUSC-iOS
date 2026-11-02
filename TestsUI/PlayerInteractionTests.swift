@@ -309,7 +309,13 @@ final class PlayerInteractionTests: XCTestCase {
             let end = first.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.42))
             start.press(forDuration: 0.05, thenDragTo: end)
             let program = app.staticTexts["programme-header"]
-            XCTAssertTrue(program.waitForExistence(timeout: 5), "The first right swipe must open Program")
+            let opened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                app.buttons["programme-page"].isSelected &&
+                    app.scrollViews["programme-scroll"].isHittable && !first.isHittable
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 5), .completed,
+                           "The first right swipe must actually select and reveal Program")
+            XCTAssertTrue(program.exists)
             XCTAssertEqual(program.label, "Program")
             for (actual, resting) in zip(footerFrames(in: app), footer) {
                 XCTAssertEqual(actual.minX, resting.minX, accuracy: 1)
@@ -317,7 +323,13 @@ final class PlayerInteractionTests: XCTestCase {
             }
             attach(app, named: "first-swipe-" + state + (landscape ? "-landscape" : ""))
             swipePanel(app.scrollViews["programme-scroll"], direction: -1)
-            XCTAssertTrue(station.waitForExistence(timeout: 5), "The first return swipe must restore KUSC")
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                app.buttons["now-playing-page"].isSelected && first.isHittable &&
+                    !app.scrollViews["programme-scroll"].isHittable
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 5), .completed,
+                           "The first return swipe must actually restore the piece details")
+            XCTAssertTrue(station.exists)
             XCTAssertTrue(app.buttons["Pause"].isHittable)
             app.terminate()
         }
@@ -373,23 +385,21 @@ final class PlayerInteractionTests: XCTestCase {
 
     @MainActor
     func testHorizontalRevealLocksVerticalScrollAndReleaseRestoresIt() {
-        // Hold the same partial-reveal state used for layout inspection, then
-        // try a real vertical drag. It must not scroll until the panel settles.
-        let app = launchFixture("reveal-programme-right")
+        let app = launchFixture("programme")
         defer { app.terminate() }
         let scroll = app.scrollViews["programme-scroll"]
         let title = app.staticTexts["Programme layout fixture"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 5))
         let initialY = title.frame.minY
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0))
-            .withOffset(CGVector(dx: 0, dy: scroll.frame.minY + 170))
-        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -100)))
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            scroll.exists && abs(scroll.frame.minX) <= 1
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed)
+        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35))
+        // A real short horizontal pan with vertical drift must lock scrolling.
+        // Hold before release so it cancels rather than becoming a fast flick.
+        start.press(forDuration: 0.05,
+                    thenDragTo: start.withOffset(CGVector(dx: -40, dy: -12)),
+                    withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(app.staticTexts["programme-header"].exists)
         XCTAssertEqual(title.frame.minY, initialY, accuracy: 1,
-                       "Vertical content must stay still while the panel is partially revealed")
+                       "Vertical content must stay still during a horizontal pan")
         let normalStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7))
         normalStart.press(forDuration: 0.1, thenDragTo: normalStart.withOffset(CGVector(dx: 0, dy: -100)))
         XCTAssertLessThan(title.frame.minY, initialY - 30, "Vertical scrolling must resume after settling")

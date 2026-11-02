@@ -160,7 +160,8 @@ struct ContentView: View {
                     .accessibilityHidden(showingProgramme)
             }
             .background {
-                PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist,
+                PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist &&
+                                    sheet == nil && !choosingPauseBehavior && scenePhase == .active,
                                 opening: !showingProgramme,
                                 changed: { panelDragChanged($0, width: viewport.size.width) },
                                 ended: { x, velocity, cancelled in
