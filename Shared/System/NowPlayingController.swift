@@ -38,7 +38,7 @@ import UIKit
         if let artwork {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
         }
-        // No duration/elapsed fields: system scrubbing remains disabled even while locally delayed.
+        // No duration/elapsed fields: live-only playback has no system scrubber.
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 }
