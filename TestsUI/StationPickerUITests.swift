@@ -33,9 +33,17 @@ final class StationPickerUITests: XCTestCase {
             app.buttons["stations-reorder"].tap()
             reach("hr-klasik", app: app, horizontal: true)
             XCTAssertTrue(app.buttons["station-hr-klasik"].isHittable, "Horizontal list reaches the last entry")
+            reach("kusc", app: app, horizontal: true, forward: false)
+            XCTAssertTrue(kusc.isSelected, "Reverse scrolling cannot select another station")
+            XCTAssertTrue((kusc.value as? String)?.contains("position 1") == true,
+                          "Reverse scrolling cannot reorder the catalogue")
             app.buttons["stations-mode-grid"].tap()
             // A new presentation starts with its first row; selection and order stay saved.
             app.buttons["Back to player"].tap()
+            XCTAssertTrue(app.scrollViews["now-playing-scroll"].isHittable)
+            XCTAssertFalse(app.scrollViews["programme-scroll"].isHittable,
+                           "Picker swipes must never open Program underneath its page")
+            XCTAssertTrue(app.buttons["choose-station"].label.contains("KUSC"))
             app.buttons["choose-station"].tap()
             XCTAssertTrue(kusc.waitForExistence(timeout: 5))
             XCTAssertEqual(kusc.frame.minY, swiss.frame.minY, accuracy: 2)
@@ -47,12 +55,18 @@ final class StationPickerUITests: XCTestCase {
             app.buttons["station-move-earlier-kusc"].tap()
             app.buttons["stations-reorder"].tap()
             reach("hr-klasik", app: app, horizontal: true)
+            reach("kusc", app: app, horizontal: true, forward: false)
+            XCTAssertTrue(kusc.isSelected)
+            XCTAssertTrue((kusc.value as? String)?.contains("position 1") == true)
+            reach("hr-klasik", app: app, horizontal: true)
             app.buttons["station-hr-klasik"].tap()
             rotate(.portrait, app: app)
             XCTAssertTrue(app.buttons["stations-mode-grid"].isSelected)
             app.buttons["Back to player"].tap()
             XCTAssertTrue(app.buttons["choose-station"].label.contains("HR Klasik"))
             XCTAssertTrue(app.buttons["Play"].isHittable, "Selecting a station preserves paused intent")
+            XCTAssertTrue(app.buttons["now-playing-page"].isSelected)
+            XCTAssertFalse(app.scrollViews["programme-scroll"].isHittable)
         }
     }
 
@@ -173,7 +187,7 @@ final class StationPickerUITests: XCTestCase {
     }
 
     @MainActor
-    private func reach(_ id: String, app: XCUIApplication, horizontal: Bool) {
+    private func reach(_ id: String, app: XCUIApplication, horizontal: Bool, forward: Bool = true) {
         let station = app.buttons["station-" + id]
         let scroll = app.scrollViews[horizontal ? "stations-horizontal-scroll" : "stations-vertical-scroll"]
         for _ in 0..<32 {
@@ -190,8 +204,11 @@ final class StationPickerUITests: XCTestCase {
                    viewport.contains(CGPoint(x: frame.midX, y: frame.midY)),
                    station.isHittable { return }
             }
-            if horizontal { scroll.swipeLeft() }
-            else { scroll.swipeUp() }
+            if horizontal {
+                if forward { scroll.swipeLeft() } else { scroll.swipeRight() }
+            } else {
+                if forward { scroll.swipeUp() } else { scroll.swipeDown() }
+            }
         }
         capture("unreachable-station-" + id)
         let hierarchy = XCTAttachment(string: app.debugDescription)
