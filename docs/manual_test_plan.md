@@ -1,5 +1,7 @@
 # KUSC manual acceptance and device test plan
 
+> Live-only scope (2 November 2026): delayed-playback checks below are retired. Use the upgrade, pause/live-resume and no-seek checklist in [live_only_2026-11-02.md](live_only_2026-11-02.md); retain the other playback, scheduling, widget and platform checks. Historical buffer acceptance criteria do not gate this release.
+
 **Physical-device execution status: Not run.** The local Windows editing host has no signed iOS build, iPhone, CarPlay head unit, or Xcode runtime. Native builds and simulator checks run separately in macOS CI; their exact results are recorded in `update_2026-09-20.md`. Every actual-device check below remains **Not run**. Source review, policy tests and simulator layouts do not establish an audible continuity, background, hardware-route, or provisioning pass.
 
 ## Test records

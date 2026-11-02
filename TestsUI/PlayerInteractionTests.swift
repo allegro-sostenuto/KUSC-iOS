@@ -15,7 +15,7 @@ final class PlayerInteractionTests: XCTestCase {
         continueAfterFailure = true
         let states = ["live", "dark", "programme", "settings", "sleep", "schedule",
                       "schedule-output", "minimal", "reconnecting", "output", "paused",
-                      "no-artwork", "unavailable-programme", "partial-buffer", "paused-buffer",
+                      "no-artwork", "unavailable-programme", "paused-live",
                       "scheduled-silent", "scheduled-fade", "unavailable-output"]
         var fixtures = states.map { CaptureFixture(name: $0, state: $0) }
         fixtures += [
@@ -137,6 +137,17 @@ final class PlayerInteractionTests: XCTestCase {
             XCTAssertTrue($0.isHittable, "Fixed playback controls and status must stay visible")
             return $0.frame
         }
+    }
+
+    @MainActor
+    func testSettingsOfferLivePlaybackWithoutDelayPreferences() {
+        let app = launchFixture("settings")
+        defer { app.terminate() }
+        XCTAssertTrue(app.switches["Auto-play on launch"].exists)
+        XCTAssertFalse(app.staticTexts["Rolling buffer"].exists)
+        XCTAssertFalse(app.pickers["Rolling buffer duration"].exists)
+        XCTAssertFalse(app.buttons["Resume after pause"].exists)
+        XCTAssertTrue(app.staticTexts["Playback is live-only. Play returns to live after a pause."].exists)
     }
 
     @MainActor
@@ -283,37 +294,6 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    func testHistoryKeepsGrowingAfterEarlyScrub() {
-        let app = launchFixture("growing-buffer")
-        let slider = app.sliders["Listening position in retained audio"]
-        let history = app.staticTexts.matching(identifier: "retained-audio-history").firstMatch
-        XCTAssertTrue(slider.waitForExistence(timeout: 10))
-        XCTAssertTrue(history.waitForExistence(timeout: 5))
-        let left = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
-        let right = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
-        right.press(forDuration: 0.1, thenDragTo: left)
-        XCTAssertFalse(((slider.value as? String) ?? "").contains("Preview"))
-        assertHistoryAdvances(history)
-        assertHistoryAdvances(history)
-        slider.adjust(toNormalizedSliderPosition: 0.55)
-        let adjustedValue = (slider.value as? String) ?? ""
-        attach(app, named: "growing-buffer-after-normalized-adjustment")
-        XCTAssertFalse(adjustedValue.contains("Preview"),
-                       "A completed normalized adjustment must release its preview; got \(adjustedValue)")
-        assertHistoryAdvances(history)
-    }
-
-    @MainActor
-    private func assertHistoryAdvances(_ history: XCUIElement) {
-        let previous = history.label
-        let update = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            history.label != previous
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [update], timeout: 5), .completed,
-                       "Acquired history must continue growing after a scrub before retention fills.")
-    }
-
-    @MainActor
     func testEitherSwipeDirectionSwitchesBothPanelsAndShortDragCancels() {
         let app = launchFixture("live")
         defer { app.terminate() }
@@ -381,19 +361,19 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    func testLandscapeSliderDoesNotNavigateProgramme() {
-        let app = launchFixture("partial-buffer", landscape: true)
+    func testLandscapeLiveOnlyControlsAndPaging() {
+        let app = launchFixture("live", landscape: true)
         let orientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             app.frame.width > app.frame.height
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [orientation], timeout: 10), .completed)
-        exerciseSliderAndPaging(app, attachment: "landscape-slider-and-programme")
+        exerciseLiveControlsAndPaging(app, attachment: "landscape-live-and-programme")
     }
 
     @MainActor
-    func testLargeTextSliderDoesNotNavigateProgramme() {
-        let app = launchFixture("partial-buffer", largeText: true)
-        exerciseSliderAndPaging(app, attachment: "large-text-slider-and-programme")
+    func testLargeTextLiveOnlyControlsAndPaging() {
+        let app = launchFixture("live", largeText: true)
+        exerciseLiveControlsAndPaging(app, attachment: "large-text-live-and-programme")
     }
 
     @MainActor
@@ -423,7 +403,7 @@ final class PlayerInteractionTests: XCTestCase {
 
     @MainActor
     func testLandscapePullToRefreshKeepsPausedAudioPaused() {
-        let app = launchFixture("paused-buffer", landscape: true)
+        let app = launchFixture("paused-live", landscape: true)
         let scroll = app.scrollViews["now-playing-scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 5))
         pull(scroll, distance: 240)
@@ -502,20 +482,12 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
-    private func exerciseSliderAndPaging(_ app: XCUIApplication, attachment: String) {
-        let slider = app.sliders["Listening position in retained audio"]
-        XCTAssertTrue(slider.waitForExistence(timeout: 10))
-        XCTAssertTrue(slider.isHittable, "Retained-audio slider must remain reachable.")
-        let left = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-        let right = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
-        // Use real touch drags, not accessibility value changes, to exercise the
-        // recognizer boundary between retained-audio seeking and page navigation.
-        left.press(forDuration: 0.1, thenDragTo: right)
-        XCTAssertFalse(app.staticTexts["Programme layout fixture"].exists)
-        right.press(forDuration: 0.1, thenDragTo: left)
-        XCTAssertFalse(app.staticTexts["Programme layout fixture"].exists)
-        XCTAssertTrue(app.staticTexts["Native layout fixture"].exists)
-        attach(app, named: attachment + "-after-slider")
+    private func exerciseLiveControlsAndPaging(_ app: XCUIApplication, attachment: String) {
+        XCTAssertFalse(app.sliders["Listening position in retained audio"].exists)
+        XCTAssertTrue(app.buttons["Pause"].isHittable)
+        XCTAssertTrue(app.buttons["Jump to live"].isHittable)
+        XCTAssertTrue(app.buttons["More controls"].isHittable)
+        XCTAssertTrue(app.staticTexts["Listening live"].exists)
 
         let artwork = app.descendants(matching: .any).matching(identifier: "player-artwork").firstMatch
         XCTAssertTrue(artwork.waitForExistence(timeout: 5))

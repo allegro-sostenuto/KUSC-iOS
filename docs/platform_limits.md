@@ -1,5 +1,7 @@
 # Platform limits and verification status
 
+> Current scope (2 November 2026): iPhone and Android playback is live-only. Delayed playback, rewind history, scrubbing and Resume Where Paused are removed until a server is acquired. Buffering/retained-position requirements and results below are historical and superseded by [the live-only update](live_only_2026-11-02.md). Normal transport buffering, metadata, widgets, sleep timers and scheduled starts remain.
+
 Source review updated: 5 October 2026. This document distinguishes public API limits from behavior that still requires a signed build and physical device. The local Windows environment has no Xcode runtime or attached iPhone, Bluetooth/AirPlay destination, or CarPlay head unit. CI compilation and simulator evidence, when available, are reported separately in the dated update documents.
 
 ## Scheduled-start changes, 4 October 2026

@@ -1,5 +1,7 @@
 # Home Screen widgets
 
+> Current scope (2 November 2026): iPhone and Android playback is live-only. Delayed playback, rewind history, scrubbing and Resume Where Paused are removed until a server is acquired. Buffering/retained-position requirements and results below are historical and superseded by [the live-only update](live_only_2026-11-02.md). Normal transport buffering, metadata, widgets, sleep timers and scheduled starts remain.
+
 Six separate gallery entries provide layouts with and without playback controls:
 
 | Entry | Family | Content |

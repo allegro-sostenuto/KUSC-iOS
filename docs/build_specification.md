@@ -1,5 +1,7 @@
 # KUSC iOS App — ChatGPT Work Build Specification
 
+> Current scope (2 November 2026): iPhone and Android playback is live-only. Delayed playback, rewind history, scrubbing and Resume Where Paused are removed until a server is acquired. Buffering/retained-position requirements and results below are historical and superseded by [the live-only update](live_only_2026-11-02.md). Normal transport buffering, metadata, widgets, sleep timers and scheduled starts remain.
+
 ## 1. Purpose
 
 Build a private-use iOS app named **KUSC** whose sole purpose is to stream **KUSC FM 91.5 / Classical California** with a minimal, high-quality native iOS experience.

@@ -31,13 +31,14 @@ final class PlaybackDiagnosticsIntegrationTests: XCTestCase {
         XCTAssertEqual(engine.diagnostics.report, report, "A later retry failure cannot replace the first failure")
     }
 
-    @MainActor func testPausedModelFailureKeepsReportAndExplainsStoppedCollection() {
+    @MainActor func testPausedModelFailureKeepsReportWithoutOfferingRewind() {
         let model = AppModel.shared
         model.configurePausedDiagnosticFailureForTesting()
         XCTAssertFalse(model.isPlaying)
         XCTAssertNil(model.bufferWindow)
         XCTAssertEqual(model.statusText, "Paused")
-        XCTAssertEqual(model.bufferFailureMessage, "Rewind stopped after an audio error. Tap Play to reconnect.")
+        XCTAssertNil(model.bufferFailureMessage)
+        XCTAssertFalse(model.canSeek(to: Date()))
         XCTAssertNotNil(model.diagnostics.failureSummary)
         XCTAssertTrue(model.diagnostics.report.contains("retained=2"))
     }

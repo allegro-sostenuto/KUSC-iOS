@@ -23,38 +23,6 @@ struct SettingsView: View {
                             .padding(.vertical, 10)
                         divider
                         NavigationLink {
-                            resumePreferences
-                        } label: {
-                            HStack(spacing: 12) {
-                                Text("Resume after pause")
-                                Spacer(minLength: 8)
-                                Text(model.settings.resumeWherePaused ? "Where Paused" : "Live")
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.trailing)
-                            }
-                            .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        divider
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("Rolling buffer")
-                            Spacer(minLength: 8)
-                            Text(durationLabel)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 14)
-                        divider
-                        Picker("Rolling buffer duration", selection: preference(\.retentionMinutes)) {
-                            ForEach(0...15, id: \.self) { minutes in
-                                Text("\(minutes) \(minutes == 1 ? "minute" : "minutes")")
-                                    .tag(minutes)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(height: 150)
-                        .clipped()
-                        divider
-                        NavigationLink {
                             PlaybackDiagnosticsView(diagnostics: model.diagnostics)
                         } label: {
                             Text("Playback Diagnostics")
@@ -68,7 +36,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Playback")
                 } footer: {
-                    Text("Retain up to 15 minutes of audio. At 0, playback stays live. An expired paused position resumes at the oldest retained audio; retention while paused depends on iOS.")
+                    Text("Playback is live-only. Play returns to live after a pause.")
                 }
 
                 Section("Interface") {
@@ -114,11 +82,6 @@ struct SettingsView: View {
         .kuscSheetBackground()
     }
 
-    private var durationLabel: String {
-        let minutes = model.settings.retentionMinutes
-        return "\(minutes) \(minutes == 1 ? "minute" : "minutes")"
-    }
-
     private var divider: some View {
         Rectangle().fill(Color.kuscSeparator).frame(height: 0.5)
             .accessibilityHidden(true)
@@ -133,19 +96,4 @@ struct SettingsView: View {
             }
     }
 
-    private var resumePreferences: some View {
-        List {
-            Picker("Resume after pause", selection: preference(\.resumeWherePaused)) {
-                Text("Resume Live").tag(false)
-                Text("Resume Where Paused").tag(true)
-            }
-            .pickerStyle(.inline)
-            .listRowBackground(Color.kuscSurface)
-        }
-        .scrollContentBackground(.hidden)
-        .background(Color.kuscBackground)
-        .navigationTitle("Resume after pause")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.kuscBackground, for: .navigationBar)
-    }
 }

@@ -2,7 +2,9 @@
 
 Native private-use KUSC FM 91.5 player, with shared Swift/SwiftUI source and separate iOS 16 and iOS 26 app targets. Build from Windows through the included public-repository GitHub Actions workflow, then install with AltStore Classic and AltServer. Exact steps for both phones are in **[installation_guides.md](installation_guides.md)**; no local Mac or paid Apple membership is required for that route.
 
-**Delivery status:** [build 39](https://github.com/allegro-sostenuto/KUSC-iOS/actions/runs/39633075884) suppresses explicitly marked startup promos before playback and reuses the prepared stream session for Pause/resume and Live with Rolling buffer Off. Connecting can remain silent while the promo window clears. Both device builds, 130 portable tests, 28 native audio tests, and 210 hosted plus eleven UI tests per simulator profile pass. Live-stream evidence, limits and package hashes are in [the station-interface report](docs/endpoints.md#startup-promos-21-october-2026). All six [Home Screen widgets](docs/home_screen_widgets.md), pull-to-refresh, [schedule/metadata fixes](docs/scheduled_start_update_2026-10-04.md), [buffer continuity fixes](docs/buffer_continuity_followup_2026-09-21.md), and the [interface update](docs/update_2026-09-20.md) remain included.
+**Current scope — 2 November 2026:** both iPhone and Android apps are live-only. Delayed playback, rolling rewind history, the listening-position slider and Resume Where Paused are removed until a server is acquired and a server-backed implementation is designed and tested. Play after a pause joins live; old saved delay preferences are discarded without resetting appearance, autoplay, sleep defaults or scheduled starts. Ordinary HLS transport headroom remains; live streaming is not zero-latency audio. See [the live-only update](docs/live_only_2026-11-02.md).
+
+Earlier playback, scheduling, widget and interface validation remains documented in [the bug audit](docs/bug-audit-2026-10-22.md), [widget notes](docs/home_screen_widgets.md) and [station-interface report](docs/endpoints.md#startup-promos-21-october-2026). Historical buffering reports describe the retired implementation, not an available feature.
 
 ## Windows build and installation
 
@@ -31,11 +33,11 @@ CarPlay variants intentionally use the corresponding normal app's bundle identif
 ## Implemented behavior
 
 - High-quality-only KUSC streaming, background audio session, system Play/Pause, interruption handling, automatic speaker fallback after output disconnection, and a one-minute reconnect window returning to ordinary Play.
-- Default zero-minute history; optional 1–15 minute wheel-controlled compressed rolling storage. A single HLS download path feeds playback and capture. Seeking clamps to retained audio. Resume Live is the default; Resume Where Paused clamps aged-out cursors to the oldest retained audio.
+- Live-only playback. Pause silences audio; Play rejoins live. No selectable delay, rewind history, scrubbing, programme-row seeking or resume-at-paused-position option is available. Legacy preferences cannot re-enable them.
 - Timestamped metadata, bounded album-art cache, programme and host information, five previous and up to ten station-published upcoming items relative to heard audio.
 - Reference-based portrait and artwork-left landscape layouts, separate work/movement typography, timed programme rows, and Dynamic Type. Standard transport follows the rendering's Live / Play-Pause / overflow row; minimalist portrait enlarges Play-Pause above Live and overflow. Dark app surfaces and controls stay pure black with borders. Native system picker highlights retain their system appearance.
-- Pull down at the top of Now Playing or Programme to refresh artwork and programme details. The native indicator follows the pull and spins until the refresh finishes. Both panels share one refresh operation; playback, retained position and scheduled starts are preserved. VoiceOver exposes a Refresh artwork and programme action.
-- Native programme long press with one selection haptic after eligibility is rechecked, no single-tap seeking, and no system scrub/skip commands.
+- Pull down at the top of Now Playing or Programme to refresh artwork and programme details. The native indicator follows the pull and spins until the refresh finishes. Both panels share one refresh operation; playback and scheduled starts are preserved. VoiceOver exposes a Refresh artwork and programme action.
+- Programme rows are informational. Neither taps nor long presses seek; system scrub/skip commands remain disabled.
 - Zero-to-twelve-hour sleep wheel, app-pause timer choices, broadcast-item endpoint/fallback/retry decisions, linear fades, and network shutdown on completion.
 - Scheduled start within 24 hours: silent standby and preparation let other apps play. At or after the selected time, KUSC takes audio focus and fades in over a full minute from actual readiness, including late starts. Choose always-speaker or a confirmed output with speaker/notification fallback. A reminder two minutes beforehand opens the sheet at Delete Scheduled Start. Every request clears ten minutes after its selected time; a successful running session keeps playing with its battery protection, and an unfinished fade keeps its remaining duration. A consumed request cannot re-arm after relaunch. Optional battery operation stops only after continuously unplugged and below X% for Y minutes (X at least 25%; Y from 1 to 20 minutes). Pause silences current audio while retaining a future start; after the deadline it waits for Play. Manual Play immediately attempts activation independently of automatic schedule restrictions. Persistent speaker mode survives sleep timers, disconnects and interruptions within the start window; iOS controls when audio can resume.
 - iPhone 17 Live Activity with locally encoded artwork, Play/Pause and Live; optional CarPlay Now Playing and informational programme lists.
@@ -46,41 +48,41 @@ All URLs are centralized in `Shared/StationConfiguration.swift`. On 19 September
 
 | Purpose | Endpoint | Behavior |
 |---|---|---|
-| 96 kbps HE-AAC HLS | `https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8` | Follow master variant and session media playlist; buffered mode downloads each new AAC segment once |
+| 96 kbps HE-AAC HLS | `https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCAAC96.m3u8` | Follow master variant and session media playlist for live playback |
 | Current broadcast metadata | `https://schedule.kusc.org/v3/songs/KUSC/now?includeImage=true` | Refresh every 5 seconds during playback; publish before slower history requests finish |
 | Playlist and programmes | `https://schedule.kusc.org/v3/combined/KUSC?date=YYYY-MM-DD&combinedFormat=true&reversed=true&env=master` | Current Los Angeles date every 20 seconds; adjacent dates every 15 minutes |
 | Programme schedule | `https://schedule.kusc.org/v3/programs/KUSC/day?env=master` | Verified reference; programme data is already in the combined feed |
 
 The official [station listening page](https://www.classicalcalifornia.org/articles/how-to-listen-to-classical-california) publishes the AAC service; the station's web-player source identifies the metadata URLs. Full field mappings, sample responses, source links, and HTTP evidence are in [endpoints.md](docs/endpoints.md). The HLS format includes `EXT-X-PROGRAM-DATE-TIME`, allowing transport time to drive metadata lookup. Metadata failures never stop audio.
 
-Marked startup advertisements are withheld before either audio backend starts. The app keeps the same stream session and waits for its advertised promo segments to clear, so connecting may briefly be silent. Buffer Off also reuses that prepared session for Pause/resume and Live. Unmarked announcements and ads within an established broadcast remain part of the station audio; see the captured playlist evidence and limits in [endpoints.md](docs/endpoints.md#startup-promos-21-october-2026).
+Marked startup advertisements are withheld before either audio backend starts. The app keeps the same stream session and waits for its advertised promo segments to clear, so connecting may briefly be silent. The iPhone live player also reuses that prepared session for Pause/resume and Live. Unmarked announcements and ads within an established broadcast remain part of the station audio; see the captured playlist evidence and limits in [endpoints.md](docs/endpoints.md#startup-promos-21-october-2026).
 
 ## Platform and source limits
 
 These limits affect the requested acceptance criteria and are not hidden behind inactive controls:
 
-- **Future pieces:** observed future programme blocks contain no songs. At live time the upcoming list therefore explains that pieces have not been published. Delayed playback can show already-broadcast pieces as upcoming relative to the listener. No playlist entries are fabricated.
+- **Future pieces:** observed future programme blocks contain no songs. At live time the upcoming list therefore explains that pieces have not been published. No playlist entries are fabricated.
 - **Movement timing:** the feed gives explicit broadcast-item start/end timestamps, not an independently named movement boundary. The timer treats that supplied item endpoint as the reliable boundary; when absent it uses the next piece/programme start, retries for up to a minute, then fades. A multi-movement broadcast item cannot be split accurately without station data.
 - **Lock Screen Live:** Apple's public remote command interface has no custom Live command. System controls provide Play/Pause, with seeking and track skips disabled. Live is available in the app, the custom iPhone 17 Live Activity, and the optional CarPlay Now Playing button. See [MPRemoteCommandCenter](https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter).
 - **Dynamic Island:** iOS controls visibility, competition with native media UI, authentication and lifetime. Pausing does not explicitly end the app's activity. Apple limits an active Live Activity to eight hours; it is not guaranteed permanently visible. [Apple ActivityKit documentation](https://developer.apple.com/documentation/activitykit/displaying-live-data-with-live-activities).
 - **CarPlay:** full custom app UI requires an Apple-approved audio entitlement and matching profile. Adding the entitlement file alone does not grant access. [Apple CarPlay entitlements](https://developer.apple.com/documentation/carplay/requesting-carplay-entitlements).
-- **Background execution:** silent standby is best effort, not an alarm guarantee. A paused capture can be suspended. Force-quit, system termination, or reboot may defeat automatic playback; an already-scheduled notification remains the fallback when the system can deliver it. Opening a delivered scheduled-start notification explicitly starts live, regardless of Auto-play preference.
+- **Background execution:** silent standby is best effort, not an alarm guarantee. Force-quit, system termination, or reboot may defeat automatic playback; an already-scheduled notification remains the fallback when the system can deliver it. Opening a delivered scheduled-start notification explicitly starts live, regardless of Auto-play preference.
 - **Interrupted audio:** explicit Play attempts session activation immediately even after a stale interruption. Failed activation retries every five seconds for the first minute, then every fifteen seconds; Pause cancels playback retries. Automatic recovery defers while another app plays, until the scheduled takeover. A denied audio session still prevents playback until iOS permits it.
-- **Buffered segment joins:** local HLS AAC packets feed one continuous audio renderer, preserving decoder state across ordinary downloaded-file boundaries. The owner's build 9 test exposed regular dips with the former per-file player queue; physical acceptance of this replacement, exact seek precision, AirPlay and multi-hour operation remain required. See [audio_engine.md](docs/audio_engine.md).
+- **Server-backed delay is deferred:** no server source, recorder, historical download or offline reserve is included. Legacy iOS buffering algorithms remain only for regression/reference work and are inaccessible to normal app playback. Android's bounded temporary HLS files provide transport headroom only. See [audio_engine.md](docs/audio_engine.md).
 
 The original requested specification is retained in [build_specification.md](docs/build_specification.md). [platform_limits.md](docs/platform_limits.md) explains the Apple restrictions and required device checks.
 
 ## Code layout
 
-Home Screen widgets are available as **Play / Pause** (small), **Album Art** (medium), **Now Playing** (medium), **The Full Picture** (large), **Album Art Only** (small), and **Music Details Only** (medium). The two “Only” layouts have no playback controls. The large widget includes artwork, work/movement, composer, performers, programme and host, with Play/Pause only. All dark widget surfaces and controls use pure black. Add them from the Home Screen widget gallery under KUSC after opening the updated app once. On iOS 17+, Play/Pause runs in the app process without opening its interface; iOS 16 opens the app to perform the action. Track details follow the heard position, including retained playback. WidgetKit schedules refreshes, so metadata and button state can lag the player.
+Home Screen widgets are available as **Play / Pause** (small), **Album Art** (medium), **Now Playing** (medium), **The Full Picture** (large), **Album Art Only** (small), and **Music Details Only** (medium). The two “Only” layouts have no playback controls. The large widget includes artwork, work/movement, composer, performers, programme and host, with Play/Pause only. All dark widget surfaces and controls use pure black. Add them from the Home Screen widget gallery under KUSC after opening the updated app once. On iOS 17+, Play/Pause runs in the app process without opening its interface; iOS 16 opens the app to perform the action. Track details follow the heard position, during live playback. WidgetKit schedules refreshes, so metadata and button state can lag the player.
 
 Both builds share widget metadata and a bounded artwork thumbnail through their own App Group. CI embeds only that capability in an ad-hoc signature so AltStore can provision it; no Apple signing identity or profile is included. Keep the extension during installation. The modern build reuses its existing Live Activity extension ID; the SE build adds one widget extension. See [widget implementation and phone checks](docs/home_screen_widgets.md).
 
 - `Shared/AppModel.swift`: playback intent, lifecycle, timers, schedule and integration coordinator.
-- `Shared/Audio`: HLS/ADTS parsing, acquisition, strict local retention and continuous buffered playback.
+- `Shared/Audio`: live HLS preparation/playback and diagnostics; gated legacy buffering code retained for regression/reference work.
 - `Shared/Core`: Foundation-only tested policy definitions and timeline models.
 - `Shared/Metadata`: station response parsing, refresh cache and inline artwork handling.
-- `Shared/UI`: responsive native views, wheels, output picker and programme gesture.
+- `Shared/UI`: responsive native views, wheels, output picker and programme display.
 - `Shared/System`, `Shared/Timers`: system media, notifications, artwork and silent standby.
 - `Modern`, `Widget`: iOS 26 Live Activity attributes, media intents and presentation.
 - `CarPlay`: isolated entitled scene and informational programme view.
@@ -88,7 +90,7 @@ Both builds share widget metadata and a bounded artwork thumbnail through their 
 - `.github/workflows/ios-device-build.yml`: two free personal-device CI artifacts.
 - `scripts/build_unsigned_ipa.sh`, `scripts/validate_ipa.py`: unsigned packaging and device-binary validation.
 
-Preferences use UserDefaults. Audio lives only in disposable temporary storage, excluded from backup and removed at a new process launch. No delayed cursor or active sleep timer is restored after process death. Scheduled requests persist their date, output and power policy; persistent speaker intent can recover on relaunch, with battery observation restarting. Reopening an app cannot make iOS retrospectively run a missed background timer.
+Preferences use UserDefaults. There is no persistent audio history or delayed cursor. Temporary transport caches are disposable. No active sleep timer is restored after process death. Scheduled requests persist their date, output and power policy; persistent speaker intent can recover on relaunch, with battery observation restarting. Reopening an app cannot make iOS retrospectively run a missed background timer.
 
 ## Validation on a Mac
 

@@ -45,7 +45,7 @@ import UIKit
         case .seeking: return "Seeking…"
         case .interrupted: return "Audio interrupted"
         case .playingLive: return "Live"
-        case .playingDelayed: return "\(Int(max(0, (bufferWindow?.live ?? Date()).timeIntervalSince(heardAt)))) seconds behind live"
+        case .playingDelayed: return "Live"
         case .pausedLive, .pausedDelayed: return "Paused"
         case .reconnecting(let since): return "Reconnecting… \(min(60, Int(Date().timeIntervalSince(since)))) / 60 s"
         case .fadingOut: return "Sleep timer · fading out"
@@ -66,7 +66,6 @@ import UIKit
     private var connectionTask: Task<Void, Never>?
     private var ticker: Timer?
     private var observers: [NSObjectProtocol] = []
-    private var appliedSettings = AppSettings.load()
     private var wantsPlayback = false
     private var hasStartedEngine = false
     private var pausedAt: Date?
@@ -201,15 +200,10 @@ import UIKit
     }
 
     func updateSettings() {
-        settings.retentionMinutes = min(15, max(0, settings.retentionMinutes))
         settings.save()
-        if settings.retentionMinutes != appliedSettings.retentionMinutes {
-            bufferFailureMessage = nil
-            diagnostics.record("settings retention=\(settings.retentionMinutes) resumeWherePaused=\(settings.resumeWherePaused)")
-            engine.setRetention(minutes: settings.retentionMinutes)
-            if settings.retentionMinutes == 0 { bufferWindow = nil; pausedAt = nil }
-        }
-        appliedSettings = settings
+        engine.setRetention(minutes: 0)
+        bufferWindow = nil
+        bufferFailureMessage = nil
     }
 
     func startPlaybackDiagnostics() {
@@ -250,9 +244,7 @@ import UIKit
 
     private func resumeCurrentAudio() {
         if hasStartedEngine, reconnectStarted == nil {
-            if let pausedAt, settings.resumeWherePaused, let window = bufferWindow {
-                engine.seek(to: ResumePolicy.target(mode: .wherePaused, pausedAt: pausedAt, window: window))
-            } else if pausedAt != nil { engine.goLive() }
+            if pausedAt != nil { engine.goLive() }
             self.pausedAt = nil
             engine.play()
             state = .connecting
@@ -317,7 +309,7 @@ import UIKit
         connectionGeneration = UUID()
         reconnectStarted = nil
         engine.pause()
-        state = bufferWindow != nil && (bufferWindow!.live.timeIntervalSince(heardAt) > 12) ? .pausedDelayed : .pausedLive
+        state = .pausedLive
         evaluateSchedule()
         refreshSystemSurfaces()
     }
@@ -350,16 +342,10 @@ import UIKit
     }
 
     func seek(to date: Date) {
-        if protectedSchedule { if scheduleOwnsPlayback { engine.seek(to: date) }; return }
-        scheduleGeneration.invalidate()
-        guard bufferWindow != nil else { return }
-        if scheduleOwnsPlayback { clearSchedule(stopOwnedPlayback: false); scheduleGain = 1; applyGain() }
-        // Engine resolves expiry/gaps and publishes only a confirmed media timestamp.
-        engine.seek(to: date)
-        invalidateSleepEndpoint()
+        // Ignore obsolete seek actions without changing playback or schedules.
     }
 
-    func canSeek(to date: Date) -> Bool { engine.canSeek(to: date) }
+    func canSeek(to date: Date) -> Bool { false }
 
     func startSleep(minutes: Int) {
         ensureTicker()
@@ -489,7 +475,6 @@ import UIKit
         precondition(isUIFixture)
         wantsPlayback = false
         state = .pausedLive
-        settings.retentionMinutes = 5
         let anchor = Date(timeIntervalSince1970: 1_800_000_000)
         let segments: [AudioSegment] = (0..<2).map { (index: Int) -> AudioSegment in
             let url = URL(fileURLWithPath: "/diagnostic-fixture-\(index).aac")
@@ -639,7 +624,7 @@ import UIKit
         connectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             do {
-                try await engine.start(url: StationConfiguration.audioURL, retentionMinutes: settings.retentionMinutes)
+                try await engine.start(url: StationConfiguration.audioURL, retentionMinutes: 0)
                 guard !Task.isCancelled, connectionGeneration == generation else { return }
                 applyGain()
                 if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
@@ -657,11 +642,6 @@ import UIKit
         // Engine failures normally freeze the report before this callback clears
         // their state. Startup failures can arrive directly from startConnection.
         diagnostics.captureFailure(error, origin: "model.connectionFailed")
-        if settings.retentionMinutes > 0 {
-            bufferFailureMessage = wantsPlayback
-                ? "Audio collection stopped. Reconnecting…"
-                : "Rewind stopped after an audio error. Tap Play to reconnect."
-        }
         guard wantsPlayback else {
             hasStartedEngine = false; engine.stop(); bufferWindow = nil; return
         }
@@ -707,7 +687,7 @@ import UIKit
                 if snapshot.isSeeking { state = .seeking }
                 else if snapshot.isWaiting || snapshot.acquisitionIsStale { state = .buffering }
                 else if sleepGain < 1 { state = .fadingOut }
-                else { state = snapshot.isAtLiveEdge ? .playingLive : .playingDelayed }
+                else { state = .playingLive }
             }
         } else if wantsPlayback && reconnectStarted == nil && (!scheduleOwnsPlayback || scheduleReachedFullGain) {
             state = snapshot.isSeeking ? .seeking : (snapshot.isReady ? .buffering : .connecting)
@@ -1138,7 +1118,7 @@ import UIKit
         if !wantsPlayback { state = hasStartedEngine ? .pausedLive : .idle }
         else if interruptionActive { state = .interrupted }
         else if !audioIsAdvancing { state = .buffering }
-        else { state = bufferWindow.map { $0.live.timeIntervalSince(heardAt) > 12 } == true ? .playingDelayed : .playingLive }
+        else { state = .playingLive }
         notice = completed ? "Scheduled start completed." : "Scheduled start expired without playing."
         refreshSystemSurfaces()
     }
@@ -1404,7 +1384,7 @@ import UIKit
         let surfaceStatus: String?
         switch state {
         case .playingLive: surfaceStatus = nil
-        case .playingDelayed: surfaceStatus = "Delayed playback"
+        case .playingDelayed: surfaceStatus = nil
         case .reconnecting: surfaceStatus = "Reconnecting…"
         default: surfaceStatus = statusText
         }

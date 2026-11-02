@@ -2,23 +2,25 @@ import Foundation
 
 struct AppSettings: Codable, Equatable {
     var autoplay = true
-    var resumeWherePaused = false
-    var retentionMinutes = 0
+    // Time shifting is unavailable until a server-backed implementation exists.
+    // Computed values also ignore (and omit on save) legacy Codable preferences.
+    var resumeWherePaused: Bool { false }
+    var retentionMinutes: Int { 0 }
     var minimalist = false
     var appearance = "system"
     var lastSleepMinutes = 0
     var scheduledStartDefaults: ScheduledStartOptions?
     var scheduledOutputDefault: ScheduledOutputPreference?
 
-    static func load() -> AppSettings {
-        guard let data = UserDefaults.standard.data(forKey: "settings.v1"),
+    static func load(from defaults: UserDefaults = .standard) -> AppSettings {
+        guard let data = defaults.data(forKey: "settings.v1"),
               var value = try? JSONDecoder().decode(Self.self, from: data) else { return .init() }
-        value.retentionMinutes = min(15, max(0, value.retentionMinutes))
         value.lastSleepMinutes = min(720, max(0, value.lastSleepMinutes))
+        value.save(to: defaults)
         return value
     }
-    func save() {
-        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: "settings.v1") }
+    func save(to defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: "settings.v1") }
     }
 }
 

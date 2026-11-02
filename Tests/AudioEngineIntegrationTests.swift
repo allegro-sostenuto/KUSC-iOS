@@ -7,6 +7,26 @@ import XCTest
 @testable import KUSC_SE
 
 @MainActor final class AudioEngineIntegrationTests: XCTestCase {
+    func testOrdinaryEngineIgnoresLegacyRetentionAndCannotSeek() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-live-only-\(UUID().uuidString)")
+        let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
+        let engine = RollingAudioEngine()
+        defer { engine.stop(); try? FileManager.default.removeItem(at: directory) }
+        var latest: EngineSnapshot?
+        engine.onUpdate = { latest = $0 }
+        try await engine.start(url: files.segments[0], retentionMinutes: 15, playbackRequested: false)
+        XCTAssertEqual(engine.directURLForTesting, files.segments[0])
+        XCTAssertNil(engine.bufferedTransportForTesting)
+        XCTAssertNil(latest?.window)
+        XCTAssertFalse(engine.canSeek(to: Date()))
+        let session = engine.transportSessionForTesting
+        engine.setRetention(minutes: 5)
+        engine.seek(to: Date().addingTimeInterval(-60))
+        XCTAssertEqual(engine.transportSessionForTesting, session)
+        XCTAssertNil(engine.retentionSwitchForTesting)
+        XCTAssertEqual(latest?.playbackRequested, false, "Obsolete controls cannot restart paused audio")
+    }
+
     func testPauseWinsAfterPlayWhileDirectReplacementIsStillPreparing() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kusc-pending-pause-\(UUID().uuidString)")
         let files = try BufferedAudioTestFixture.make(in: directory, segmentCount: 2)
@@ -168,6 +188,7 @@ import XCTest
 
     func testLiveBeforeBufferedMediaDoesNotInsertASecondRemotePlayerItem() async throws {
         let engine = RollingAudioEngine()
+        engine.enableBufferedPlaybackForTesting()
         defer { engine.stop() }
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }
@@ -183,6 +204,7 @@ import XCTest
 
     func testLiveDuringBufferedToDirectSwitchDoesNotUseTheOutgoingQueue() async throws {
         let engine = RollingAudioEngine()
+        engine.enableBufferedPlaybackForTesting()
         defer { engine.stop() }
         var latest: EngineSnapshot?
         engine.onUpdate = { latest = $0 }

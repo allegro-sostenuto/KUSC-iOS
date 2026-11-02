@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   native-audio:
-    name: Native buffered audio tests
+    name: Native playback regression tests
     if: github.event.repository.private == false
     runs-on: macos-26
     timeout-minutes: 20

@@ -105,6 +105,7 @@ final class RollingAudioEngine {
     private var lastSlowPublishUptime: TimeInterval = 0
     #if DEBUG
     private(set) var diagnosticEvents: [String] = []
+    private var bufferedPlaybackTestingEnabled = false
     #endif
     private var directNeedsLiveReload = false
     private var failed = false
@@ -124,6 +125,9 @@ final class RollingAudioEngine {
     }
 
     #if DEBUG
+    // Legacy renderer regressions remain executable, but ordinary Debug and all
+    // Release playback ignore positive retention requests.
+    func enableBufferedPlaybackForTesting() { bufferedPlaybackTestingEnabled = true }
     var transportSessionForTesting: UUID { generation }
     var backendVolumeForTesting: Float? { bufferedPlayer?.volume ?? player?.volume }
     var bufferedTransportForTesting: BufferedAudioRenderer? { bufferedPlayer }
@@ -136,6 +140,7 @@ final class RollingAudioEngine {
                                               sourceURL: URL? = nil,
                                               loadSamples: @escaping (URL) async throws -> BufferedAudioSamples = BufferedAudioSampleSource.load) {
         stopInternal(publish: false)
+        bufferedPlaybackTestingEnabled = true
         retentionMinutes = 15
         self.sourceURL = sourceURL
         segments = fixtures
@@ -160,11 +165,18 @@ final class RollingAudioEngine {
         recordDiagnostic(diagnosticSnapshot())
     }
 
+    private func supportedRetention(_ requested: Int) -> Int {
+        #if DEBUG
+        if bufferedPlaybackTestingEnabled { return min(15, max(0, requested)) }
+        #endif
+        return 0
+    }
+
     func start(url: URL, retentionMinutes: Int, playbackRequested: Bool = true) async throws {
         try Task.checkCancellation()
         stopInternal(publish: false)
         sourceURL = url
-        self.retentionMinutes = min(15, max(0, retentionMinutes))
+        self.retentionMinutes = supportedRetention(retentionMinutes)
         shouldPlay = playbackRequested
         failed = false
         wantsInitialLivePosition = true
@@ -362,7 +374,7 @@ final class RollingAudioEngine {
     }
 
     func setRetention(minutes: Int) {
-        let next = min(15, max(0, minutes))
+        let next = supportedRetention(minutes)
         guard next != retentionMinutes else { return }
         let requiresRestart = ((bufferedPlayer != nil) != (next > 0)) || switchTask != nil
         retentionMinutes = next
