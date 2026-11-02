@@ -12,7 +12,7 @@ struct ContentView: View {
     @State private var panelSwipe = PanelSwipeState()
     @State private var panelOffset: CGFloat = 0
     @State private var panelTransition: PanelTransition?
-    @GestureState private var draggingPanel = false
+    @State private var draggingPanel = false
 
     private struct PanelTransition {
         let id = UUID()
@@ -36,7 +36,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
             VStack(spacing: 0) {
-                header
+                header(width: geometry.size.width)
                 if model.settings.minimalist {
                     ScrollView {
                         playbackControls(landscape: landscape)
@@ -93,16 +93,6 @@ struct ContentView: View {
             resetPanelDrag()
             if enabled { showingProgramme = false }
         }
-        .onChange(of: draggingPanel) { dragging in
-            guard !dragging else { return }
-            // Cancellation does not call onEnded. Defer until a successful
-            // release has had a chance to start its settling animation.
-            DispatchQueue.main.async {
-                if panelSwipe.axis != nil && panelTransition == nil {
-                    settlePanel(direction: nil, width: 0)
-                }
-            }
-        }
         .onChange(of: model.scheduleManagementRequest) { request in
             if request != nil { choosingPauseBehavior = false; sheet = .schedule }
         }
@@ -130,20 +120,11 @@ struct ContentView: View {
         #endif
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if showingProgramme && !model.settings.minimalist {
-                Text("Program")
-                    .font(.subheadline).frame(minHeight: 44)
-                    .foregroundStyle(Color.philharmonicRed)
-                    .accessibilityIdentifier("programme-header")
-            } else {
-                HStack(alignment: .firstTextBaseline, spacing: 9) {
-                    Text("Philharmonic").font(.system(size: 25, weight: .semibold)).tracking(-1.2)
-                        .lineLimit(1).minimumScaleFactor(0.75)
-                }
-                .accessibilityElement(children: .combine)
-            }
+    private func header(width: CGFloat) -> some View {
+        let progress = (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
+        return HStack(alignment: .center, spacing: 10) {
+            RollingChannelHeader(progress: progress, showingProgramme: showingProgramme)
+                .allowsHitTesting(false)
             Spacer(minLength: 8)
             Button { sheet = .settings } label: {
                 Image(systemName: "gearshape").font(.system(size: 19))
@@ -158,30 +139,36 @@ struct ContentView: View {
         let transitionID = panelTransition?.id
         return GeometryReader { viewport in
             ZStack {
-                if showingProgramme || isSwipingPanel {
-                    panel(programme: true, size: size, height: viewport.size.height)
-                        .transition(.identity)
-                        .allowsHitTesting(showingProgramme && panelTransition == nil)
-                        .accessibilityHidden(!showingProgramme)
-                }
-                if !showingProgramme || isSwipingPanel {
-                    panel(programme: false, size: size, height: viewport.size.height)
-                        .overlay(alignment: .leading) {
-                            if isSwipingPanel {
-                                Rectangle().fill(Color.philharmonicSeparator).frame(width: 1)
-                                    .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
-                            }
+                // Keep both layers mounted; a first drag must not replace its
+                // own ScrollView or recognizer when Program appears underneath.
+                panel(programme: true, size: size, height: viewport.size.height)
+                    .allowsHitTesting(showingProgramme && panelTransition == nil)
+                    .accessibilityHidden(!showingProgramme)
+                panel(programme: false, size: size, height: viewport.size.height)
+                    .overlay(alignment: .leading) {
+                        if isSwipingPanel {
+                            Rectangle().fill(Color.philharmonicSeparator).frame(width: 1)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
-                        .offset(x: showingProgramme ? viewport.size.width + panelOffset : panelOffset)
-                        .modifier(PanelOffsetCompletion(offset: panelOffset) {
-                            finishPanelTransition(id: transitionID)
-                        })
-                        .allowsHitTesting(!showingProgramme && panelTransition == nil)
-                        .accessibilityHidden(showingProgramme)
-                }
+                    }
+                    .offset(x: showingProgramme ? viewport.size.width + panelOffset : panelOffset)
+                    .modifier(PanelOffsetCompletion(offset: panelOffset) {
+                        finishPanelTransition(id: transitionID)
+                    })
+                    .allowsHitTesting(!showingProgramme && panelTransition == nil)
+                    .accessibilityHidden(showingProgramme)
             }
-            .scrollDisabled(isSwipingPanel)
+            .background {
+                PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist,
+                                opening: !showingProgramme,
+                                changed: { panelDragChanged($0, width: viewport.size.width) },
+                                ended: { x, velocity, cancelled in
+                                    panelDragEnded(x, velocity: velocity, cancelled: cancelled,
+                                                   width: viewport.size.width)
+                                })
+                .accessibilityHidden(true)
+            }
             .coordinateSpace(name: "player-panels")
             .clipped()
         }
@@ -201,14 +188,13 @@ struct ContentView: View {
     #endif
 
     private var isSwipingPanel: Bool {
-        panelSwipe.axis == .horizontal || panelOffset != 0 || panelTransition != nil
+        draggingPanel || panelOffset != 0 || panelTransition != nil
     }
 
     private func panel(programme: Bool, size: CGSize, height: CGFloat) -> some View {
         Group {
             if programme {
                 ProgrammeView()
-                    .simultaneousGesture(programmeGesture(width: size.width))
             } else if size.width > size.height {
                 landscapePlayer(width: size.width, height: height)
             } else {
@@ -234,21 +220,17 @@ struct ContentView: View {
         }
         .accessibilityIdentifier("now-playing-scroll")
         .modifier(PlayerRefreshModifier())
-        // Paging belongs to content only. Slider/control gestures never reach it.
-        .simultaneousGesture(programmeGesture(width: size.width))
     }
 
     private func landscapePlayer(width: CGFloat, height: CGFloat) -> some View {
         let artworkSide = max(0, min(width * 0.34, height - 16))
         return HStack(alignment: .center, spacing: 32) {
             AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
-                .simultaneousGesture(programmeGesture(width: width))
             ScrollView {
                 NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)
             }
             .accessibilityIdentifier("now-playing-scroll")
             .modifier(PlayerRefreshModifier())
-            .simultaneousGesture(programmeGesture(width: width))
         }
         .padding(.horizontal, 32).padding(.bottom, 8)
     }
@@ -292,32 +274,29 @@ struct ContentView: View {
         .accessibilityAddTraits(showingProgramme == programme ? [.isSelected] : [])
     }
 
-    private func programmeGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .named("player-panels"))
-            .updating($draggingPanel) { _, dragging, _ in dragging = true }
-            .onChanged { value in
-                guard !model.settings.minimalist, panelTransition == nil else { return }
-                if let offset = panelSwipe.translation(x: Double(value.translation.width),
-                                                      y: Double(value.translation.height), width: Double(width)) {
-                    let allowed = showingProgramme ? min(0, offset) : max(0, offset)
-                    let distance = abs(allowed)
-                    // A spring-dashpot under a steadily moving hand eases into motion.
-                    let resistance = min(18.0, Double(width) * 0.08)
-                    let full = Double(width) - resistance * (1 - exp(-Double(width) / resistance))
-                    let eased = (distance - resistance * (1 - exp(-distance / resistance))) * Double(width) / full
-                    panelOffset = CGFloat(allowed < 0 ? -eased : eased)
-                }
-            }
-            .onEnded { value in
-                guard !model.settings.minimalist, panelTransition == nil else { return }
-                let direction = panelSwipe.releaseDirection(x: Double(value.translation.width),
-                    predictedX: Double(value.predictedEndTranslation.width), width: Double(width))
-                let allowedDirection = showingProgramme ? -1 : 1
-                let selected = direction == allowedDirection ? direction : nil
-                let projected = (value.predictedEndTranslation.width - value.translation.width) * CGFloat(allowedDirection)
-                let velocity = selected == nil || width <= 0 ? 0 : min(1, max(0, Double(projected / width)))
-                settlePanel(direction: selected, width: width, velocity: velocity)
-            }
+    private func panelDragChanged(_ x: CGFloat, width: CGFloat) {
+        guard !model.settings.minimalist, panelTransition == nil else { return }
+        draggingPanel = true
+        if let offset = panelSwipe.translation(x: Double(x), y: 0, width: Double(width)) {
+            let allowed = showingProgramme ? min(0, offset) : max(0, offset)
+            panelOffset = CGFloat(PanelSwipeState.resistedTranslation(allowed, width: Double(width)))
+        }
+    }
+
+    private func panelDragEnded(_ x: CGFloat, velocity: CGFloat, cancelled: Bool, width: CGFloat) {
+        guard panelTransition == nil else { return }
+        draggingPanel = false
+        let predicted = x + velocity * 0.18
+        let direction = cancelled ? nil : panelSwipe.releaseDirection(
+            x: Double(x), predictedX: Double(predicted), width: Double(width))
+        let allowedDirection = showingProgramme ? -1 : 1
+        let selected = direction == allowedDirection ? direction : nil
+        let remaining = abs((selected.map { CGFloat($0) * width } ?? 0) - panelOffset)
+        let signedSpeed = velocity * CGFloat(selected ?? 0)
+        // Carry a modest release velocity into the spring without overshoot.
+        let normalized = selected == nil || remaining < 1 ? 0 :
+            min(4, max(0, Double(signedSpeed / remaining)))
+        settlePanel(direction: selected, width: width, velocity: normalized)
     }
 
     private func selectPanel(programme: Bool, width: CGFloat) {
@@ -334,9 +313,9 @@ struct ContentView: View {
             return
         }
         panelTransition = PanelTransition(switchesPanel: direction != nil)
-        // m = 1, k = 225, c = 2√(mk): critical damping settles without bounce.
+        // m = 1, k = 380, c = 2√(mk): critical damping slows gently without bounce.
         let motion: Animation = reduceMotion ? .easeOut(duration: 0.12)
-            : .interpolatingSpring(mass: 1, stiffness: 225, damping: 30, initialVelocity: velocity)
+            : .interpolatingSpring(mass: 1, stiffness: 380, damping: 2 * sqrt(380), initialVelocity: velocity)
         withAnimation(motion) { panelOffset = target }
     }
 
@@ -353,6 +332,7 @@ struct ContentView: View {
     private func resetPanelDrag() {
         panelTransition = nil
         panelSwipe = PanelSwipeState()
+        draggingPanel = false
         panelOffset = 0
     }
 
@@ -364,11 +344,52 @@ struct ContentView: View {
     }
 }
 
+/// The animatable input is the panel's progress, so the nonlinear roll is
+/// evaluated on every rendered frame as well as on every finger movement.
+private struct RollingChannelHeader: View, Animatable {
+    var progress: CGFloat
+    let showingProgramme: Bool
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let rowHeight: CGFloat = 44
+        let roll = CGFloat(PanelSwipeState.headerProgress(Double(progress)))
+        let font = Font.system(size: 25, weight: .semibold)
+        ZStack(alignment: .topLeading) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(StationConfiguration.name).font(font).tracking(-1.2)
+                Text("91.5 FM").font(.system(size: 10, weight: .medium)).tracking(1.4)
+                    .foregroundStyle(Color.philharmonicRed)
+            }
+            .frame(height: rowHeight)
+            .offset(y: -roll * rowHeight)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("station-header")
+            .accessibilityHidden(showingProgramme)
+
+            Text("Program")
+                .font(font).tracking(-1.2)
+                .foregroundStyle(Color.philharmonicRed)
+                .frame(height: rowHeight)
+                .offset(y: (1 - roll) * rowHeight)
+                .accessibilityIdentifier("programme-header")
+                .accessibilityHidden(!showingProgramme)
+        }
+        .frame(height: rowHeight, alignment: .topLeading)
+        .clipped()
+    }
+}
+
 /// iOS 16-compatible completion tied to the rendered offset, not a timer.
 private struct PanelOffsetCompletion: AnimatableModifier {
     var animatableData: CGFloat {
         didSet {
-            if animatableData == target {
+            // Do not block the next swipe while waiting for a spring's
+            // invisible subpixel tail to reach exact floating-point equality.
+            if abs(animatableData - target) < 0.5 {
                 DispatchQueue.main.async(execute: completion)
             }
         }

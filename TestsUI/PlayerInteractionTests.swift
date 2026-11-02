@@ -294,6 +294,44 @@ final class PlayerInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testFirstSwipeOpensProgramWithoutWarmup() {
+        for (state, landscape) in [("live", false), ("dark", false), ("live", true)] {
+            let app = launchFixture(state, landscape: landscape)
+            let station = app.staticTexts["station-header"]
+            XCTAssertTrue(station.waitForExistence(timeout: 5))
+            XCTAssertTrue(station.label.contains("KUSC"))
+            XCTAssertTrue(station.label.contains("91.5 FM"))
+            let footer = footerFrames(in: app)
+            let first = app.scrollViews["now-playing-scroll"]
+            // This is the first gesture after a fresh launch: no rejected swipe,
+            // short drag or page-button tap can prime the recognizers.
+            let start = first.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.35))
+            let end = first.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.42))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            let program = app.staticTexts["programme-header"]
+            XCTAssertTrue(program.waitForExistence(timeout: 5), "The first right swipe must open Program")
+            XCTAssertEqual(program.label, "Program")
+            for (actual, resting) in zip(footerFrames(in: app), footer) {
+                XCTAssertEqual(actual.minX, resting.minX, accuracy: 1)
+                XCTAssertEqual(actual.minY, resting.minY, accuracy: 1)
+            }
+            attach(app, named: "first-swipe-" + state + (landscape ? "-landscape" : ""))
+            swipePanel(app.scrollViews["programme-scroll"], direction: -1)
+            XCTAssertTrue(station.waitForExistence(timeout: 5), "The first return swipe must restore KUSC")
+            XCTAssertTrue(app.buttons["Pause"].isHittable)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testHeaderRollPartialRevealCapture() {
+        let app = launchFixture("reveal-right")
+        attach(app, named: "header-roll-partial-reveal")
+        XCTAssertTrue(app.buttons["Pause"].isHittable)
+        app.terminate()
+    }
+
+    @MainActor
     func testRightSwipeOpensProgramAndLeftSwipeReturns() {
         let app = launchFixture("live")
         defer { app.terminate() }

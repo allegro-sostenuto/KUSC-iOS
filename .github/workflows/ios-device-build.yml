@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
         required: false
+      swipe_check:
+        description: Run focused first-swipe and header checks
+        type: boolean
+        default: false
+        required: false
   pull_request:
     paths-ignore:
       - '**.md'
@@ -47,6 +52,27 @@ jobs:
           name: native-audio-results
           path: artifacts/native-audio
           if-no-files-found: warn
+          retention-days: 14
+
+  panel-swipe:
+    name: Focused panel swipe check
+    if: github.event.repository.private == false && github.event_name == 'workflow_dispatch' && inputs.swipe_check
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check fresh-launch swipes and header
+        run: bash scripts/test_panel_swipe.sh
+      - name: Upload focused gesture evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-swipe-results
+          path: artifacts/native-swipe
           retention-days: 14
 
   build:

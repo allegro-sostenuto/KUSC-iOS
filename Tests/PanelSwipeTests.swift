@@ -33,7 +33,7 @@ final class PanelSwipeTests: XCTestCase {
             var swipe = PanelSwipeState()
             _ = swipe.translation(x: 30 * sign, y: 0, width: 390)
             XCTAssertNil(swipe.releaseDirection(x: 30 * sign, predictedX: 40 * sign, width: 390))
-            XCTAssertNil(swipe.releaseDirection(x: 20 * sign, predictedX: 500 * sign, width: 390))
+            XCTAssertNil(swipe.releaseDirection(x: 12 * sign, predictedX: 500 * sign, width: 390))
             XCTAssertEqual(swipe.releaseDirection(x: 30 * sign, predictedX: 150 * sign, width: 390), Int(sign))
             XCTAssertNil(swipe.releaseDirection(x: 30 * sign, predictedX: -150 * sign, width: 390))
         }
@@ -62,4 +62,40 @@ final class PanelSwipeTests: XCTestCase {
         swipe = PanelSwipeState()
         XCTAssertEqual(swipe.translation(x: 30, y: 0, width: 390), 30)
     }
+    func testLightResistanceRespondsImmediatelyAndLosesAtMostThreePoints() {
+        for width in [320.0, 402, 844] {
+            var previous = 0.0
+            for distance in [1.0, 6, 12, 24, 80, width] {
+                let position = PanelSwipeState.resistedTranslation(distance, width: width)
+                XCTAssertGreaterThanOrEqual(position, distance * 0.8)
+                XCTAssertLessThanOrEqual(position, distance + 0.001)
+                XCTAssertLessThanOrEqual(distance - position, 3)
+                XCTAssertGreaterThan(position, previous)
+                XCTAssertEqual(PanelSwipeState.resistedTranslation(-distance, width: width), -position)
+                previous = position
+            }
+            XCTAssertEqual(PanelSwipeState.resistedTranslation(width, width: width), width, accuracy: 0.001)
+        }
+    }
+
+    func testHeaderRollHasFlatEndsAndSmoothMidpointSnap() {
+        XCTAssertEqual(PanelSwipeState.headerProgress(0), 0)
+        XCTAssertEqual(PanelSwipeState.headerProgress(1), 1)
+        XCTAssertLessThan(PanelSwipeState.headerProgress(0.01), 1e-30)
+        XCTAssertEqual(PanelSwipeState.headerProgress(0.5), 0.5, accuracy: 1e-12)
+        XCTAssertLessThan(PanelSwipeState.headerProgress(0.25), 0.25)
+        XCTAssertGreaterThan(PanelSwipeState.headerProgress(0.75), 0.75)
+        let midpointSlope = (PanelSwipeState.headerProgress(0.501) - PanelSwipeState.headerProgress(0.499)) / 0.002
+        XCTAssertGreaterThan(midpointSlope, 1.5)
+        var previous = 0.0
+        for index in 1...100 {
+            let p = Double(index) / 100
+            let roll = PanelSwipeState.headerProgress(p)
+            XCTAssertTrue(roll.isFinite)
+            XCTAssertGreaterThanOrEqual(roll, previous)
+            XCTAssertEqual(roll + PanelSwipeState.headerProgress(1 - p), 1, accuracy: 1e-12)
+            previous = roll
+        }
+    }
+
 }
