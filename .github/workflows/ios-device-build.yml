@@ -13,6 +13,11 @@ on:
         type: boolean
         default: false
         required: false
+      quality_ui_check:
+        description: Check only the channel bitrate dropdown UI alongside builds
+        type: boolean
+        default: false
+        required: false
       landscape_only_check:
         description: Check only the restored landscape layout
         type: boolean
@@ -53,7 +58,7 @@ concurrency:
 jobs:
   station-picker:
     name: Station switching and native picker checks
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check)
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check)
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -64,7 +69,7 @@ jobs:
           persist-credentials: false
       - name: Check stations and capture picker layouts
         env:
-          PHILHARMONIC_QUALITY_UI_ONLY: ${{ inputs.source_check && '1' || '0' }}
+          PHILHARMONIC_QUALITY_UI_ONLY: ${{ (inputs.source_check || inputs.quality_ui_check) && '1' || '0' }}
         run: bash scripts/test_station_picker.sh
       - name: Upload station evidence
         if: always()

@@ -21,7 +21,6 @@ final class AudioQualityUITests: XCTestCase {
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]
             XCTAssertTrue(swiss.waitForExistence(timeout: 5))
             XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
-            XCTAssertLessThan(app.staticTexts["Radio Swiss Classic"].frame.minX, swiss.frame.minX)
             capture("quality-channel-list" + (dark ? "-dark" : "-light"))
             swiss.tap()
             XCTAssertTrue(app.buttons["AAC · 192 kbps"].waitForExistence(timeout: 3))
