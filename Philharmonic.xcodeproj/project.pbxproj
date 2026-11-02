@@ -2590,6 +2590,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "5E09476767936528BEB7BF77";
 		};
+		"F4922B9DA4F3A634E5991178" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "TestsUI/ReleasePlayerInteractionTests.swift";
+			"sourceTree" = "<group>";
+		};
+		"9A95A1227D0574DE0CF44255" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F4922B9DA4F3A634E5991178";
+		};
 		"9064FEEAB562B398A19B66F5" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -2605,6 +2615,7 @@
 			"buildActionMask" = 2147483647;
 			"files" = (
 				"70F5D42FCD4C27FEA5D58710",
+				"9A95A1227D0574DE0CF44255",
 				"8F89C725F0B8ADBC459DF731",
 			);
 			"runOnlyForDeploymentPostprocessing" = 0;
@@ -2835,6 +2846,7 @@
 				"E5F5852125685E3C8CCD72E5",
 				"B5D304170EF5E0A523A01AE4",
 				"5E09476767936528BEB7BF77",
+				"F4922B9DA4F3A634E5991178",
 				"9064FEEAB562B398A19B66F5",
 				"54088CBEA8DE90CC21D8BD62",
 				"71E6A6E7BAF229C9187E9B5B",

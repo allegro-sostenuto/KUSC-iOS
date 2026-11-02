@@ -36,7 +36,7 @@ print(sim('create', 'Philharmonic panel swipe', kind['identifier'], runtimes[0][
 PY
 )"
 python3 scripts/generate_project.py --ui-tests-only
-if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" != true ]; then
+if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" != true ] && [ "${PHILHARMONIC_RELEASE_SWIPE_ONLY:-false}" != true ]; then
     swift test --filter PanelSwipeTests 2>&1 | tee "$output/policy-tests.log"
 fi
 xcrun simctl boot "$device"
@@ -52,8 +52,13 @@ checks=(
 if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" = true ]; then
     checks=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging)
 fi
+configuration=Debug
+if [ "${PHILHARMONIC_RELEASE_SWIPE_ONLY:-false}" = true ]; then
+    configuration=Release
+    checks=(-only-testing:PhilharmonicUITests/ReleasePlayerInteractionTests/testFirstSwipeAndReturnWithoutFixtureProbe)
+fi
 set +e
-xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
+xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration "$configuration" \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
     -resultBundlePath "$output/Swipe.xcresult" -parallel-testing-enabled NO \
     "${checks[@]}" \
