@@ -40,39 +40,43 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ForEach(model.orderedStations) { station in
-                        HStack(spacing: 12) {
-                            Text(station.name)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Menu {
-                                ForEach(station.audioSources) { source in
-                                    Button {
-                                        model.setAudioSource(source.id, for: station.id)
-                                    } label: {
-                                        if model.settings.audioSource(for: station).id == source.id {
-                                            Label(source.description, systemImage: "checkmark")
-                                        } else {
-                                            Text(source.description)
+                    VStack(spacing: 0) {
+                        ForEach(model.orderedStations) { station in
+                            if station.id != model.orderedStations.first?.id { divider }
+                            HStack(spacing: 12) {
+                                Text(station.name)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Menu {
+                                    ForEach(station.audioSources) { source in
+                                        Button {
+                                            model.setAudioSource(source.id, for: station.id)
+                                        } label: {
+                                            if model.settings.audioSource(for: station).id == source.id {
+                                                Label(source.description, systemImage: "checkmark")
+                                            } else {
+                                                Text(source.description)
+                                            }
                                         }
+                                        .accessibilityIdentifier("audio-source-\(source.id)")
                                     }
-                                    .accessibilityIdentifier("audio-source-\(source.id)")
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
+                                            .monospacedDigit()
+                                        Image(systemName: "chevron.down").font(.caption2)
+                                    }
+                                    .fixedSize()
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
                                 }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
-                                        .monospacedDigit()
-                                    Image(systemName: "chevron.down").font(.caption2)
-                                }
-                                .fixedSize()
-                                .frame(minHeight: 44)
-                                .contentShape(Rectangle())
+                                .accessibilityLabel("\(station.name) quality")
+                                .accessibilityValue(model.settings.audioSource(for: station).description)
+                                .accessibilityIdentifier("quality-menu-\(station.id)")
                             }
-                            .accessibilityLabel("\(station.name) quality")
-                            .accessibilityValue(model.settings.audioSource(for: station).description)
-                            .accessibilityIdentifier("quality-menu-\(station.id)")
                         }
-                        .listRowBackground(cardBackground)
                     }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(cardBackground)
                 } header: {
                     Text("Quality")
                 } footer: {
