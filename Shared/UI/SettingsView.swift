@@ -63,7 +63,11 @@ struct SettingsView: View {
                                     HStack(spacing: 4) {
                                         Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
                                             .monospacedDigit()
-                                        Image(systemName: "chevron.down").font(.caption2)
+                                        if station.audioSources.count == 1 {
+                                            Text("ø").font(.caption2)
+                                        } else {
+                                            Image(systemName: "chevron.down").font(.caption2)
+                                        }
                                     }
                                     .fixedSize()
                                     .frame(minHeight: 44)
@@ -72,6 +76,7 @@ struct SettingsView: View {
                                 .accessibilityLabel("\(station.name) quality")
                                 .accessibilityValue(model.settings.audioSource(for: station).description)
                                 .accessibilityIdentifier("quality-menu-\(station.id)")
+                                .disabled(station.audioSources.count == 1)
                             }
                         }
                     }

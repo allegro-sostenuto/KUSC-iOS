@@ -33,6 +33,10 @@ struct ContentView: View {
         }
     }
 
+    private var hasProgrammeContent: Bool {
+        model.selectedStation.metadataCapability != .stationOnly
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
@@ -112,6 +116,10 @@ struct ContentView: View {
         .onChange(of: model.settings.minimalist) { enabled in
             resetPanelDrag()
             if enabled { showingProgramme = false }
+        }
+        .onChange(of: model.selectedStation.id) { _ in
+            resetPanelDrag()
+            if !hasProgrammeContent { showingProgramme = false }
         }
         .onChange(of: model.scheduleManagementRequest) { request in
             if request != nil { choosingPauseBehavior = false; sheet = .schedule }
@@ -206,7 +214,7 @@ struct ContentView: View {
                         .accessibilityHidden(showingProgramme)
                 }
                 .background {
-                    PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist &&
+                    PanelPanGesture(enabled: hasProgrammeContent && panelTransition == nil && !model.settings.minimalist &&
                                         sheet == nil && !choosingStation && !choosingPauseBehavior && scenePhase == .active,
                                     opening: !showingProgramme,
                                     changed: { panelDragChanged($0, width: viewport.size.width) },
@@ -312,7 +320,7 @@ struct ContentView: View {
 
     private func pageIndicators(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            pageIndicator(programme: true, width: width)
+            if hasProgrammeContent { pageIndicator(programme: true, width: width) }
             pageIndicator(programme: false, width: width)
         }.frame(height: 44)
     }
@@ -331,7 +339,7 @@ struct ContentView: View {
     }
 
     private func panelDragChanged(_ x: CGFloat, width: CGFloat) {
-        guard !model.settings.minimalist, panelTransition == nil else { return }
+        guard hasProgrammeContent, !model.settings.minimalist, panelTransition == nil else { return }
         draggingPanel = true
         if let offset = panelSwipe.translation(x: Double(x), y: 0, width: Double(width)) {
             let allowed = showingProgramme ? min(0, offset) : max(0, offset)
@@ -350,7 +358,7 @@ struct ContentView: View {
         let direction = cancelled ? nil : panelSwipe.releaseDirection(
             x: Double(x), predictedX: Double(predicted), width: Double(width))
         let allowedDirection = showingProgramme ? -1 : 1
-        let selected = direction == allowedDirection ? direction : nil
+        let selected = hasProgrammeContent && direction == allowedDirection ? direction : nil
         #if DEBUG
         if UIFixture.state != nil {
             PanelGestureTrace.record("release x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
@@ -365,7 +373,7 @@ struct ContentView: View {
     }
 
     private func selectPanel(programme: Bool, width: CGFloat) {
-        guard programme != showingProgramme, panelTransition == nil else { return }
+        guard (!programme || hasProgrammeContent), programme != showingProgramme, panelTransition == nil else { return }
         settlePanel(direction: programme ? 1 : -1, width: width)
     }
 
