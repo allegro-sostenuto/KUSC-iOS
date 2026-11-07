@@ -251,9 +251,38 @@ private struct StablePlayerMenu: UIViewRepresentable {
         var appearance: ColorScheme?
         init(_ actions: StablePlayerMenu) { self.actions = actions }
     }
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> UIButton {
+    /// UIKit animates the menu button's preview. Keep its visible circle on a
+    /// separate, clipped host so that preview cannot reshape the border.
+    final class CircularHost: UIView {
         let button = UIButton(type: .system)
+        let surface = CAShapeLayer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            layer.addSublayer(surface)
+            surface.lineWidth = 0.75
+            addSubview(button)
+            clipsToBounds = true
+        }
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.cornerRadius = min(bounds.width, bounds.height) / 2
+            surface.frame = bounds
+            surface.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 0.375, dy: 0.375)).cgPath
+            button.frame = bounds
+            button.layer.cornerRadius = layer.cornerRadius
+            button.clipsToBounds = true
+            CATransaction.commit()
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> CircularHost {
+        let host = CircularHost(frame: .zero)
+        let button = host.button
         button.setImage(UIImage(systemName: "ellipsis", withConfiguration:
             UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)), for: .normal)
         button.showsMenuAsPrimaryAction = true
@@ -265,20 +294,22 @@ private struct StablePlayerMenu: UIViewRepresentable {
             UIAction(title: "Scheduled Start", image: UIImage(systemName: "alarm")) { _ in coordinator.actions.showSchedule() },
             UIAction(title: "Audio Output", image: UIImage(systemName: "airplayaudio")) { _ in coordinator.actions.showOutput() }
         ])
-        button.layer.borderWidth = 0.75
-        button.layer.cornerRadius = 24
-        return button
+        return host
     }
-    func updateUIView(_ button: UIButton, context: Context) {
+    func updateUIView(_ host: CircularHost, context: Context) {
         context.coordinator.actions = self
-        button.layer.cornerRadius = diameter / 2
         guard context.coordinator.appearance != colorScheme else { return }
         context.coordinator.appearance = colorScheme
         let dark = colorScheme == .dark
+        let button = host.button
         button.overrideUserInterfaceStyle = dark ? .dark : .light
         button.tintColor = dark ? UIColor(white: 0.95, alpha: 1) : UIColor(white: 0.09, alpha: 1)
-        button.backgroundColor = dark ? .black : .white
-        button.layer.borderColor = (dark ? UIColor.white.withAlphaComponent(0.28) : UIColor.black.withAlphaComponent(0.12)).cgColor
+        button.backgroundColor = .clear
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        host.surface.fillColor = (dark ? UIColor.black : UIColor.white).cgColor
+        host.surface.strokeColor = (dark ? UIColor.white.withAlphaComponent(0.28) : UIColor.black.withAlphaComponent(0.12)).cgColor
+        CATransaction.commit()
     }
 }
 
