@@ -267,7 +267,7 @@ private struct StablePlayerMenu: UIViewRepresentable {
             addSubview(button)
             clipsToBounds = true
         }
-        required init?(coder: NSCoder) { nil }
+        required init?(coder: NSCoder) { return nil }
 
         override func layoutSubviews() {
             super.layoutSubviews()

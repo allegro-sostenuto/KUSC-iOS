@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     private func preference<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
         Binding(
@@ -18,21 +19,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(spacing: 0) {
-                        Toggle("Auto-play on launch", isOn: preference(\.autoplay))
-                            .padding(.vertical, 10)
-                        divider
-                        NavigationLink {
-                            PlaybackDiagnosticsView(diagnostics: model.diagnostics)
-                        } label: {
-                            Text("Playback Diagnostics")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
+                    Toggle("Auto-play on launch", isOn: preference(\.autoplay))
+                        .modifier(SettingsRow(first: true, last: false))
+                    NavigationLink {
+                        PlaybackDiagnosticsView(diagnostics: model.diagnostics)
+                    } label: {
+                        Text("Playback Diagnostics")
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(cardBackground)
+                    .modifier(SettingsRow(first: false, last: true))
                 } header: {
                     Text("Playback")
                 } footer: {
@@ -40,53 +34,15 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    VStack(spacing: 0) {
-                        ForEach(model.orderedStations) { station in
-                            if station.id != model.orderedStations.first?.id { divider }
-                            HStack(spacing: 12) {
-                                Text(station: station)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Menu {
-                                    ForEach(station.audioSources) { source in
-                                        Button {
-                                            model.setAudioSource(source.id, for: station.id)
-                                        } label: {
-                                            if model.settings.audioSource(for: station).id == source.id {
-                                                Label(source.description, systemImage: "checkmark")
-                                            } else {
-                                                Text(source.description)
-                                            }
-                                        }
-                                        .accessibilityIdentifier("audio-source-\(source.id)")
-                                    }
-                                } label: {
-                                    HStack(alignment: .center, spacing: 6) {
-                                        Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
-                                            .monospacedDigit()
-                                            .frame(width: 80, alignment: .trailing)
-                                        ZStack {
-                                            if station.audioSources.count == 1 {
-                                                Text("ø").font(.system(size: 13)).offset(y: -1)
-                                            } else {
-                                                Image(systemName: "chevron.down")
-                                                    .font(.system(size: 10, weight: .semibold))
-                                            }
-                                        }
-                                        .frame(width: 14, height: 14, alignment: .center)
-                                    }
-                                    .fixedSize()
-                                    .frame(minHeight: 44)
-                                    .contentShape(Rectangle())
-                                }
-                                .accessibilityLabel("\(station.name) quality")
-                                .accessibilityValue(model.settings.audioSource(for: station).description)
-                                .accessibilityIdentifier("quality-menu-\(station.id)")
-                                .disabled(station.audioSources.count == 1)
-                            }
+                    ForEach(model.orderedStations) { station in
+                        HStack(alignment: .center, spacing: 12) {
+                            Text(station: station)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            qualityMenu(station)
                         }
+                        .modifier(SettingsRow(first: station.id == model.orderedStations.first?.id,
+                                              last: station.id == model.orderedStations.last?.id))
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(cardBackground)
                 } header: {
                     Text("Quality")
                 } footer: {
@@ -94,36 +50,28 @@ struct SettingsView: View {
                 }
 
                 Section("Interface") {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Toggle("Minimalist UI", isOn: preference(\.minimalist))
-                            .padding(.vertical, 10)
-                        divider
-                        Text("Appearance")
-                            .padding(.top, 14)
-                            .padding(.bottom, 10)
-                        Picker("Appearance", selection: preference(\.appearance)) {
-                            Text("System").tag("system")
-                            Text("Light").tag("light")
-                            Text("Dark").tag("dark")
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.bottom, 10)
+                    Toggle("Minimalist UI", isOn: preference(\.minimalist))
+                        .modifier(SettingsRow(first: true, last: false))
+                    Picker("Appearance", selection: preference(\.appearance)) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(cardBackground)
+                    .pickerStyle(.navigationLink)
+                    .modifier(SettingsRow(first: false, last: true))
                 }
                 Section("About") {
                     Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"))")
-                        .listRowBackground(cardBackground)
+                        .modifier(SettingsRow(first: true, last: true))
                 }
-
             }
+            .environment(\.defaultMinListRowHeight, 52)
             .scrollContentBackground(.hidden)
-            .background(Color.philharmonicBackground)
+            .background(colorScheme == .dark ? Color.black : Color(uiColor: .systemGroupedBackground))
             .foregroundStyle(Color.philharmonicInk)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
+            .toolbarBackground(colorScheme == .dark ? Color.black : Color(uiColor: .systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .confirmationAction) {
@@ -141,18 +89,81 @@ struct SettingsView: View {
         .philharmonicSheetBackground()
     }
 
-    private var divider: some View {
-        Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
-            .accessibilityHidden(true)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color.philharmonicSurface)
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous).inset(by: 1)
-                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
+    private func qualityMenu(_ station: RadioStation) -> some View {
+        Menu {
+            ForEach(station.audioSources) { source in
+                Button {
+                    model.setAudioSource(source.id, for: station.id)
+                } label: {
+                    if model.settings.audioSource(for: station).id == source.id {
+                        Label(source.description, systemImage: "checkmark")
+                    } else {
+                        Text(source.description)
+                    }
+                }
+                .accessibilityIdentifier("audio-source-\(source.id)")
             }
+        } label: {
+            HStack(alignment: .center, spacing: 6) {
+                Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
+                    .monospacedDigit()
+                    .frame(width: 80, alignment: .trailing)
+                ZStack {
+                    if station.audioSources.count == 1 {
+                        Text("ø").font(.system(size: 13)).offset(y: -1)
+                    } else {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                }
+                .frame(width: 14, height: 14, alignment: .center)
+            }
+            .fixedSize()
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("\(station.name) quality")
+        .accessibilityValue(model.settings.audioSource(for: station).description)
+        .accessibilityIdentifier("quality-menu-\(station.id)")
+        .disabled(station.audioSources.count == 1)
     }
+}
 
+/// Native Form rows own text, control placement and separators. The background
+/// draws just the outside of their shared group, safely inside Form's mask.
+private struct SettingsRow: ViewModifier {
+    let first: Bool
+    let last: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .frame(minHeight: 44)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowSeparatorTint(Color.philharmonicSeparator)
+            .listRowSeparator(.hidden, edges: .top)
+            .listRowSeparator(last ? .hidden : .visible, edges: .bottom)
+            .listRowBackground(SettingsGroupBackground(first: first, last: last))
+    }
+}
+
+private struct SettingsGroupBackground: View {
+    let first: Bool
+    let last: Bool
+
+    var body: some View {
+        Color.philharmonicSurface.overlay {
+            GeometryReader { geometry in
+                // Extend unused ends beyond this row. Adjacent rows meet at
+                // straight edges; only the first/last own the group's corners.
+                let above: CGFloat = first ? 0 : 56
+                let below: CGFloat = last ? 0 : 56
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .inset(by: 1)
+                    .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
+                    .frame(width: geometry.size.width, height: geometry.size.height + above + below)
+                    .offset(y: -above)
+            }
+        }.clipped()
+    }
 }
