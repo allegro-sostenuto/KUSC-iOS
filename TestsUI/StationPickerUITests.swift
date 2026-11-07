@@ -7,6 +7,33 @@ final class StationPickerUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
+    func testSixAddedStationsAreReachableAndSelectWithoutStartingPlayback() {
+        let app = launch(dark: true)
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        app.buttons["choose-station"].tap()
+        app.buttons["stations-mode-list"].tap()
+        for id in ["yle-klassinen", "rete-toscana-classica", "wfmt", "romania-muzical",
+                   "rtp-opera", "concertzender-oude-muziek"] {
+            reach(id, app: app, horizontal: false)
+            let station = app.buttons["station-" + id]
+            station.tap()
+            XCTAssertTrue(station.isSelected)
+        }
+        capture("stations-six-added-list-portrait-dark")
+        app.buttons["Back to player"].tap()
+        XCTAssertTrue(app.buttons["choose-station"].label.contains("Oude Muziek"))
+        XCTAssertTrue(app.buttons["Play"].isHittable)
+        app.buttons["choose-station"].tap()
+        app.buttons["stations-mode-grid"].tap()
+        rotate(.landscapeRight, app: app)
+        reach("concertzender-oude-muziek", app: app, horizontal: true)
+        XCTAssertTrue(app.buttons["station-concertzender-oude-muziek"].isSelected)
+        capture("stations-six-added-grid-landscape-dark")
+        app.buttons["Back to player"].tap()
+        XCTAssertTrue(app.buttons["Play"].isHittable)
+    }
+
+    @MainActor
     func testGridListRotationAndHorizontalReachability() {
         for dark in [false, true] {
             let app = launch(dark: dark)

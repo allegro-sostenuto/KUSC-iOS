@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.1.0 addition](ios_v2_1_0.md) appends six channels recommended by “misc”,
+bringing the catalogue to seventeen while preserving saved choices and order.
+
 The [2.0.1 patch](ios_v2_0_1.md) adds per-channel bitrate dropdowns under Settings → Quality
 and defaults to roughly KUSC's bitrate where a suitable source exists.
 

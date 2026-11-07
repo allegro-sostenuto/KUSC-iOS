@@ -48,12 +48,14 @@ public struct RadioStation: Identifiable, Codable, Equatable, Sendable {
 /// URLs are broadcaster-owned sources, not directories or relays; see docs/station_sources_v2.md.
 public enum StationCatalog {
     // Defaults follow KUSC's roughly 96 kbps target, using 128 where offered.
-    // Chopin and Orpheus 8/17 retain their only verified broadcaster source.
+    // Single-source stations retain their verified broadcaster rate.
     fileprivate static let defaultBitrates = [
         "kusc": 96, "radio-swiss-classic": 96, "sr-p2": 128,
         "france-musique-classique-easy": 128, "france-musique-la-baroque": 128,
         "wdr3": 96, "radio-chopin": 320, "orpheus-large-scale": 192,
-        "orpheus-russian-classical": 192, "orpheus-camerata": 128, "hr-klasik": 128
+        "orpheus-russian-classical": 192, "orpheus-camerata": 128, "hr-klasik": 128,
+        "yle-klassinen": 128, "rete-toscana-classica": 192, "wfmt": 128,
+        "romania-muzical": 96, "rtp-opera": 160, "concertzender-oude-muziek": 160
     ]
     fileprivate static let additionalAudioSources: [String: [StationAudioSource]] = [
         "radio-swiss-classic": [
@@ -74,6 +76,13 @@ public enum StationCatalog {
         "orpheus-camerata": [
             .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_64.mp3")!, format: .mp3, bitrateKbps: 64),
             .init(url: URL(string: "https://radio.orpheus.ru:8000/Chan_76_256.mp3")!, format: .mp3, bitrateKbps: 256)
+        ],
+        "yle-klassinen": [
+            .init(url: URL(string: "https://yleradiolive5.akamaized.net/hls/live/20000872/yleklassinen/64/variant.m3u8")!, format: .hls, bitrateKbps: 64),
+            .init(url: URL(string: "https://yleradiolive5.akamaized.net/hls/live/20000872/yleklassinen/256/variant.m3u8")!, format: .hls, bitrateKbps: 256)
+        ],
+        "wfmt": [
+            .init(url: URL(string: "https://stream.wfmt.com/main-mp3")!, format: .mp3, bitrateKbps: 128)
         ]
     ]
     public static let stations: [RadioStation] = [
@@ -131,7 +140,37 @@ public enum StationCatalog {
                      websiteURL: URL(string: "https://radio.hrt.hr/stream/25")!, logoAssetName: "station-hr-klasik",
                      timeZoneIdentifier: "Europe/Zagreb",
                      audioURL: URL(string: "https://playerservices.streamtheworld.com/api/livestream-redirect/HR_CLASSICS.mp3")!,
-                     audioFormat: .mp3, metadataCapability: .hrt)
+                     audioFormat: .mp3, metadataCapability: .hrt),
+        RadioStation(id: "yle-klassinen", name: "Yle Klassinen", subtitle: nil,
+                     websiteURL: URL(string: "https://yle.fi/aihe/a/20-34814")!, logoAssetName: "station-yle-klassinen",
+                     timeZoneIdentifier: "Europe/Helsinki",
+                     audioURL: URL(string: "https://yleradiolive5.akamaized.net/hls/live/20000872/yleklassinen/128/variant.m3u8")!,
+                     audioFormat: .hls, metadataCapability: .stationOnly),
+        RadioStation(id: "rete-toscana-classica", name: "Rete Toscana Classica", subtitle: nil,
+                     websiteURL: URL(string: "https://www.retetoscanaclassica.it/")!, logoAssetName: "station-rtc",
+                     timeZoneIdentifier: "Europe/Rome",
+                     audioURL: URL(string: "https://nr12.newradio.it/stream/8744")!,
+                     audioFormat: .mp3, metadataCapability: .stationOnly),
+        RadioStation(id: "wfmt", name: "WFMT", subtitle: "Chicago",
+                     websiteURL: URL(string: "https://www.wfmt.com/")!, logoAssetName: "station-wfmt",
+                     timeZoneIdentifier: "America/Chicago",
+                     audioURL: URL(string: "https://wfmt.streamguys1.com/main")!,
+                     audioFormat: .aac, metadataCapability: .stationOnly),
+        RadioStation(id: "romania-muzical", name: "Radio România Muzical", subtitle: nil,
+                     websiteURL: URL(string: "https://www.romania-muzical.ro/")!, logoAssetName: "station-romania-muzical",
+                     timeZoneIdentifier: "Europe/Bucharest",
+                     audioURL: URL(string: "https://stream4.srr.ro:8443/romania-muzical")!,
+                     audioFormat: .aac, metadataCapability: .stationOnly),
+        RadioStation(id: "rtp-opera", name: "RTP Ópera", subtitle: nil,
+                     websiteURL: URL(string: "https://www.rtp.pt/play/direto/antena2opera")!, logoAssetName: "station-rtp-opera",
+                     timeZoneIdentifier: "Europe/Lisbon",
+                     audioURL: URL(string: "https://streaming-live.rtp.pt/liveradio/antena2opera80a/playlist.m3u8")!,
+                     audioFormat: .hls, metadataCapability: .stationOnly),
+        RadioStation(id: "concertzender-oude-muziek", name: "Concertzender · Oude Muziek", subtitle: nil,
+                     websiteURL: URL(string: "https://www.concertzender.nl/ontvangst/list-of-streams/")!, logoAssetName: "station-cz-oude",
+                     timeZoneIdentifier: "Europe/Amsterdam",
+                     audioURL: URL(string: "https://streams.greenhost.nl:8006/oudemuziek")!,
+                     audioFormat: .mp3, metadataCapability: .stationOnly)
     ]
 
     public static let defaultStation = stations[0]

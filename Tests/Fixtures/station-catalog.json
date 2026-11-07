@@ -119,5 +119,71 @@
     "audioURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/HR_CLASSICS.mp3",
     "audioFormat": "mp3",
     "metadataCapability": "hrt"
+  },
+  {
+    "id": "yle-klassinen",
+    "name": "Yle Klassinen",
+    "subtitle": null,
+    "websiteURL": "https://yle.fi/aihe/a/20-34814",
+    "logoAssetName": "station-yle-klassinen",
+    "timeZoneIdentifier": "Europe/Helsinki",
+    "audioURL": "https://yleradiolive5.akamaized.net/hls/live/20000872/yleklassinen/128/variant.m3u8",
+    "audioFormat": "hls",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "rete-toscana-classica",
+    "name": "Rete Toscana Classica",
+    "subtitle": null,
+    "websiteURL": "https://www.retetoscanaclassica.it/",
+    "logoAssetName": "station-rtc",
+    "timeZoneIdentifier": "Europe/Rome",
+    "audioURL": "https://nr12.newradio.it/stream/8744",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "wfmt",
+    "name": "WFMT",
+    "subtitle": "Chicago",
+    "websiteURL": "https://www.wfmt.com/",
+    "logoAssetName": "station-wfmt",
+    "timeZoneIdentifier": "America/Chicago",
+    "audioURL": "https://wfmt.streamguys1.com/main",
+    "audioFormat": "aac",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "romania-muzical",
+    "name": "Radio România Muzical",
+    "subtitle": null,
+    "websiteURL": "https://www.romania-muzical.ro/",
+    "logoAssetName": "station-romania-muzical",
+    "timeZoneIdentifier": "Europe/Bucharest",
+    "audioURL": "https://stream4.srr.ro:8443/romania-muzical",
+    "audioFormat": "aac",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "rtp-opera",
+    "name": "RTP Ópera",
+    "subtitle": null,
+    "websiteURL": "https://www.rtp.pt/play/direto/antena2opera",
+    "logoAssetName": "station-rtp-opera",
+    "timeZoneIdentifier": "Europe/Lisbon",
+    "audioURL": "https://streaming-live.rtp.pt/liveradio/antena2opera80a/playlist.m3u8",
+    "audioFormat": "hls",
+    "metadataCapability": "stationOnly"
+  },
+  {
+    "id": "concertzender-oude-muziek",
+    "name": "Concertzender · Oude Muziek",
+    "subtitle": null,
+    "websiteURL": "https://www.concertzender.nl/ontvangst/list-of-streams/",
+    "logoAssetName": "station-cz-oude",
+    "timeZoneIdentifier": "Europe/Amsterdam",
+    "audioURL": "https://streams.greenhost.nl:8006/oudemuziek",
+    "audioFormat": "mp3",
+    "metadataCapability": "stationOnly"
   }
 ]

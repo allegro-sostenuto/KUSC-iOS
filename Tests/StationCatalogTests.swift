@@ -8,7 +8,8 @@ import XCTest
 
 final class StationCatalogTests: XCTestCase {
     func testDefaultQualityMatchesKUSCTargetWithExplicitSingleSourceExceptions() {
-        let exceptions = Set(["radio-chopin", "orpheus-large-scale", "orpheus-russian-classical"])
+        let exceptions = Set(["radio-chopin", "orpheus-large-scale", "orpheus-russian-classical",
+                              "rete-toscana-classica", "rtp-opera", "concertzender-oude-muziek"])
         for station in StationCatalog.stations {
             let standard = station.defaultAudioSource
             XCTAssertEqual(standard.url, station.audioURL)
@@ -33,7 +34,7 @@ final class StationCatalogTests: XCTestCase {
         XCTAssertEqual(wdr.audioSources.map(\.id), ["hls-96", "mp3-128", "hls-192", "mp3-256"])
         XCTAssertEqual(Set(StationCatalog.stations.flatMap { station in
             station.audioSources.map(\.url)
-        }).count, 22)
+        }).count, 31)
         for station in StationCatalog.stations {
             XCTAssertEqual(Set(station.audioSources.map(\.id)).count, station.audioSources.count)
             XCTAssertTrue(station.audioSources.contains(station.defaultAudioSource))
@@ -48,8 +49,8 @@ final class StationCatalogTests: XCTestCase {
         #endif
         let stations = try JSONDecoder().decode([RadioStation].self, from: Data(contentsOf: url))
         XCTAssertEqual(stations, StationCatalog.stations)
-        XCTAssertEqual(stations.count, 11)
-        XCTAssertEqual(Set(stations.map(\.id)).count, 11)
+        XCTAssertEqual(stations.count, 17)
+        XCTAssertEqual(Set(stations.map(\.id)).count, 17)
         XCTAssertTrue(stations.allSatisfy { $0.audioURL.scheme == "https" && $0.websiteURL.scheme == "https" })
         XCTAssertTrue(stations.allSatisfy { TimeZone(identifier: $0.timeZoneIdentifier) != nil })
         XCTAssertEqual(stations.filter { $0.id.hasPrefix("orpheus-") }.count, 3)
@@ -74,8 +75,20 @@ final class StationCatalogTests: XCTestCase {
         let preferences = StationPreferences(selectedID: "retired-channel", orderedIDs: ["wdr3", "wdr3", "retired-channel", "kusc"])
         XCTAssertEqual(preferences.selectedID, "kusc")
         XCTAssertEqual(Array(preferences.orderedIDs.prefix(2)), ["wdr3", "kusc"])
-        XCTAssertEqual(preferences.orderedIDs.count, 11)
+        XCTAssertEqual(preferences.orderedIDs.count, 17)
         XCTAssertEqual(Set(preferences.orderedIDs), Set(StationCatalog.stations.map(\.id)))
+    }
+
+    func testExistingElevenChannelOrderKeepsSelectionAndAppendsSixRecommendations() {
+        let originalIDs = Array(StationCatalog.stations.prefix(11).map(\.id).reversed())
+        let preferences = StationPreferences(selectedID: "sr-p2", orderedIDs: originalIDs, displayMode: .list)
+        XCTAssertEqual(Array(preferences.orderedIDs.prefix(11)), originalIDs)
+        XCTAssertEqual(Array(preferences.orderedIDs.suffix(6)), [
+            "yle-klassinen", "rete-toscana-classica", "wfmt", "romania-muzical",
+            "rtp-opera", "concertzender-oude-muziek"
+        ])
+        XCTAssertEqual(preferences.selectedID, "sr-p2")
+        XCTAssertEqual(preferences.displayMode, .list)
     }
 
     func testReorderingAndModePersistWithoutChangingSelectedStation() throws {
@@ -107,7 +120,7 @@ final class StationCatalogTests: XCTestCase {
         let last = preferences.orderedIDs.last!
         XCTAssertEqual(preferences.adjacent(to: "hr-klasik", offset: -1), last)
         XCTAssertEqual(preferences.adjacent(to: last, offset: 1), "hr-klasik")
-        XCTAssertEqual(preferences.adjacent(to: last, offset: 12), "hr-klasik")
+        XCTAssertEqual(preferences.adjacent(to: last, offset: preferences.orderedIDs.count + 1), "hr-klasik")
         preferences.move(id: "hr-klasik", by: -1)
         XCTAssertEqual(preferences.orderedIDs.first, "hr-klasik")
         preferences.move(id: "hr-klasik", by: Int.max)

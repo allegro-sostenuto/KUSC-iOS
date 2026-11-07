@@ -41,7 +41,10 @@ xcrun simctl boot "$device"
 xcrun simctl bootstatus "$device" -b
 tests=(-only-testing:PhilharmonicUITests/StationPickerUITests)
 if [ "${PHILHARMONIC_QUALITY_UI_ONLY:-0}" = 1 ]; then
-    tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests)
+    tests=(
+        -only-testing:PhilharmonicUITests/AudioQualityUITests
+        -only-testing:PhilharmonicUITests/StationPickerUITests/testSixAddedStationsAreReachableAndSelectWithoutStartingPlayback
+    )
 fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
