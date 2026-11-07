@@ -50,9 +50,13 @@ final class UIPolishUITests: XCTestCase {
         reach(appearance, app: app)
         capture("polish-settings-interface-accessibility-dark")
         appearance.tap()
-        XCTAssertTrue(app.staticTexts["Light"].waitForExistence(timeout: 5))
-        app.staticTexts["Light"].tap()
+        let light = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Light")).firstMatch
+        XCTAssertTrue(light.waitForExistence(timeout: 5))
+        light.tap()
+        let back = app.navigationBars["Appearance"].buttons["Settings"]
+        if back.exists { back.tap() }
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(appearance.label.contains("Light") || (appearance.value as? String)?.contains("Light") == true)
         capture("polish-settings-interface-accessibility-light")
     }
 

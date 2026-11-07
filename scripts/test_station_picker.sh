@@ -53,6 +53,9 @@ if [ "${PHILHARMONIC_UI_POLISH_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup
         -only-testing:PhilharmonicUITests/PlayerInteractionTests/testDarkMenuBrightnessStaysStableDuringPlaybackUpdates
     )
+    if [ "${PHILHARMONIC_UI_POLISH_APPEARANCE_ONLY:-0}" = 1 ]; then
+        tests=(-only-testing:PhilharmonicUITests/UIPolishUITests/testSettingsLargeTextKeepsQualityAndNativeAppearanceReachable)
+    fi
 fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
