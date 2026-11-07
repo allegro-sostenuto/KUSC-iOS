@@ -60,14 +60,19 @@ struct SettingsView: View {
                                         .accessibilityIdentifier("audio-source-\(source.id)")
                                     }
                                 } label: {
-                                    HStack(spacing: 4) {
+                                    HStack(alignment: .center, spacing: 6) {
                                         Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
                                             .monospacedDigit()
-                                        if station.audioSources.count == 1 {
-                                            Text("ø").font(.caption2)
-                                        } else {
-                                            Image(systemName: "chevron.down").font(.caption2)
+                                            .frame(width: 80, alignment: .trailing)
+                                        ZStack {
+                                            if station.audioSources.count == 1 {
+                                                Text("ø").font(.system(size: 13)).offset(y: -1)
+                                            } else {
+                                                Image(systemName: "chevron.down")
+                                                    .font(.system(size: 10, weight: .semibold))
+                                            }
                                         }
+                                        .frame(width: 14, height: 14, alignment: .center)
                                     }
                                     .fixedSize()
                                     .frame(minHeight: 44)
