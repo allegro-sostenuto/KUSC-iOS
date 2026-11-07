@@ -23,7 +23,8 @@ extension Color {
 extension View {
     func philharmonicControlSurface<S: InsettableShape>(_ shape: S) -> some View {
         background(Color.philharmonicSurface, in: shape)
-            .overlay(shape.strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75))
+            .overlay(shape.inset(by: 0.5).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75))
+            .contentShape(shape)
     }
 
     @ViewBuilder func philharmonicSheetBackground() -> some View {
@@ -65,18 +66,20 @@ struct AlbumArtwork: View {
     let image: UIImage?
     let station: RadioStation
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-            } else {
-                ZStack {
-                    Color.philharmonicSurface
-                    StationLogo(station: station).padding(28)
+        GeometryReader { geometry in
+            ZStack {
+                Color.philharmonicSurface
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    StationLogo(station: station).padding(min(28, geometry.size.width * 0.12))
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .inset(by: 0.5).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.5))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(image == nil ? "\(station.name) station logo" : "Album artwork")
         .accessibilityIdentifier("player-artwork")

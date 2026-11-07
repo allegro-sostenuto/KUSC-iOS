@@ -147,10 +147,10 @@ struct SettingsView: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(Color.philharmonicSurface)
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 24, style: .continuous).inset(by: 1)
                     .strokeBorder(Color.philharmonicSeparator, lineWidth: 0.75)
             }
     }
