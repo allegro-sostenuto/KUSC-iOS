@@ -270,7 +270,7 @@ struct ContentView: View {
                               size.width - 80, max(140, (size.height - 240) * 0.62))
         return ScrollView {
             VStack(spacing: 22) {
-                AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
+                AlbumArtwork(image: model.artwork, station: model.selectedStation).frame(width: artworkSide, height: artworkSide)
                 NowPlayingMetadata(item: model.currentItem)
             }
             .frame(maxWidth: .infinity).padding(.horizontal, 32)
@@ -284,7 +284,7 @@ struct ContentView: View {
         // Restore the landscape proportions used from September 20 to October 22.
         let artworkSide = max(96, min(size.width * 0.34, size.height - 84))
         return HStack(alignment: .center, spacing: 32) {
-            AlbumArtwork(image: model.artwork).frame(width: artworkSide, height: artworkSide)
+            AlbumArtwork(image: model.artwork, station: model.selectedStation).frame(width: artworkSide, height: artworkSide)
             VStack(spacing: 0) {
                 ScrollView {
                     NowPlayingMetadata(item: model.currentItem).padding(.top, 8).padding(.bottom, 12)

@@ -62,8 +62,8 @@ struct SheetCloseButton: View {
 }
 
 struct AlbumArtwork: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let image: UIImage?
+    let station: RadioStation
     var body: some View {
         Group {
             if let image {
@@ -71,20 +71,30 @@ struct AlbumArtwork: View {
             } else {
                 ZStack {
                     Color.philharmonicSurface
-                    VStack(spacing: 14) {
-                        Image(systemName: "music.note").font(.system(size: 48, weight: .ultraLight))
-                        if !dynamicTypeSize.isAccessibilitySize {
-                            Text("Artwork unavailable").font(.caption)
-                        }
-                    }.foregroundStyle(.secondary)
+                    StationLogo(station: station).padding(28)
                 }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.5))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(image == nil ? "Album artwork unavailable" : "Album artwork")
+        .accessibilityLabel(image == nil ? "\(station.name) station logo" : "Album artwork")
         .accessibilityIdentifier("player-artwork")
+    }
+}
+
+struct StationLogo: View {
+    let station: RadioStation
+    var body: some View {
+        Group {
+            if let name = station.logoAssetName, let image = UIImage(named: name) {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .foregroundStyle(Color.philharmonicInk)
+            } else {
+                Image(systemName: "radio").resizable().scaledToFit().padding(10)
+                    .foregroundStyle(Color.philharmonicRed)
+            }
+        }.accessibilityHidden(true)
     }
 }
 

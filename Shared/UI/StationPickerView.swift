@@ -236,21 +236,6 @@ struct StationPickerView: View {
     }
 }
 
-private struct StationLogo: View {
-    let station: RadioStation
-    var body: some View {
-        Group {
-            if let name = station.logoAssetName, let image = UIImage(named: name) {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .foregroundStyle(Color.philharmonicInk)
-            } else {
-                Image(systemName: "radio").resizable().scaledToFit().padding(10)
-                    .foregroundStyle(Color.philharmonicRed)
-            }
-        }.accessibilityHidden(true)
-    }
-}
-
 private struct StationReorderDrop: DropDelegate {
     let targetID: String
     @Binding var draggedID: String?
