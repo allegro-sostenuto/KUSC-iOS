@@ -53,38 +53,55 @@ schedule does not mean that schedule has been integrated into this app.
 ## Bundled marks
 
 Yle uses the [official broadcaster mark](https://img.img-cdn.yle.fi/w_180,h_180/f_png/yle-logo-c-svg/1513081794)
-referenced by its Klassinen article. RTC uses its official square site icon;
-WFMT uses its official white PNG wordmark with template rendering for light and
-dark backgrounds. România Muzical uses the broadcaster's station icon. RTP
-uses its player-provided Ópera image. Oude Muziek uses its own official theme
-symbol. The two SVG marks were rasterized, and only the transparent outer
+referenced by its Klassinen article. RTC uses its [official square site icon](https://www.retetoscanaclassica.it/wp-content/uploads/2026/03/Logo-RTC-3000x3000-1-scaled-1.png);
+WFMT uses its [official white PNG wordmark](https://www.wfmt.com/wp-content/uploads/2017/08/wfmt-logo.png)
+with template rendering for light and dark backgrounds. România Muzical uses
+the [broadcaster's station icon](https://static.srr.ro/images/stations/station-icon-3-rrm-icon.svg).
+RTP uses its [player-provided Ópera image](https://cdn-images.rtp.pt/common/img/channels/logos/color/horizontal/1023-393226260903.png?q=100&w=512).
+Oude Muziek uses its [official theme symbol](https://www.concertzender.nl/wp-content/uploads/Logo_cz_SVGs/Oud/Only_O_oude_muziek.svg).
+The two SVG marks were rasterized, and only the transparent outer
 canvas of the Oude Muziek symbol was trimmed. Shapes and proportions are kept.
 Exact origin URLs and processing are in `artifacts/ios-2.1.0/logo-provenance.json`.
 
 ## Validation
 
 Portable structural validation parsed 76 Swift files with no syntax errors;
-it does not replace Xcode compilation. Both Release device builds passed in
-[run 70](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42351048477),
-source `35795645bfc4735f6f5c0ea60d8f3e8d24c78124`, with Xcode 26.6 / iOS SDK 26.5.
-The 24 focused native checks passed except the MP3 alias's TLS failure above;
-all other 30 source choices advanced, and migration and switching checks passed.
-Both focused quality/picker UI cases passed. A corrected build and native source
-recheck are pending. The historical
-swipe/layout suites were deliberately skipped. Simulator checks use iPhone 17 /
-iOS 26.5; iOS 16 is a compilation target without an iOS 16 runtime check.
-No physical installation or sustained Shanghai-network reliability is implied.
+it does not replace Xcode compilation. Both Release device builds and all
+selected simulator checks passed in
+[run 71](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42352146431),
+source `7f4b560fc403145d288fe103d6a4a2b8551949a4`, with Xcode 26.6 / iOS SDK 26.5.
+
+- The 24 focused native tests passed: catalogue/quality parity, eleven-to-seventeen
+  channel migration, live-only settings, station switching and native source startup.
+- All 31 configured quality choices reached native readiness and advanced the
+  decoder clock on their first attempt, including all nine added sources.
+- Both focused UI cases passed: light/dark quality dropdown persistence with
+  paused playback, and selection of all six new entries without starting audio.
+  Portrait-list and landscape-grid captures show the additions and their marks.
+
+Run 70 exposed the published WFMT MP3 alias's certificate mismatch. Its address
+was corrected before build 71; build 70 is superseded.
+
+The historical swipe/layout suites and full Swift package suite were deliberately
+skipped. Old picker end-of-catalogue expectations were updated to Oude Muziek;
+those extended picker cases were not part of the two selected UI cases above.
+Simulator checks use iPhone 17 / iOS 26.5; iOS 16 is a compilation target without
+an iOS 16 runtime check. No physical installation, audible station identification,
+background endurance or sustained Shanghai-network reliability is implied.
 
 ## Verified packages
 
-The superseded IPAs are 2.1.0 (build 70). ZIP integrity, CI checksum, source record, app
+The corrected IPAs are 2.1.0 (build 71), built from
+`7f4b560fc403145d288fe103d6a4a2b8551949a4` in
+[run 71](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42352146431).
+Both Release device builds passed. ZIP integrity, CI checksum, source record, app
 and extension versions, bundle identifiers, matching App Groups and expected
 widget extensions were checked locally. CI also validated arm64 device code,
 deployment targets and ad-hoc widget capabilities. AltStore must sign the IPAs.
 
 | Package | SHA-256 |
 |---|---|
-| Philharmonic-17 | `e6a92e8c9323d91874171c57ddf1a0ceec79acff07c8b606cc2b07acbd076330` |
-| Philharmonic-SE | `6220843169473ae00ce711b3dda74e694b967237a52e4d0fe58abb60939fef49` |
+| Philharmonic-17 | `4064b89110f77176209101dc5bcf2b1877b391c7475cffb567cf25e0ab168159` |
+| Philharmonic-SE | `001741a0fb809dafd89fdb94e2fef9dd50efabefb1f1401649b7fff5b8318879` |
 
-Local packages and `verified-builds.json` are in `artifacts/ci-42351048477/`.
+Local packages and `verified-builds.json` are in `artifacts/ci-42352146431/`.

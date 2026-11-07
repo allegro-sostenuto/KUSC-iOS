@@ -1,5 +1,8 @@
 # iPhone v2 station sources
 
+The [2.1.0 additions](ios_v2_1_0.md) extend this original eleven-station catalogue
+to seventeen, with nine additional verified source choices.
+
 ## 2.0.1 quality choices
 
 Settings has a **Quality** section with channel names on the left and the saved
