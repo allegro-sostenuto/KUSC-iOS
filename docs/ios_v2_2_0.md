@@ -33,6 +33,23 @@ All seventeen station IDs have a mapping and all thirteen referenced images
 are bundled. The flag contact sheet was visually inspected. These checks do
 not constitute Swift type-checking or a native UI/device run.
 
-Only the two Release package builds are requested for this small UI update;
-playback, migration and historical UI suites are not rerun. Build evidence,
-source revision and IPA checksums will be recorded when packaging completes.
+Both Release device builds passed in
+[run 72](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42357082308),
+source `3fe65606b0e77ff0fcf3784aba8b6d50b3592eeb`. Both app and embedded extension
+report 2.2.0 (build 72). ZIP integrity, CI SHA-256 records, source revision,
+bundle identifiers, App Groups and the expected widget extension were checked.
+All thirteen flag names are present in both app and widget compiled asset
+catalogues. CI also validated device code, deployment targets and signing material.
+
+No playback, migration, simulator UI or physical-device suite was rerun for
+this small presentation update. The ordinary iPhone Release schemes exclude
+CarPlay; its compatible list-row source changes were syntax checked only.
+AltStore must sign these unsigned packages before installation.
+
+| Package | SHA-256 |
+|---|---|
+| Philharmonic-17 | `25428530c66c87ae489af86cb9604fc443dcb1bff81b8821afe51d2b9c4e38bc` |
+| Philharmonic-SE | `86974126adeda5c06068ced0a91bfaf8ba5395dffdae9a90f7078913ac23a505` |
+
+The IPAs and `verified-builds.json` are stored locally under
+`artifacts/ci-42357082308/`.
