@@ -17,8 +17,9 @@ struct PhilharmonicLiveActivity: Widget {
             HStack(spacing: 12) {
                 ActivityArtwork(data: context.state.artwork).frame(width: 54, height: 54)
                 VStack(alignment: .leading) {
-                    Text(context.state.stationName ?? "KUSC").font(.caption.weight(.semibold)).lineLimit(1)
-                    Text(context.state.title).font(.headline).lineLimit(2)
+                    Text(stationID: context.state.stationID ?? "kusc", name: context.state.stationName ?? "KUSC")
+                        .font(.caption.weight(.semibold)).lineLimit(1)
+                    activityTitle(context.state).font(.headline).lineLimit(2)
                     Text(context.state.composer).font(.subheadline).lineLimit(1)
                     HStack {
                         Button(intent: TogglePhilharmonicPlaybackIntent(stationID: context.state.stationID)) { Image(systemName: (context.state.playbackRequested ?? context.state.playing) ? "pause.fill" : "play.fill") }
@@ -34,8 +35,9 @@ struct PhilharmonicLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(alignment: .leading) {
-                        Text(context.state.stationName ?? "KUSC").font(.caption2.weight(.semibold)).lineLimit(1)
-                        Text(context.state.title).font(.headline).lineLimit(2)
+                        Text(stationID: context.state.stationID ?? "kusc", name: context.state.stationName ?? "KUSC")
+                            .font(.caption2.weight(.semibold)).lineLimit(1)
+                        activityTitle(context.state).font(.headline).lineLimit(2)
                         Text(context.state.composer).font(.caption).lineLimit(1)
                         if let status = context.state.status { Text(status).font(.caption2).lineLimit(1) }
                     }
@@ -57,6 +59,11 @@ struct PhilharmonicLiveActivity: Widget {
                 ActivityArtwork(data: context.state.artwork).frame(width: 24, height: 24)
             }
         }
+    }
+
+    private func activityTitle(_ state: PhilharmonicActivityAttributes.ContentState) -> Text {
+        state.title == (state.stationName ?? "KUSC")
+            ? Text(stationID: state.stationID ?? "kusc", name: state.title) : Text(state.title)
     }
 }
 private struct ActivityArtwork: View {

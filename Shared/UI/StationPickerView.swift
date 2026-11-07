@@ -211,7 +211,7 @@ struct StationPickerView: View {
 
     private func stationText(_ station: RadioStation) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(station.name).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            Text(station: station).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
             if let subtitle = station.subtitle {
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

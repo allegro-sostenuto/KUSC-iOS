@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.2.0 update](ios_v2_2_0.md) adds small national flag images beside station
+names across the app-controlled interface, widgets and Live Activities.
+
 The [2.1.0 addition](ios_v2_1_0.md) appends six channels recommended by “misc”,
 bringing the catalogue to seventeen while preserving saved choices and order.
 

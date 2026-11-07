@@ -23,7 +23,8 @@ import UIKit
         // The Now Playing template must be pushed into navigation; it is not a
         // supported tab root. A list row provides navigation without seeking audio.
         let station = AppModel.shared.selectedStation
-        let showNowPlaying = CPListItem(text: station.name, detailText: station.subtitle ?? "Now Playing")
+        let showNowPlaying = CPListItem(text: station.name, detailText: station.subtitle ?? "Now Playing",
+                                       image: station.flagAssetName.flatMap { UIImage(named: $0) })
         nowPlayingEntry = showNowPlaying
         showNowPlaying.handler = { [weak self] _, completion in
             Task { @MainActor in
@@ -71,6 +72,7 @@ import UIKit
         let key = ([station.id, model.programmeName ?? "", model.hostName ?? ""] + contentKeys).joined(separator: "\u{1e}")
         guard key != contextKey else { return }; contextKey = key
         nowPlayingEntry?.setText(station.name)
+        nowPlayingEntry?.setImage(station.flagAssetName.flatMap { UIImage(named: $0) })
         nowPlayingEntry?.setDetailText(station.subtitle ?? "Now Playing")
         func row(_ piece: ProgrammeItem) -> CPListItem {
             let item = CPListItem(text: piece.title, detailText: piece.composer)
@@ -78,7 +80,8 @@ import UIKit
             return item
         }
         let context = CPListItem(text: model.programmeName ?? station.name,
-                                 detailText: model.hostName ?? station.subtitle ?? "Live radio")
+                                 detailText: model.hostName ?? station.subtitle ?? "Live radio",
+                                 image: model.programmeName == nil ? station.flagAssetName.flatMap { UIImage(named: $0) } : nil)
         context.isEnabled = false
         var sections = [CPListSection(items: [context], header: "Programme", sectionIndexTitle: nil)]
         if let current = model.currentItem { sections.append(CPListSection(items: [row(current)], header: "Now heard", sectionIndexTitle: nil)) }

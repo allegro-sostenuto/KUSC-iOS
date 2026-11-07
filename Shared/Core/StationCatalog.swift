@@ -33,6 +33,8 @@ public struct RadioStation: Identifiable, Codable, Equatable, Sendable {
     public var timeZone: TimeZone { TimeZone(identifier: timeZoneIdentifier) ?? TimeZone(secondsFromGMT: 0)! }
     public var isHLS: Bool { audioFormat == .hls }
     public var supportsProgrammes: Bool { metadataCapability == .kusc }
+    public var countryCode: String? { StationCatalog.countryCodes[id] }
+    public var flagAssetName: String? { countryCode.map { "flag-" + $0 } }
     public var defaultAudioSource: StationAudioSource {
         return StationAudioSource(url: audioURL, format: audioFormat,
                                   bitrateKbps: StationCatalog.defaultBitrates[id] ?? 96)
@@ -47,6 +49,14 @@ public struct RadioStation: Identifiable, Codable, Equatable, Sendable {
 /// Approved catalogue. Tests/Fixtures/station-catalog.json is its platform parity contract.
 /// URLs are broadcaster-owned sources, not directories or relays; see docs/station_sources_v2.md.
 public enum StationCatalog {
+    fileprivate static let countryCodes = [
+        "kusc": "us", "radio-swiss-classic": "ch", "sr-p2": "se",
+        "france-musique-classique-easy": "fr", "france-musique-la-baroque": "fr",
+        "wdr3": "de", "radio-chopin": "pl", "orpheus-large-scale": "ru",
+        "orpheus-russian-classical": "ru", "orpheus-camerata": "ru", "hr-klasik": "hr",
+        "yle-klassinen": "fi", "rete-toscana-classica": "it", "wfmt": "us",
+        "romania-muzical": "ro", "rtp-opera": "pt", "concertzender-oude-muziek": "nl"
+    ]
     // Defaults follow KUSC's roughly 96 kbps target, using 128 where offered.
     // Single-source stations retain their verified broadcaster rate.
     fileprivate static let defaultBitrates = [

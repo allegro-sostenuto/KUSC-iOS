@@ -65,7 +65,8 @@ struct HomeWidgetView: View {
                         HStack(alignment: .center, spacing: 18) {
                             cover.frame(width: min(136, proxy.size.height * 0.43), height: min(136, proxy.size.height * 0.43))
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(snapshot.programme.isEmpty ? snapshot.stationName : snapshot.programme)
+                                (snapshot.programme.isEmpty ? Text(stationID: snapshot.stationID, name: snapshot.stationName)
+                                    : Text(snapshot.programme))
                                     .font(.subheadline.weight(.semibold)).lineLimit(2)
                                 if !snapshot.programme.isEmpty { stationLabel }
                                 if !snapshot.host.isEmpty {
@@ -89,7 +90,8 @@ struct HomeWidgetView: View {
     private func details(large: Bool) -> some View {
         VStack(alignment: .leading, spacing: large ? 5 : 3) {
             stationLabel
-            Text(snapshot.work).font(large ? .headline : .subheadline.weight(.semibold))
+            (snapshot.work == snapshot.stationName ? Text(stationID: snapshot.stationID, name: snapshot.stationName)
+                : Text(snapshot.work)).font(large ? .headline : .subheadline.weight(.semibold))
                 .lineLimit(2).minimumScaleFactor(0.85).layoutPriority(1)
             if !snapshot.movement.isEmpty {
                 Text(snapshot.movement).font(.caption).lineLimit(large ? 2 : 1)
@@ -104,7 +106,7 @@ struct HomeWidgetView: View {
     }
 
     private var stationLabel: some View {
-        Text(snapshot.stationName).font(.caption2.weight(.semibold))
+        Text(stationID: snapshot.stationID, name: snapshot.stationName).font(.caption2.weight(.semibold))
             .foregroundStyle(ink.opacity(0.75)).lineLimit(2)
     }
 

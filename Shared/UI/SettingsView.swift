@@ -44,7 +44,7 @@ struct SettingsView: View {
                         ForEach(model.orderedStations) { station in
                             if station.id != model.orderedStations.first?.id { divider }
                             HStack(spacing: 12) {
-                                Text(station.name)
+                                Text(station: station)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 Menu {
                                     ForEach(station.audioSources) { source in

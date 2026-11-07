@@ -447,7 +447,7 @@ private struct RollingChannelHeader: View, Animatable {
             Group {
                 if station.id == "kusc" {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Text(station.name).font(font).tracking(-1.2)
+                        Text(station: station).font(font).tracking(-1.2)
                         if let subtitle = station.subtitle {
                             Text(subtitle).font(.system(size: 10, weight: .medium)).tracking(1.4)
                                 .foregroundStyle(Color.philharmonicRed)
@@ -455,7 +455,7 @@ private struct RollingChannelHeader: View, Animatable {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(station.name).font(font).tracking(-0.7)
+                        Text(station: station).font(font).tracking(-0.7)
                             .lineLimit(1).minimumScaleFactor(0.5)
                         if let subtitle = station.subtitle {
                             Text(subtitle).font(.system(size: 10, weight: .medium))

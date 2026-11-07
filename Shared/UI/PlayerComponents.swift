@@ -96,7 +96,7 @@ struct NowPlayingMetadata: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let item {
-                Text(item.work.isEmpty ? model.selectedStation.name : item.work)
+                (item.work.isEmpty ? Text(station: model.selectedStation) : Text(item.work))
                     .font(.system(size: workSize, weight: .semibold)).tracking(-0.6)
                 if let movement = item.movement, !movement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(movement).font(.system(size: movementSize))
@@ -108,7 +108,7 @@ struct NowPlayingMetadata: View {
                     Text(item.performers).font(.subheadline).foregroundStyle(.secondary)
                 }
             } else {
-                Text(model.selectedStation.name).font(.system(size: workSize, weight: .semibold))
+                Text(station: model.selectedStation).font(.system(size: workSize, weight: .semibold))
                 Text("Programme information is currently unavailable.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }

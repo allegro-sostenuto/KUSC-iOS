@@ -105,7 +105,7 @@ struct ScheduledStartView: View {
                 Text("Within the next 24 hours")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text("Station: \(model.selectedStation.name)")
+                (Text("Station: ") + Text(station: model.selectedStation))
                     .font(.subheadline)
                     .accessibilityIdentifier("scheduled-station")
                 DatePicker("Start playback at", selection: $selectedDate,
@@ -139,7 +139,8 @@ struct ScheduledStartView: View {
             )
 
             if let description = model.scheduleDescription {
-                TimerStatusCard(title: "Current schedule", message: "\(model.scheduledStation.name) · \(description)", symbol: "clock")
+                TimerStatusCard(title: "Current schedule",
+                                message: Text(station: model.scheduledStation) + Text(" · \(description)"), symbol: "clock")
             }
 
             if model.scheduleDescription != nil {
@@ -460,8 +461,16 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
 
 private struct TimerStatusCard: View {
     let title: String
-    let message: String
+    let message: Text
     let symbol: String
+
+    init(title: String, message: String, symbol: String) {
+        self.init(title: title, message: Text(message), symbol: symbol)
+    }
+
+    init(title: String, message: Text, symbol: String) {
+        self.title = title; self.message = message; self.symbol = symbol
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -471,7 +480,7 @@ private struct TimerStatusCard: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.subheadline.weight(.semibold))
-                Text(message)
+                message
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
