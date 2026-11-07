@@ -81,6 +81,7 @@ struct AlbumArtwork: View {
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .inset(by: 0.5).strokeBorder(Color.philharmonicSeparator, lineWidth: 0.5))
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isImage)
         .accessibilityLabel(image == nil ? "\(station.name) station logo" : "Album artwork")
         .accessibilityIdentifier("player-artwork")
     }

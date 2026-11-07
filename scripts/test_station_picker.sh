@@ -46,6 +46,14 @@ if [ "${PHILHARMONIC_QUALITY_UI_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicUITests/StationPickerUITests/testSixAddedStationsAreReachableAndSelectWithoutStartingPlayback
     )
 fi
+if [ "${PHILHARMONIC_UI_POLISH_ONLY:-0}" = 1 ]; then
+    tests=(
+        -only-testing:PhilharmonicUITests/AudioQualityUITests
+        -only-testing:PhilharmonicUITests/UIPolishUITests
+        -only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup
+        -only-testing:PhilharmonicUITests/PlayerInteractionTests/testDarkMenuBrightnessStaysStableDuringPlaybackUpdates
+    )
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

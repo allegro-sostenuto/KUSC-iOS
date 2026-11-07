@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.3.0 UI update](ios_v2_3_0.md) completes the saved Settings, artwork,
+control-shape and header-animation backlog, easiest items first.
+
 The [2.2.1 correction](ios_v2_2_1.md) restores widgets and Live Activities to
 their pre-flag presentation while keeping flags beside station names in the app.
 

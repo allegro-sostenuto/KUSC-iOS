@@ -20,6 +20,12 @@ final class AudioQualityUITests: XCTestCase {
             app.buttons["Settings"].tap()
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]
             XCTAssertTrue(swiss.waitForExistence(timeout: 5))
+            let fixed = app.buttons["quality-menu-kusc"]
+            XCTAssertTrue(fixed.exists)
+            XCTAssertFalse(fixed.isEnabled)
+            XCTAssertEqual(fixed.frame.minX, swiss.frame.minX, accuracy: 1, "Fixed and selectable qualities share one column")
+            XCTAssertEqual(fixed.frame.maxX, swiss.frame.maxX, accuracy: 1)
+            XCTAssertEqual(fixed.frame.height, swiss.frame.height, accuracy: 1)
             XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
             capture("quality-channel-list" + (dark ? "-dark" : "-light"))
             swiss.tap()

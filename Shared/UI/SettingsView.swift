@@ -4,6 +4,8 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var bitrateWidth: CGFloat = 80
 
     private func preference<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
         Binding(
@@ -35,11 +37,7 @@ struct SettingsView: View {
 
                 Section {
                     ForEach(model.orderedStations) { station in
-                        HStack(alignment: .center, spacing: 12) {
-                            Text(station: station)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            qualityMenu(station)
-                        }
+                        qualityRow(station)
                         .modifier(SettingsRow(first: station.id == model.orderedStations.first?.id,
                                               last: station.id == model.orderedStations.last?.id))
                     }
@@ -58,6 +56,7 @@ struct SettingsView: View {
                         Text("Dark").tag("dark")
                     }
                     .pickerStyle(.navigationLink)
+                    .accessibilityIdentifier("appearance-picker")
                     .modifier(SettingsRow(first: false, last: true))
                 }
                 Section("About") {
@@ -89,6 +88,20 @@ struct SettingsView: View {
         .philharmonicSheetBackground()
     }
 
+    @ViewBuilder private func qualityRow(_ station: RadioStation) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(station: station)
+                qualityMenu(station).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        } else {
+            HStack(alignment: .center, spacing: 12) {
+                Text(station: station).frame(maxWidth: .infinity, alignment: .leading)
+                qualityMenu(station)
+            }
+        }
+    }
+
     private func qualityMenu(_ station: RadioStation) -> some View {
         Menu {
             ForEach(station.audioSources) { source in
@@ -107,7 +120,7 @@ struct SettingsView: View {
             HStack(alignment: .center, spacing: 6) {
                 Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
                     .monospacedDigit()
-                    .frame(width: 80, alignment: .trailing)
+                    .lineLimit(1).frame(width: bitrateWidth, alignment: .trailing)
                 ZStack {
                     if station.audioSources.count == 1 {
                         Text("ø").font(.system(size: 13)).offset(y: -1)

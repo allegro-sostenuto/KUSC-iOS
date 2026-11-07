@@ -63,6 +63,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.philharmonicBackground.ignoresSafeArea())
+            #if DEBUG
+            .onAppear { applyPanelRevealFixture(width: geometry.size.width) }
+            #endif
             .onChange(of: geometry.size) { dimensions in
                 resetPanelDrag()
                 if dimensions.width > dimensions.height { showingProgramme = false }
@@ -248,6 +251,8 @@ struct ContentView: View {
         guard let fixture = UIFixture.state else { return }
         if ["reveal-left", "reveal-right"].contains(fixture) { panelOffset = width * 0.44 }
         if fixture == "reveal-programme-right" { panelOffset = -width * 0.44 }
+        if let fraction = ProcessInfo.processInfo.environment["PHILHARMONIC_UI_PANEL_FRACTION"].flatMap(Double.init),
+           (0...1).contains(fraction) { panelOffset = width * CGFloat(fraction) }
     }
     #endif
 
@@ -427,7 +432,12 @@ struct ContentView: View {
     }
 
     private var currentStationHeaderPosition: CGFloat {
-        stationHeaderPosition ?? CGFloat(model.orderedStations.firstIndex { $0.id == model.selectedStation.id } ?? 0)
+        #if DEBUG
+        if UIFixture.state != nil,
+           let held = ProcessInfo.processInfo.environment["PHILHARMONIC_UI_HEADER_POSITION"].flatMap(Double.init),
+           held.isFinite { return CGFloat(held) }
+        #endif
+        return stationHeaderPosition ?? CGFloat(model.orderedStations.firstIndex { $0.id == model.selectedStation.id } ?? 0)
     }
 
     private func switchStation(_ direction: Int) {
