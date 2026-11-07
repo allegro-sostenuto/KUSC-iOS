@@ -82,7 +82,7 @@ public enum StationCatalog {
             .init(url: URL(string: "https://yleradiolive5.akamaized.net/hls/live/20000872/yleklassinen/256/variant.m3u8")!, format: .hls, bitrateKbps: 256)
         ],
         "wfmt": [
-            .init(url: URL(string: "https://stream.wfmt.com/main-mp3")!, format: .mp3, bitrateKbps: 128)
+            .init(url: URL(string: "https://wfmt.streamguys1.com/main-mp3")!, format: .mp3, bitrateKbps: 128)
         ]
     ]
     public static let stations: [RadioStation] = [
