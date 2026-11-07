@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.2.1 correction](ios_v2_2_1.md) restores widgets and Live Activities to
+their pre-flag presentation while keeping flags beside station names in the app.
+
 The [2.2.0 update](ios_v2_2_0.md) adds small national flag images beside station
 names across the app-controlled interface, widgets and Live Activities.
 
