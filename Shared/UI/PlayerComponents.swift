@@ -139,6 +139,7 @@ struct PlayerControls: View {
     let showSleep: () -> Void
     let showSchedule: () -> Void
     let showOutput: () -> Void
+    let switchStation: (Int) -> Void
 
     private var minimalist: Bool { model.settings.minimalist }
     private var playSize: CGFloat { minimalist ? (landscape ? 96 : 112) : (landscape ? 68 : 74) }
@@ -228,7 +229,7 @@ struct PlayerControls: View {
 
     private func stationButton(previous: Bool) -> some View {
         Button {
-            if previous { model.previousStation() } else { model.nextStation() }
+            switchStation(previous ? -1 : 1)
         } label: {
             Image(systemName: previous ? "backward.end.fill" : "forward.end.fill")
                 .font(.system(size: 16, weight: .medium))

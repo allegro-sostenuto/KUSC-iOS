@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var panelOffset: CGFloat = 0
     @State private var panelTransition: PanelTransition?
     @State private var draggingPanel = false
+    @State private var stationHeaderPosition: CGFloat?
 
     private struct PanelTransition {
         let id = UUID()
@@ -119,7 +120,11 @@ struct ContentView: View {
         }
         .onChange(of: model.selectedStation.id) { _ in
             resetPanelDrag()
+            synchronizeStationHeader()
             if !hasProgrammeContent { showingProgramme = false }
+        }
+        .onChange(of: model.stationPreferences.orderedIDs) { _ in
+            synchronizeStationHeader(force: true)
         }
         .onChange(of: model.scheduleManagementRequest) { request in
             if request != nil { choosingPauseBehavior = false; sheet = .schedule }
@@ -155,7 +160,8 @@ struct ContentView: View {
         return HStack(alignment: .center, spacing: 10) {
             ZStack(alignment: .leading) {
                 RollingChannelHeader(progress: progress, showingProgramme: showingProgramme,
-                                     station: model.selectedStation)
+                                     station: model.selectedStation, stations: model.orderedStations,
+                                     stationPosition: currentStationHeaderPosition, reduceMotion: reduceMotion)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .allowsHitTesting(false)
                 Button {
@@ -420,11 +426,32 @@ struct ContentView: View {
         panelOffset = 0
     }
 
+    private var currentStationHeaderPosition: CGFloat {
+        stationHeaderPosition ?? CGFloat(model.orderedStations.firstIndex { $0.id == model.selectedStation.id } ?? 0)
+    }
+
+    private func switchStation(_ direction: Int) {
+        guard model.orderedStations.count > 1 else { return }
+        stationHeaderPosition = currentStationHeaderPosition + CGFloat(direction)
+        if direction > 0 { model.nextStation() } else { model.previousStation() }
+    }
+
+    private func synchronizeStationHeader(force: Bool = false) {
+        let index = model.orderedStations.firstIndex { $0.id == model.selectedStation.id } ?? 0
+        let displayed = StationHeaderRoll.layout(position: Double(currentStationHeaderPosition),
+                                                 count: model.orderedStations.count)?.upperIndex
+        guard force || displayed != index else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { stationHeaderPosition = CGFloat(index) }
+    }
+
     private func playbackControls(landscape: Bool) -> some View {
         PlayerControls(landscape: landscape, togglePlayback: {
             if model.isPlaying { choosingPauseBehavior = model.pauseFromApp() }
             else { model.play() }
-        }, showSleep: { sheet = .sleep }, showSchedule: { sheet = .schedule }, showOutput: { sheet = .output })
+        }, showSleep: { sheet = .sleep }, showSchedule: { sheet = .schedule }, showOutput: { sheet = .output },
+           switchStation: switchStation)
     }
 }
 
@@ -434,6 +461,9 @@ private struct RollingChannelHeader: View, Animatable {
     var progress: CGFloat
     let showingProgramme: Bool
     let station: RadioStation
+    let stations: [RadioStation]
+    let stationPosition: CGFloat
+    let reduceMotion: Bool
     var animatableData: CGFloat {
         get { progress }
         set { progress = newValue }
@@ -444,10 +474,14 @@ private struct RollingChannelHeader: View, Animatable {
         let roll = CGFloat(PanelSwipeState.headerProgress(Double(progress)))
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                StationHeaderLabel(station: station)
+                StationNameRoll(position: stationPosition, stations: stations)
+                    .animation(reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 380,
+                                                                       damping: 2 * sqrt(380)), value: stationPosition)
                     .frame(height: rowHeight)
                     .offset(x: roll * geometry.size.width)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel([station.name, station.subtitle].compactMap { $0 }.joined(separator: " "))
+                    .accessibilityAddTraits(.isStaticText)
                     .accessibilityIdentifier("station-header")
                     .accessibilityHidden(showingProgramme)
 
@@ -462,6 +496,30 @@ private struct RollingChannelHeader: View, Animatable {
             .frame(width: geometry.size.width, height: rowHeight, alignment: .leading)
         }
         .frame(height: rowHeight)
+        .clipped()
+    }
+}
+
+private struct StationNameRoll: View, Animatable {
+    var position: CGFloat
+    let stations: [RadioStation]
+    var animatableData: CGFloat {
+        get { position }
+        set { position = newValue }
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if let layout = StationHeaderRoll.layout(position: Double(position), count: stations.count) {
+                StationHeaderLabel(station: stations[layout.upperIndex])
+                    .frame(height: 44).offset(y: CGFloat(layout.upperOffset))
+                if stations.count > 1 {
+                    StationHeaderLabel(station: stations[layout.lowerIndex])
+                        .frame(height: 44).offset(y: CGFloat(layout.lowerOffset))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
         .clipped()
     }
 }
