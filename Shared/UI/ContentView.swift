@@ -442,44 +442,55 @@ private struct RollingChannelHeader: View, Animatable {
     var body: some View {
         let rowHeight: CGFloat = 44
         let roll = CGFloat(PanelSwipeState.headerProgress(Double(progress)))
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                StationHeaderLabel(station: station)
+                    .frame(height: rowHeight)
+                    .offset(x: roll * geometry.size.width)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("station-header")
+                    .accessibilityHidden(showingProgramme)
+
+                Text("Program")
+                    .font(.system(size: 25, weight: .semibold)).tracking(-1.2)
+                    .foregroundStyle(Color.philharmonicRed)
+                    .frame(height: rowHeight)
+                    .offset(x: (roll - 1) * geometry.size.width)
+                    .accessibilityIdentifier("programme-header")
+                    .accessibilityHidden(!showingProgramme)
+            }
+            .frame(width: geometry.size.width, height: rowHeight, alignment: .leading)
+        }
+        .frame(height: rowHeight)
+        .clipped()
+    }
+}
+
+private struct StationHeaderLabel: View {
+    let station: RadioStation
+
+    var body: some View {
         let font = Font.system(size: 25, weight: .semibold)
-        ZStack(alignment: .topLeading) {
-            Group {
-                if station.id == "kusc" {
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Text(station: station).font(font).tracking(-1.2)
-                        if let subtitle = station.subtitle {
-                            Text(subtitle).font(.system(size: 10, weight: .medium)).tracking(1.4)
-                                .foregroundStyle(Color.philharmonicRed)
-                        }
+        Group {
+            if station.id == "kusc" {
+                HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    Text(station: station).font(font).tracking(-1.2)
+                    if let subtitle = station.subtitle {
+                        Text(subtitle).font(.system(size: 10, weight: .medium)).tracking(1.4)
+                            .foregroundStyle(Color.philharmonicRed)
                     }
-                } else {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(station: station).font(font).tracking(-0.7)
-                            .lineLimit(1).minimumScaleFactor(0.5)
-                        if let subtitle = station.subtitle {
-                            Text(subtitle).font(.system(size: 10, weight: .medium))
-                                .lineLimit(1).foregroundStyle(Color.philharmonicRed)
-                        }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(station: station).font(font).tracking(-0.7)
+                        .lineLimit(1).minimumScaleFactor(0.5)
+                    if let subtitle = station.subtitle {
+                        Text(subtitle).font(.system(size: 10, weight: .medium))
+                            .lineLimit(1).foregroundStyle(Color.philharmonicRed)
                     }
                 }
             }
-            .frame(height: rowHeight)
-            .offset(y: -roll * rowHeight)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("station-header")
-            .accessibilityHidden(showingProgramme)
-
-            Text("Program")
-                .font(font).tracking(-1.2)
-                .foregroundStyle(Color.philharmonicRed)
-                .frame(height: rowHeight)
-                .offset(y: (1 - roll) * rowHeight)
-                .accessibilityIdentifier("programme-header")
-                .accessibilityHidden(!showingProgramme)
         }
-        .frame(height: rowHeight, alignment: .topLeading)
-        .clipped()
     }
 }
 
