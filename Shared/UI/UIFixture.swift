@@ -26,6 +26,11 @@ import UIKit
         model.settings.minimalist = state == "minimal" ||
             ProcessInfo.processInfo.environment["PHILHARMONIC_UI_MINIMAL"] == "1"
         model.settings.lastSleepMinutes = 30
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_TRANSPORT_TOGGLE"] == "1" {
+            // Use the existing silent coordinator harness for genuine button
+            // actions without an AVPlayer, network stream or session activation.
+            model.configureAudioRecoveryForTesting(playing: !paused)
+        }
         if state == "schedule-power" { model.settings.scheduledStartDefaults = .init(batteryOnlyStop: true) }
         let anchor = ISO8601DateFormatter().date(from: "2026-09-20T09:41:00Z")!
         model.heardAt = anchor
@@ -101,10 +106,15 @@ import UIKit
 }
 
 struct UIFixtureTextSize: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewBuilder
     func body(content: Content) -> some View {
-        if UIFixture.largeText { content.dynamicTypeSize(.accessibility3) }
-        else { content }
+        Group {
+            if UIFixture.largeText { content.dynamicTypeSize(.accessibility3) }
+            else { content }
+        }
+        .environment(\.accessibilityReduceMotion,
+                     ProcessInfo.processInfo.environment["PHILHARMONIC_UI_REDUCE_MOTION"] == "1" || reduceMotion)
     }
 }
 #endif

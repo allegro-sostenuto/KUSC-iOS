@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 
 struct StationMapView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let stations: [RadioStation]
     let selectedStation: RadioStation
     let mapStyle: StationMapStyle
@@ -49,6 +50,7 @@ struct StationMapView: View {
 
             NativeStationMap(cities: cities, selectedCityID: StationGeography.city(for: selectedStation)?.id,
                              zoom: zoom, mapStyle: mapStyle, focusedCity: focusedCity, cameraRequest: cameraRequest,
+                             reduceMotion: reduceMotion,
                              choose: choose, cameraChanged: { city, level in
                 focusedCity = city
                 zoom = level // Following a gesture never issues a camera request.
@@ -96,6 +98,7 @@ struct StationMapView: View {
                     }
                     .listRowBackground(Color.philharmonicSurface)
                     .accessibilityIdentifier("map-station-\(station.id)")
+                    .accessibilityAddTraits(selectedStation.id == station.id ? [.isSelected] : [])
                 }
                 .scrollContentBackground(.hidden)
                 .background(Color.philharmonicBackground)
@@ -131,6 +134,7 @@ private struct NativeStationMap: UIViewRepresentable {
     let mapStyle: StationMapStyle
     let focusedCity: StationCity
     let cameraRequest: UUID
+    let reduceMotion: Bool
     let choose: (StationCityGroup) -> Void
     let cameraChanged: (StationCity, StationMapZoom) -> Void
     let expandCluster: (StationCity) -> Void
@@ -154,6 +158,14 @@ private struct NativeStationMap: UIViewRepresentable {
     func updateUIView(_ map: MKMapView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        if coordinator.lastSelectedCityID != selectedCityID {
+            coordinator.lastSelectedCityID = selectedCityID
+            for annotation in map.annotations {
+                guard let city = annotation as? CityAnnotation,
+                      let marker = map.view(for: city) as? MKMarkerAnnotationView else { continue }
+                coordinator.updateSelection(marker, city: city)
+            }
+        }
         // Both imagery configurations use the same native globe. Only the
         // borders/labels change at the continent threshold; camera stays put.
         let presentation = mapStyle == .political ? "political"
@@ -181,9 +193,9 @@ private struct NativeStationMap: UIViewRepresentable {
         if zoom == .globe {
             let target = zoom.camera(focusing: focusedCity)
             map.setCamera(MKMapCamera(lookingAtCenter: .init(latitude: target.latitude, longitude: target.longitude),
-                                     fromDistance: target.distance, pitch: 0, heading: 0), animated: !first)
+                                     fromDistance: target.distance, pitch: 0, heading: 0), animated: !first && !reduceMotion)
         } else {
-            map.setVisibleMapRect(Self.fittedRect(for: zoom, city: focusedCity, map: map), animated: !first)
+            map.setVisibleMapRect(Self.fittedRect(for: zoom, city: focusedCity, map: map), animated: !first && !reduceMotion)
         }
     }
 
@@ -211,6 +223,7 @@ private struct NativeStationMap: UIViewRepresentable {
         var parent: NativeStationMap
         var lastCameraRequest: UUID?
         var lastPresentation: String?
+        var lastSelectedCityID: String?
         var movingToShortcut = false
         var observedZoom: StationMapZoom
         private var lastPublishedCityID: String?
@@ -236,6 +249,7 @@ private struct NativeStationMap: UIViewRepresentable {
                 marker.accessibilityLabel = "\(city.group.city.name), \(city.group.stations.count) \(city.group.stations.count == 1 ? "station" : "stations")"
                 marker.accessibilityIdentifier = "map-city-\(city.group.id)"
                 marker.accessibilityHint = city.group.stations.count == 1 ? "Select station" : "Choose a station"
+                updateSelection(marker, city: city)
             } else if let cluster = annotation as? MKClusterAnnotation {
                 marker.clusteringIdentifier = nil
                 marker.glyphImage = nil
@@ -244,6 +258,15 @@ private struct NativeStationMap: UIViewRepresentable {
                 marker.accessibilityHint = "Show cities at a closer zoom level"
             }
             return marker
+        }
+
+        fileprivate func updateSelection(_ marker: MKMarkerAnnotationView, city: CityAnnotation) {
+            let selected = city.group.id == parent.selectedCityID
+            if city.group.stations.count == 1 {
+                marker.glyphImage = UIImage(systemName: selected ? "checkmark" : "radio")
+            }
+            marker.accessibilityTraits = selected ? [.button, .selected] : [.button]
+            marker.accessibilityValue = selected ? "Selected" : nil
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {

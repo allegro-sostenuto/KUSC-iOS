@@ -75,6 +75,7 @@ struct SleepTimerView: View {
 struct ScheduledStartView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var createdAt = Date()
     @State private var selectedDate = Date().addingTimeInterval(300)
     @State private var outputMode: ScheduledOutputMode = .speaker
@@ -125,10 +126,14 @@ struct ScheduledStartView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             outputControls
+                .animation(reduceMotion ? nil : .default, value: outputMode)
                 .disabled(isScheduling)
                 .id("scheduled-output")
 
             powerControls
+                .animation(reduceMotion ? nil : .default, value: outputMode)
+                .animation(reduceMotion ? nil : .default, value: options.allowOnBattery)
+                .animation(reduceMotion ? nil : .default, value: batteryOnlyStop)
                 .disabled(isScheduling)
                 .id("scheduled-power")
 
@@ -346,7 +351,8 @@ private struct ScheduledValueControl: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(title).fixedSize(horizontal: false, vertical: true)
+            Text(title).modifier(NativeNumberTransition(value: Double(value)))
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             HStack(spacing: 0) {
                 Button { adjust(-step) } label: {
@@ -380,6 +386,7 @@ private struct ScheduledValueControl: View {
 
 private struct TimerSheetLayout<Content: View, Footer: View>: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let content: Content
     let footer: Footer
@@ -424,7 +431,7 @@ private struct TimerSheetLayout<Content: View, Footer: View>: View {
                     // Scroll after that presentation layout has settled.
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     guard !Task.isCancelled else { return }
-                    proxy.scrollTo(scrollTarget, anchor: .bottom)
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(scrollTarget, anchor: .bottom) }
                 }
                 #if DEBUG
                 .onAppear {

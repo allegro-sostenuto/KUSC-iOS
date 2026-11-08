@@ -75,6 +75,17 @@ struct ContentView: View {
                 }
                 #endif
             }
+            .onChange(of: model.selectedStation.id) { _ in
+                synchronizeStationHeader()
+                guard !hasProgrammeContent else { return }
+                // Keep an existing reveal coherent when the new station has no
+                // Program. Retarget the native spring rather than zeroing it.
+                if showingProgramme {
+                    settlePanel(direction: -1, width: geometry.size.width)
+                } else if draggingPanel || panelTransition != nil || panelOffset != 0 {
+                    settlePanel(direction: nil, width: geometry.size.width)
+                }
+            }
         }
         .foregroundStyle(Color.philharmonicInk)
         .tint(.philharmonicRed)
@@ -121,18 +132,17 @@ struct ContentView: View {
             resetPanelDrag()
             if enabled { showingProgramme = false }
         }
-        .onChange(of: model.selectedStation.id) { _ in
-            resetPanelDrag()
-            synchronizeStationHeader()
-            if !hasProgrammeContent { showingProgramme = false }
-        }
         .onChange(of: model.stationPreferences.orderedIDs) { _ in
             synchronizeStationHeader(force: true)
+        }
+        .onChange(of: reduceMotion) { enabled in
+            if enabled { finishPanelTransition(id: panelTransition?.id) }
         }
         .onChange(of: model.scheduleManagementRequest) { request in
             if request != nil { choosingPauseBehavior = false; sheet = .schedule }
         }
         .onAppear {
+            if stationHeaderPosition == nil { synchronizeStationHeader(force: true) }
             PlayerOrientation.setProgrammeVisible(showingProgramme)
             PlayerOrientation.refresh()
             if model.scheduleManagementRequest != nil { sheet = .schedule }
@@ -354,7 +364,11 @@ struct ContentView: View {
         draggingPanel = true
         if let offset = panelSwipe.translation(x: Double(x), y: 0, width: Double(width)) {
             let allowed = showingProgramme ? min(0, offset) : max(0, offset)
-            panelOffset = CGFloat(PanelSwipeState.resistedTranslation(allowed, width: Double(width)))
+            var transaction = Transaction(animation: nil)
+            transaction.isContinuous = true
+            withTransaction(transaction) {
+                panelOffset = CGFloat(PanelSwipeState.resistedTranslation(allowed, width: Double(width)))
+            }
         }
     }
 
@@ -375,22 +389,27 @@ struct ContentView: View {
             PanelGestureTrace.record("release x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
         }
         #endif
-        let remaining = abs((selected.map { CGFloat($0) * width } ?? 0) - panelOffset)
-        let signedSpeed = velocity * CGFloat(selected ?? 0)
-        // Carry a modest release velocity into the spring without overshoot.
-        let normalized = selected == nil || remaining < 1 ? 0 :
-            min(4, max(0, Double(signedSpeed / remaining)))
+        let remaining = (selected.map { CGFloat($0) * width } ?? 0) - panelOffset
+        let panelVelocity = PanelSwipeState.resistedVelocity(Double(velocity), at: Double(x), width: Double(width))
+        // A cancelled short drag can still be moving outward. Preserve that
+        // sign so the spring decelerates it before returning, without a kink.
+        let normalized = cancelled || abs(remaining) < 1 ? 0 :
+            min(4, max(-4, panelVelocity / Double(remaining)))
         settlePanel(direction: selected, width: width, velocity: normalized)
     }
 
     private func selectPanel(programme: Bool, width: CGFloat) {
-        guard (!programme || hasProgrammeContent), programme != showingProgramme, panelTransition == nil else { return }
-        settlePanel(direction: programme ? 1 : -1, width: width)
+        let destination = panelTransition.map { $0.switchesPanel ? !showingProgramme : showingProgramme } ?? showingProgramme
+        guard (!programme || hasProgrammeContent), programme != destination else { return }
+        settlePanel(direction: programme == showingProgramme ? nil : (programme ? 1 : -1), width: width)
     }
 
     private func settlePanel(direction: Int?, width: CGFloat, velocity: Double = 0) {
         panelSwipe = PanelSwipeState()
         let target = direction.map { CGFloat($0) * width } ?? 0
+        // The model offset is already the target while SwiftUI is animating.
+        // Re-requesting that destination must not complete a moving panel early.
+        if panelTransition != nil, panelOffset == target { return }
         guard panelOffset != target else {
             if direction != nil { showingProgramme.toggle() }
             resetPanelDrag()
@@ -400,10 +419,14 @@ struct ContentView: View {
         #if DEBUG
         PanelGestureTrace.record("settle target=\(target), offset=\(panelOffset), switch=\(direction != nil)")
         #endif
-        // m = 1, k = 380, c = 2√(mk): critical damping slows gently without bounce.
-        let motion: Animation = reduceMotion ? .easeOut(duration: 0.12)
-            : .interpolatingSpring(mass: 1, stiffness: 380, damping: 2 * sqrt(380), initialVelocity: velocity)
-        withAnimation(motion) { panelOffset = target }
+        if reduceMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { panelOffset = target }
+            finishPanelTransition(id: panelTransition?.id)
+        } else {
+            withAnimation(NativeMotion.player(initialVelocity: velocity)) { panelOffset = target }
+        }
     }
 
     private func finishPanelTransition(id: UUID?) {
@@ -451,9 +474,14 @@ struct ContentView: View {
         let displayed = StationHeaderRoll.layout(position: Double(currentStationHeaderPosition),
                                                  count: model.orderedStations.count)?.upperIndex
         guard force || displayed != index else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { stationHeaderPosition = CGFloat(index) }
+        if force {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { stationHeaderPosition = CGFloat(index) }
+        } else if let target = StationHeaderRoll.position(selecting: index, from: Double(currentStationHeaderPosition),
+                                                         count: model.orderedStations.count) {
+            stationHeaderPosition = CGFloat(target)
+        }
     }
 
     private func playbackControls(landscape: Bool) -> some View {
@@ -485,8 +513,7 @@ private struct RollingChannelHeader: View, Animatable {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 StationNameRoll(position: stationPosition, stations: stations)
-                    .animation(reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 380,
-                                                                       damping: 2 * sqrt(380)), value: stationPosition)
+                    .animation(reduceMotion ? nil : NativeMotion.player(), value: stationPosition)
                     .frame(height: rowHeight)
                     .offset(x: roll * geometry.size.width)
                     .accessibilityElement(children: .ignore)

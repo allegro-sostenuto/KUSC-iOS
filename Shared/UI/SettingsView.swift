@@ -148,6 +148,7 @@ struct SettingsView: View {
             HStack(alignment: .center, spacing: 6) {
                 Text("\(model.settings.audioSource(for: station).bitrateKbps) kbps")
                     .monospacedDigit()
+                    .modifier(NativeNumberTransition(value: Double(model.settings.audioSource(for: station).bitrateKbps)))
                     .lineLimit(1).frame(width: bitrateWidth, alignment: .trailing)
                 ZStack {
                     if station.audioSources.count == 1 {

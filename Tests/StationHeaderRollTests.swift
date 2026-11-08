@@ -36,6 +36,16 @@ final class StationHeaderRollTests: XCTestCase {
         }
     }
 
+    func testExternalStationChangesChooseTheNearestUnwrappedTarget() {
+        XCTAssertEqual(StationHeaderRoll.position(selecting: 0, from: 16, count: 17), 17)
+        XCTAssertEqual(StationHeaderRoll.position(selecting: 16, from: 0, count: 17), -1)
+        XCTAssertEqual(StationHeaderRoll.position(selecting: 0, from: -1, count: 17), 0)
+        XCTAssertEqual(StationHeaderRoll.position(selecting: 5, from: 21, count: 17), 22)
+        XCTAssertEqual(StationHeaderRoll.position(selecting: 4, from: 4, count: 17), 4)
+        XCTAssertNil(StationHeaderRoll.position(selecting: 2, from: .nan, count: 17))
+        XCTAssertNil(StationHeaderRoll.position(selecting: 2, from: 0, count: 0))
+    }
+
     func testEveryIntermediateFrameJoinsWithoutGapsAndInvalidInputIsIgnored() throws {
         for step in -300...300 {
             let frame = try XCTUnwrap(StationHeaderRoll.layout(position: Double(step) / 100, count: 17))

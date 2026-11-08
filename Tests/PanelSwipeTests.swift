@@ -78,6 +78,27 @@ final class PanelSwipeTests: XCTestCase {
         }
     }
 
+    func testResistanceVelocityMatchesInteriorDerivativeIncludingDirectionChanges() {
+        let width = 402.0
+        for x in [-300.0, -20, -0.001, 0, 0.001, 20, 300] {
+            let epsilon = 0.0001
+            let derivative = (PanelSwipeState.resistedTranslation(x + epsilon, width: width)
+                              - PanelSwipeState.resistedTranslation(x - epsilon, width: width)) / (2 * epsilon)
+            for velocity in [-800.0, 0, 800] {
+                XCTAssertEqual(PanelSwipeState.resistedVelocity(velocity, at: x, width: width),
+                               velocity * derivative, accuracy: 0.0001)
+            }
+        }
+        let step = 0.01
+        let leftCurvature = (PanelSwipeState.resistedTranslation(-2 * step, width: width)
+                             - 2 * PanelSwipeState.resistedTranslation(-step, width: width)) / (step * step)
+        let rightCurvature = (PanelSwipeState.resistedTranslation(2 * step, width: width)
+                              - 2 * PanelSwipeState.resistedTranslation(step, width: width)) / (step * step)
+        XCTAssertEqual(leftCurvature, rightCurvature, accuracy: 0.0001,
+                       "Reversing through zero must not change curvature abruptly")
+        XCTAssertEqual(PanelSwipeState.resistedVelocity(.nan, at: 20, width: width), 0)
+    }
+
     func testHeaderRollHasFlatEndsAndSmoothMidpointSnap() {
         XCTAssertEqual(PanelSwipeState.headerProgress(0), 0)
         XCTAssertEqual(PanelSwipeState.headerProgress(1), 1)

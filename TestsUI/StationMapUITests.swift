@@ -21,11 +21,18 @@ final class StationMapUITests: XCTestCase {
         let losAngeles = app.descendants(matching: .any)["map-city-los-angeles"].firstMatch
         XCTAssertTrue(losAngeles.waitForExistence(timeout: 15))
         losAngeles.tap()
-        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["choose-station"].label.contains("KUSC"))
-
-        app.buttons["choose-station"].tap()
-        XCTAssertTrue(app.buttons["stations-mode-map"].isSelected, "Map mode is saved")
+        XCTAssertTrue(map.exists, "Selecting a city must stay in Stations")
+        let chicago = app.descendants(matching: .any)["map-city-chicago"].firstMatch
+        XCTAssertTrue(chicago.waitForExistence(timeout: 10))
+        let before = chicago.frame
+        chicago.tap()
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (chicago.value as? String) == "Selected"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+        XCTAssertEqual(chicago.frame.midX, before.midX, accuracy: 2, "Selection must not recenter the map")
+        XCTAssertEqual(chicago.frame.midY, before.midY, accuracy: 2)
+        XCTAssertTrue(app.buttons["stations-mode-map"].isSelected)
         app.buttons["map-cities"].tap()
         app.buttons["map-city-list-paris"].tap()
         let easy = app.buttons["map-station-france-musique-classique-easy"]
@@ -34,10 +41,12 @@ final class StationMapUITests: XCTestCase {
         XCTAssertTrue(baroque.exists)
         capture("station-map-paris-choices-dark")
         baroque.tap()
-        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["choose-station"].label.contains("La Baroque"))
-
-        app.buttons["choose-station"].tap()
+        XCTAssertTrue(app.buttons["map-cities"].waitForExistence(timeout: 5), "A station choice returns to the existing map")
+        app.buttons["map-cities"].tap()
+        app.buttons["map-city-list-paris"].tap()
+        XCTAssertTrue(baroque.waitForExistence(timeout: 5))
+        XCTAssertTrue(baroque.isSelected)
+        app.buttons["Cancel"].tap()
         app.buttons["map-cities"].tap()
         app.buttons["map-city-list-moscow"].tap()
         XCTAssertTrue(app.buttons["map-station-orpheus-large-scale"].waitForExistence(timeout: 5))
@@ -48,6 +57,7 @@ final class StationMapUITests: XCTestCase {
         XCTAssertTrue(map.exists, "Cancelling a city keeps the map open")
         app.buttons["Back to player"].tap()
         XCTAssertTrue(app.buttons["choose-station"].label.contains("La Baroque"))
+        XCTAssertTrue(app.buttons["Play"].isHittable)
     }
 
     @MainActor func testPinchZoomFollowsThresholdsAndSettingsChoosesPoliticalOrSatellite() {

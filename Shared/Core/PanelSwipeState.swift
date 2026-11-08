@@ -16,17 +16,28 @@ struct PanelSwipeState {
         return min(width, max(-width, x))
     }
 
-    /// A lightly damped hand coupling, x = d - a(1 - exp(-d/l)).
-    /// Unlike the old curve, its initial slope is 1 - a/l = 5/6,
-    /// so the first small movement is visible. Resistance costs at most 3 pt.
+    /// Odd analytic hand coupling, x - a*tanh(x/l), normalized at the bounds.
+    /// Its interior is C-infinity through zero, with initial slope near 5/6.
+    /// Resistance costs at most 3 pt; only the viewport endpoints clamp.
     static func resistedTranslation(_ x: Double, width: Double) -> Double {
         guard width > 0, width.isFinite, x.isFinite else { return 0 }
         let distance = min(width, abs(x))
         let amplitude = min(3, width * 0.01)
         let length = max(amplitude * 6, 1)
-        let full = width - amplitude * (1 - exp(-width / length))
-        let position = (distance - amplitude * (1 - exp(-distance / length))) * width / full
+        let full = width - amplitude * tanh(width / length)
+        let position = (distance - amplitude * tanh(distance / length)) * width / full
         return x < 0 ? -position : position
+    }
+
+    /// Convert native finger velocity to the resisted panel's velocity before
+    /// handing the interaction to Apple's spring. Endpoint clamping is allowed.
+    static func resistedVelocity(_ velocity: Double, at x: Double, width: Double) -> Double {
+        guard width > 0, width.isFinite, x.isFinite, velocity.isFinite else { return 0 }
+        let amplitude = min(3, width * 0.01)
+        let length = max(amplitude * 6, 1)
+        let normalization = width / (width - amplitude * tanh(width / length))
+        let slope = (1 - amplitude / length * (1 - pow(tanh(x / length), 2))) * normalization
+        return velocity * slope
     }
 
     /// C-infinity on the real line, including its flat endpoint extensions:

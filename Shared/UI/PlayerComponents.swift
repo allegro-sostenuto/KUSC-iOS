@@ -135,6 +135,7 @@ struct NowPlayingMetadata: View {
 struct PlayerControls: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let landscape: Bool
     let togglePlayback: () -> Void
     let showSleep: () -> Void
@@ -178,11 +179,22 @@ struct PlayerControls: View {
         .padding(.top, 8).padding(.bottom, 4)
     }
 
+    private var glyphProgress: Double {
+        #if DEBUG
+        if UIFixture.state != nil,
+           let held = ProcessInfo.processInfo.environment["PHILHARMONIC_UI_TRANSPORT_PROGRESS"].flatMap(Double.init),
+           held.isFinite { return min(1, max(0, held)) }
+        #endif
+        return model.isPlaying ? 1 : 0
+    }
+
     private var playButton: some View {
         Button(action: togglePlayback) {
-            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: minimalist ? 40 : 28, weight: .semibold))
-                .offset(x: model.isPlaying ? 0 : 2)
+            TransportPlayPauseGlyph(progress: glyphProgress)
+                .fill(colorScheme == .dark ? Color.philharmonicInk : Color.white)
+                .frame(width: minimalist ? 40 : 28, height: minimalist ? 40 : 28)
+                .animation(reduceMotion ? nil : NativeMotion.player(), value: glyphProgress)
+                .accessibilityHidden(true)
                 .frame(width: playSize, height: playSize)
                 .foregroundStyle(colorScheme == .dark ? Color.philharmonicInk : Color.white)
                 .background(colorScheme == .dark ? Color.black : Color.philharmonicInk, in: Circle())

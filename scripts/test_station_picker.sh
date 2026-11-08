@@ -56,6 +56,16 @@ if [ "${PHILHARMONIC_UI_POLISH_ONLY:-0}" = 1 ]; then
     if [ "${PHILHARMONIC_UI_POLISH_APPEARANCE_ONLY:-0}" = 1 ]; then
         tests=(-only-testing:PhilharmonicUITests/UIPolishUITests/testSettingsLargeTextKeepsQualityAndNativeAppearanceReachable)
     fi
+    if [ "${PHILHARMONIC_NATIVE_MOTION_ONLY:-0}" = 1 ]; then
+        tests=(
+            -only-testing:PhilharmonicUITests/NativeMotionUITests
+            -only-testing:PhilharmonicUITests/StationPickerUITests/testGridListRotationAndHorizontalReachability
+            -only-testing:PhilharmonicUITests/StationPickerUITests/testDragReordersInGridAndListWithoutSelectingStation
+            -only-testing:PhilharmonicUITests/StationMapUITests/testThreeZoomsSingleCityAndMultipleStationPopup
+            -only-testing:PhilharmonicUITests/PlayerInteractionTests/testPersistentSchedulePowerControlsKeepSafeguardAndExposeExpiryRule
+            -only-testing:PhilharmonicUITests/AudioQualityUITests/testGlobalPresetsKeepActualBitratesAndPausedIntent
+        )
+    fi
 fi
 if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
     tests=(
