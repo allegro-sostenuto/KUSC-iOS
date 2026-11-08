@@ -196,15 +196,27 @@ final class PlayerInteractionTests: XCTestCase {
     @MainActor
     func testDiagnosticsCaptureCanBeStartedStoppedAndSharedFromSettings() {
         let app = launchFixture("settings")
-        let diagnostics = app.buttons["Playback Diagnostics"]
+        defer { app.terminate() }
+        let diagnostics = app.buttons["debug-settings-link"]
         for _ in 0..<4 {
             if diagnostics.isHittable { break }
             app.swipeUp()
         }
         XCTAssertTrue(diagnostics.isHittable)
         diagnostics.tap()
+        XCTAssertTrue(app.staticTexts["debug-history-window"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["debug-history-count"].waitForExistence(timeout: 8))
+        let preview = app.buttons["debug-view-log"]
+        reachDebugControl(preview, in: app)
+        preview.tap()
+        XCTAssertTrue(app.scrollViews["debug-log-preview"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "app_session_started")).firstMatch.waitForExistence(timeout: 5),
+                      "History exists before the user starts a focused capture")
+        attach(app, named: "debug-recent-log")
+        app.navigationBars["Recent Logs"].buttons.element(boundBy: 0).tap()
         let start = app.buttons["Start New Capture"]
         let stop = app.buttons["Stop Capture"]
+        reachDebugControl(start, in: app)
         XCTAssertTrue(start.waitForExistence(timeout: 5))
         XCTAssertTrue(start.isEnabled)
         XCTAssertFalse(stop.isEnabled)
@@ -216,15 +228,31 @@ final class PlayerInteractionTests: XCTestCase {
                fixture: CaptureFixture(name: "diagnostics-recording", state: "settings"))
         stop.tap()
         XCTAssertTrue(app.staticTexts["Ready"].waitForExistence(timeout: 5))
-        let copy = app.buttons["Copy Report"]
-        for _ in 0..<5 {
-            if copy.isHittable { break }
-            app.swipeUp()
-        }
+        let copy = app.buttons["debug-copy-log"]
+        reachDebugControl(copy, in: app)
         XCTAssertTrue(copy.isHittable)
         XCTAssertTrue(copy.isEnabled, "Stopping capture must preserve the report for copying.")
         XCTAssertTrue(app.buttons["Share Report"].isEnabled)
         copy.tap()
+        let share = app.buttons["debug-share-report"]
+        reachDebugControl(share, in: app)
+        share.tap()
+        let sheet = app.descendants(matching: .any)["debug-share-sheet"].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10) || app.otherElements["ActivityListView"].exists || app.buttons["Copy"].exists)
+        attach(app, named: "debug-native-share-report")
+    }
+
+    @MainActor private func reachDebugControl(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<10 {
+            if element.exists {
+                let frame = element.frame
+                let top = app.navigationBars.firstMatch.frame.maxY + 2
+                if frame.height > 0, frame.minY >= top, frame.maxY <= app.frame.maxY - 30, element.isHittable { return }
+                if frame.height > 0, frame.minY < top { app.swipeDown(); continue }
+            }
+            app.swipeUp()
+        }
+        XCTFail("Unreachable debug control: \(element)")
     }
 
     @MainActor

@@ -3,6 +3,28 @@ import XCTest
 @testable import Philharmonic_SE
 
 final class PlaybackDiagnosticsIntegrationTests: XCTestCase {
+    @MainActor func testDailyHistoryContinuesAfterFocusedFailureAndSurvivesReopening() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("philharmonic-debug-integration-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("log")
+        let journal = PlaybackDebugJournal(directory: directory, reportDirectory: root.appendingPathComponent("reports"))
+        let diagnostics = PlaybackDiagnostics(journal: journal)
+        diagnostics.start(context: "isolated journal test")
+        diagnostics.record("before failure")
+        diagnostics.captureFailure(NSError(domain: "NSURLErrorDomain", code: -1001), origin: "test.connection")
+        let frozen = diagnostics.report
+        diagnostics.record("after-failure-retry")
+        _ = try await diagnostics.makeHistoryReport()
+        XCTAssertEqual(diagnostics.report, frozen)
+        XCTAssertFalse(diagnostics.isRecording)
+        let reopened = PlaybackDebugJournal(directory: directory, reportDirectory: root.appendingPathComponent("reports"))
+        let report = try await reopened.makeShareReport()
+        let text = try String(contentsOf: report, encoding: .utf8)
+        XCTAssertTrue(text.contains("after-failure-retry"))
+        XCTAssertTrue(text.contains("playback_failed"))
+        XCTAssertTrue(text.contains("-1001"))
+    }
+
     @MainActor func testFirstFailureSurvivesImmediatePausedEngineTeardown() {
         let engine = RollingAudioEngine()
         defer { engine.stop() }

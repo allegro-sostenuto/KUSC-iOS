@@ -56,6 +56,7 @@ struct EngineSnapshot {
 final class RollingAudioEngine {
     var onUpdate: ((EngineSnapshot) -> Void)?
     var onFailure: ((Error) -> Void)?
+    var onMediaProgress: (() -> Void)?
     let transportClock = PlaybackTransportClock()
     let diagnostics = PlaybackDiagnostics()
 
@@ -81,6 +82,7 @@ final class RollingAudioEngine {
     private var timeObserver: Any?
     private var itemObservation: NSKeyValueObservation?
     private var failedToEndObserver: NSObjectProtocol?
+    private var playerLogObservers: [NSObjectProtocol] = []
     private var ingestTask: Task<Void, Never>?
     private var monitorTask: Task<Void, Never>?
     private var switchTask: Task<Void, Never>?
@@ -103,6 +105,10 @@ final class RollingAudioEngine {
     private var lastAcquisitionUptime: TimeInterval?
     private var targetDuration: TimeInterval = 10
     private var lastSlowPublishUptime: TimeInterval = 0
+    private var lastHistorySnapshotUptime: TimeInterval = 0
+    private var previousMediaSeconds: Double?
+    private var firstMediaLogged = false
+    private var lastDiagnosticState: String?
     #if DEBUG
     private(set) var diagnosticEvents: [String] = []
     private var bufferedPlaybackTestingEnabled = false
@@ -168,9 +174,9 @@ final class RollingAudioEngine {
     func failForDiagnosticsTesting(_ error: Error) { reportFailure(error, origin: "test.injected") }
     #endif
 
-    func recordDiagnosticSnapshot() {
-        guard diagnostics.isRecording else { return }
-        recordDiagnostic(diagnosticSnapshot())
+    func recordDiagnosticSnapshot(includeHistory: Bool = true) {
+        guard diagnostics.isRecording || includeHistory else { return }
+        recordDiagnostic(diagnosticSnapshot(), includeHistory: includeHistory)
     }
 
     private func supportedRetention(_ requested: Int) -> Int {
@@ -427,6 +433,7 @@ final class RollingAudioEngine {
                                                          queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == activeGeneration else { return }
+                self.observeMediaProgress()
                 self.publishClock()
             }
         }
@@ -456,6 +463,41 @@ final class RollingAudioEngine {
                 }
             }
         observeCurrentItem()
+        for name in [Notification.Name.AVPlayerItemNewAccessLogEntry, .AVPlayerItemNewErrorLogEntry, .AVPlayerItemPlaybackStalled] {
+            playerLogObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let item = note.object as? AVPlayerItem
+                Task { @MainActor in
+                    guard let self, self.generation == activeGeneration, item === self.player?.currentItem else { return }
+                    if name == .AVPlayerItemNewAccessLogEntry, let entry = item?.accessLog()?.events.last {
+                        self.diagnostics.event(category: "network", name: "player_access_log", generation: activeGeneration.uuidString,
+                            details: ["bytes_transferred": String(entry.numberOfBytesTransferred),
+                                      "observed_bps": String(entry.observedBitrate), "indicated_bps": String(entry.indicatedBitrate),
+                                      "stalls": String(entry.numberOfStalls), "transfer_seconds": String(entry.transferDuration)])
+                    } else if name == .AVPlayerItemNewErrorLogEntry, let entry = item?.errorLog()?.events.last {
+                        self.diagnostics.event(category: "network", name: "player_error_log", generation: activeGeneration.uuidString,
+                            details: ["domain": entry.errorDomain, "status_code": String(entry.errorStatusCode),
+                                      "comment": entry.errorComment ?? "none"])
+                    } else if name == .AVPlayerItemPlaybackStalled {
+                        self.diagnostics.event(category: "playback", name: "playback_stalled", generation: activeGeneration.uuidString)
+                        self.recordDiagnosticSnapshot()
+                    }
+                }
+            })
+        }
+    }
+
+    private func observeMediaProgress() {
+        guard let player else { return }
+        let seconds = player.currentTime().seconds
+        defer { previousMediaSeconds = seconds.isFinite ? seconds : nil }
+        guard seconds.isFinite, let previousMediaSeconds, seconds - previousMediaSeconds > 0.02,
+              shouldPlay, player.timeControlStatus == .playing, !transportIsSeeking else { return }
+        if !firstMediaLogged {
+            firstMediaLogged = true
+            diagnostics.event(category: "playback", name: "first_media_data_received", generation: generation.uuidString,
+                              details: ["evidence": "media_clock_advanced", "seconds": String(seconds)])
+        }
+        onMediaProgress?()
     }
 
     private func installBufferedPlayer(loadSamples: @escaping (URL) async throws -> BufferedAudioSamples = BufferedAudioSampleSource.load) {
@@ -500,6 +542,8 @@ final class RollingAudioEngine {
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.generation == activeGeneration, item === self.player?.currentItem else { return }
+                self.diagnostics.event(category: "playback", name: "player_item_status", generation: activeGeneration.uuidString,
+                                       details: ["status": String(item.status.rawValue)])
                 if item.status == .failed {
                     self.reportFailure(item.error ?? AudioStreamError.disconnected, origin: "player.itemStatusFailed")
                 } else {
@@ -676,6 +720,12 @@ final class RollingAudioEngine {
         let sample = transportClock.sample
         let live = sample.window?.live ?? sample.heardAt ?? Date()
         let playing = shouldPlay && !transportIsSeeking && transportIsPlaying
+        let diagnosticState = "requested=\(shouldPlay) playing=\(playing) ready=\(transportIsReady) waiting=\(player?.reasonForWaitingToPlay?.rawValue ?? "none")"
+        if diagnosticState != lastDiagnosticState {
+            lastDiagnosticState = diagnosticState
+            diagnostics.event(category: "playback", name: "playback_state_changed", generation: generation.uuidString,
+                              details: ["state": diagnosticState])
+        }
         let metadataAt: Date?
         if bufferedPlayer != nil { metadataAt = sample.heardAt }
         else {
@@ -697,14 +747,17 @@ final class RollingAudioEngine {
                                  sampledAt: sample.sampledAt))
         if sample.sampledAt - lastSlowPublishUptime >= 1 {
             lastSlowPublishUptime = sample.sampledAt
-            recordDiagnosticSnapshot()
+            let includeHistory = sample.sampledAt - lastHistorySnapshotUptime >= 10
+            if includeHistory { lastHistorySnapshotUptime = sample.sampledAt }
+            recordDiagnosticSnapshot(includeHistory: includeHistory)
             let count = bufferedPlayer?.queueCount ?? (player?.currentItem == nil ? 0 : 1)
-            recordDiagnostic("sample A=\(advertisedEdge?.timeIntervalSince1970 ?? 0) D=\(downloaded?.timeIntervalSince1970 ?? 0) L=\(live.timeIntervalSince1970) O=\(sample.window?.oldest.timeIntervalSince1970 ?? 0) P=\(sample.heardAt?.timeIntervalSince1970 ?? 0) playing=\(playing) seek=\(isSeeking) stale=\(acquisitionIsStale) queue=\(count) gain=\(outputVolume)")
+            recordDiagnostic("sample A=\(advertisedEdge?.timeIntervalSince1970 ?? 0) D=\(downloaded?.timeIntervalSince1970 ?? 0) L=\(live.timeIntervalSince1970) O=\(sample.window?.oldest.timeIntervalSince1970 ?? 0) P=\(sample.heardAt?.timeIntervalSince1970 ?? 0) playing=\(playing) seek=\(isSeeking) stale=\(acquisitionIsStale) queue=\(count) gain=\(outputVolume)", includeHistory: includeHistory)
         }
     }
 
-    private func recordDiagnostic(_ event: String) {
-        diagnostics.record("generation=\(generation.uuidString.prefix(8)) \(event)")
+    private func recordDiagnostic(_ event: String, includeHistory: Bool = true) {
+        diagnostics.record("generation=\(generation.uuidString.prefix(8)) \(event)",
+                           includeHistory: includeHistory, generation: generation.uuidString)
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-PhilharmonicAudioDiagnostics") else { return }
         let line = "\(ProcessInfo.processInfo.systemUptime) session=\(generation) \(event)"
@@ -717,13 +770,18 @@ final class RollingAudioEngine {
     private func diagnosticSnapshot() -> String {
         let now = ProcessInfo.processInfo.systemUptime
         let item = player?.currentItem
+        let loaded = item?.loadedTimeRanges.prefix(2).map { value in
+            let range = value.timeRangeValue
+            return "\(range.start.seconds)+\(range.duration.seconds)"
+        }.joined(separator: ",") ?? "none"
+        let native = "rate=\(player?.rate ?? 0) timeControl=\(player?.timeControlStatus.rawValue ?? -1) itemStatus=\(item?.status.rawValue ?? -1) bufferEmpty=\(item?.isPlaybackBufferEmpty ?? false) keepUp=\(item?.isPlaybackLikelyToKeepUp ?? false) loaded=[\(loaded)]"
         let itemCount = bufferedPlayer?.queueCount ?? (item == nil ? 0 : 1)
         let last = segments.last?.end
         let live = transportClock.sample.window?.live
         let oldest = retention.window?.oldest
         let history = live.flatMap { target in oldest.map { target.timeIntervalSince($0) } }
         let queue = bufferedPlayer?.queueStarts.map { $0.timeIntervalSince1970.description }.joined(separator: ",") ?? "direct"
-        return "snapshot requested=\(shouldPlay) retention=\(retentionMinutes) backend=\(bufferedPlayer == nil ? "direct" : "continuous") playing=\(transportIsPlaying) ready=\(transportIsReady) waiting=\(player?.reasonForWaitingToPlay?.rawValue ?? "none") seek=\(transportIsSeeking) retained=\(segments.count) queueCount=\(itemCount) queueFirst3=[\(queue)] A=\(advertisedEdge?.timeIntervalSince1970 ?? -1) D=\(last?.timeIntervalSince1970 ?? -1) L=\(live?.timeIntervalSince1970 ?? -1) O=\(oldest?.timeIntervalSince1970 ?? -1) P=\(transportClock.sample.heardAt?.timeIntervalSince1970 ?? -1) itemSeconds=\(bufferedPlayer?.currentSeconds ?? item?.currentTime().seconds ?? -1) history=\(history ?? -1) acquisitionAge=\(lastAcquisitionUptime.map { now - $0 } ?? -1) gain=\(outputVolume)"
+        return "snapshot requested=\(shouldPlay) retention=\(retentionMinutes) backend=\(bufferedPlayer == nil ? "direct" : "continuous") playing=\(transportIsPlaying) ready=\(transportIsReady) waiting=\(player?.reasonForWaitingToPlay?.rawValue ?? "none") seek=\(transportIsSeeking) retained=\(segments.count) \(native) queueCount=\(itemCount) queueFirst3=[\(queue)] A=\(advertisedEdge?.timeIntervalSince1970 ?? -1) D=\(last?.timeIntervalSince1970 ?? -1) L=\(live?.timeIntervalSince1970 ?? -1) O=\(oldest?.timeIntervalSince1970 ?? -1) P=\(transportClock.sample.heardAt?.timeIntervalSince1970 ?? -1) itemSeconds=\(bufferedPlayer?.currentSeconds ?? item?.currentTime().seconds ?? -1) history=\(history ?? -1) acquisitionAge=\(lastAcquisitionUptime.map { now - $0 } ?? -1) gain=\(outputVolume)"
     }
 
     private func reportFailure(_ error: Error, origin: String) {
@@ -732,7 +790,7 @@ final class RollingAudioEngine {
         if let entry = player?.currentItem?.errorLog()?.events.last {
             recordDiagnostic("player errorLog domain=\(entry.errorDomain) code=\(entry.errorStatusCode) comment=\(entry.errorComment ?? "none")")
         }
-        diagnostics.captureFailure(error, origin: origin)
+        diagnostics.captureFailure(error, origin: origin, generation: generation.uuidString)
         failed = true
         ingestTask?.cancel()
         ingestTask = nil
@@ -746,6 +804,11 @@ final class RollingAudioEngine {
     }
 
     private func stopInternal(publish shouldPublish: Bool) {
+        recordDiagnostic("engine.stop")
+        previousMediaSeconds = nil; firstMediaLogged = false; lastDiagnosticState = nil
+        lastHistorySnapshotUptime = 0
+        for observer in playerLogObservers { NotificationCenter.default.removeObserver(observer) }
+        playerLogObservers.removeAll()
         generation = UUID()
         seekGeneration.invalidate()
         ingestTask?.cancel()

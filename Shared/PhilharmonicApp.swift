@@ -26,7 +26,10 @@ import UIKit
                     #endif
                     model.launch()
                 }
-                .onChange(of: scenePhase) { phase in if phase == .active { model.onForeground() } }
+                .onChange(of: scenePhase) { phase in
+                    model.recordLifecycle(String(describing: phase))
+                    if phase == .active { model.onForeground() }
+                }
                 .onOpenURL { model.handleWidgetURL($0) }
         }
     }

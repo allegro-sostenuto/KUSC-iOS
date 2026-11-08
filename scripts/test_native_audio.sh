@@ -61,6 +61,20 @@ if [ "${PHILHARMONIC_STATION_BOUNDARIES_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicTests/LiveOnlySettingsTests
     )
 fi
+if [ "${PHILHARMONIC_DEBUG_EVENTS_ONLY:-0}" = 1 ]; then
+    tests=(
+        -only-testing:PhilharmonicTests/PlaybackDiagnosticsIntegrationTests
+        -only-testing:PhilharmonicTests/MediaServicesRecoveryTests
+        -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests
+        -only-testing:PhilharmonicTests/StationSwitchTests
+        -only-testing:PhilharmonicTests/LiveOnlySettingsTests
+        -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testProgressiveStreamsNeverEnterTheHLSPreparationPath
+        -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testNonKUSCHLSUsesNativePlayerWithoutKUSCManifestRequirements
+        -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testStationReplacementRetiresLatePreparedAudio
+        -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testOrdinaryEngineIgnoresLegacyRetentionAndCannotSeek
+        -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testPauseWinsAfterPlayWhileDirectReplacementIsStillPreparing
+    )
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

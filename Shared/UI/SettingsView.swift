@@ -26,8 +26,9 @@ struct SettingsView: View {
                     NavigationLink {
                         PlaybackDiagnosticsView(diagnostics: model.diagnostics)
                     } label: {
-                        Text("Playback Diagnostics")
+                        Text("debug")
                     }
+                    .accessibilityIdentifier("debug-settings-link")
                     .modifier(SettingsRow(first: false, last: true))
                 } header: {
                     Text("Playback")

@@ -86,6 +86,12 @@ public struct PlaybackDiagnosticLog {
         return bounded(pieces.joined(separator: " <- "), bytes: 4_000)
     }
 
+    static func sanitizedText(_ text: String, limit: Int = 1_000) -> String {
+        sanitize(text, limit: limit).replacingOccurrences(
+            of: #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#,
+            with: "[email redacted]", options: .regularExpression)
+    }
+
     private mutating func append(_ event: String, date: Date, uptime: TimeInterval) {
         appendLine(eventPrefix(date: date, uptime: uptime) + Self.sanitize(event))
     }
@@ -140,6 +146,7 @@ public struct PlaybackDiagnosticLog {
             (#"\\\\[^\r\n,;\)\]\"']+"#, "[path redacted]"),
             (#"(?<![a-zA-Z0-9:/])/(?!/)[^\s/][^\r\n,;\)\]\"']*"#, "[path redacted]"),
             (#"\?[^\s<>\"']+"#, "[query redacted]"),
+            (#"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, "[email redacted]"),
             (#"[\x00-\x1F\x7F]"#, " ")
         ]
         for (pattern, replacement) in replacements {

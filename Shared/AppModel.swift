@@ -2,10 +2,18 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import UIKit
+import Network
 
 @MainActor final class AppModel: ObservableObject {
     static let shared = AppModel()
-    @Published var state: PlaybackState = .idle
+    @Published var state: PlaybackState = .idle {
+        didSet {
+            if state != oldValue {
+                recordDebugEvent(category: "playback", name: "coordinator_state_changed",
+                                 details: ["from": String(describing: oldValue), "to": String(describing: state)])
+            }
+        }
+    }
     @Published var currentItem: ProgrammeItem?
     @Published var previousItems: [ProgrammeItem] = []
     @Published var upcomingItems: [ProgrammeItem] = []
@@ -72,6 +80,7 @@ import UIKit
     private var connectionTask: Task<Void, Never>?
     private var ticker: Timer?
     private var observers: [NSObjectProtocol] = []
+    private let debugNetworkMonitor = NWPathMonitor()
     private var wantsPlayback = false
     private var hasStartedEngine = false
     private var stationSelectionKeepsActivity = false
@@ -98,6 +107,10 @@ import UIKit
     private var scheduledAt: Date? { scheduleRequest?.date }
     private var scheduleGeneration = ScheduleGeneration()
     private var connectionGeneration = UUID()
+    private var debugConfirmedConnection: UUID?
+    private var debugConnectionWasRetry = false
+    private var debugConfirmedSchedule: UUID?
+    private var debugMetadataPresence: String?
     private var scheduleOwnsPlayback = false
     private var scheduleEnvelope: ScheduledGainEnvelope?
     private var scheduleGain: Float = 1
@@ -172,9 +185,21 @@ import UIKit
         NotificationCoordinator.shared.install()
         engine.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
         engine.onFailure = { [weak self] error in self?.connectionFailed(error) }
+        engine.onMediaProgress = { [weak self] in self?.recordConfirmedMediaProgress() }
         installAudioObservers()
+        debugNetworkMonitor.pathUpdateHandler = { [weak self] path in
+            let details = ["system_path_status": String(describing: path.status),
+                           "wifi": String(path.usesInterfaceType(.wifi)), "cellular": String(path.usesInterfaceType(.cellular)),
+                           "expensive": String(path.isExpensive), "constrained": String(path.isConstrained)]
+            Task { @MainActor in self?.recordDebugEvent(category: "network", name: "network_path_changed", details: details) }
+        }
+        debugNetworkMonitor.start(queue: DispatchQueue(label: "org.personal.kusc.debug.network", qos: .utility))
         UIDevice.current.isBatteryMonitoringEnabled = true
         restoreScheduledRequest()
+        recordDebugEvent(category: "app", name: "app_session_started", details: [
+            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            "ios": UIDevice.current.systemVersion, "device_model": UIDevice.current.model])
         if scheduleRequest == nil, let date = UserDefaults.standard.object(forKey: "scheduledAt") as? Date, date > Date() {
             let migrated = ScheduledStartRequest(date: date)
             scheduleRequest = migrated
@@ -243,6 +268,9 @@ import UIKit
     /// Selection is independent of playback intent and of an already saved start.
     /// Retire the whole old session before publishing the new station identity.
     private func switchStation(_ id: String, reconnect: Bool = true) {
+        if StationCatalog.station(id: id) != nil, id != selectedStation.id {
+            recordDebugEvent(category: "playback", name: "station_selection_changed", details: ["next_station_id": id])
+        }
         guard let station = StationCatalog.station(id: id), station.id != selectedStation.id else { return }
         stationSelectionKeepsActivity = stationSelectionKeepsActivity || hasStartedEngine
         stationGeneration = UUID(); connectionGeneration = UUID(); metadataGeneration = UUID()
@@ -282,12 +310,15 @@ import UIKit
               station.audioSources.contains(where: { $0.id == sourceID }),
               settings.audioSource(for: station).id != sourceID else { return }
         let previous = selectedAudioSource
+        recordDebugEvent(category: "settings", name: "quality_changed",
+                         details: ["target_station_id": stationID, "chosen_source_id": sourceID])
         settings.setAudioSource(sourceID, for: station)
         settings.save()
         finishAudioQualityChange(previous: previous)
     }
 
     func applyAudioQualityPreset(_ preset: StationQualityPreset) {
+        recordDebugEvent(category: "settings", name: "quality_preset_applied", details: ["preset": preset.rawValue])
         let previous = selectedAudioSource
         var updated = settings
         for station in StationCatalog.stations {
@@ -328,7 +359,38 @@ import UIKit
 
     func stopPlaybackDiagnostics() { diagnostics.stop() }
 
+    func recordLifecycle(_ phase: String) {
+        recordDebugEvent(category: "app", name: "scene_phase_changed", details: ["phase": phase])
+    }
+
+    private func recordDebugEvent(category: String, name: String, scheduleID: String? = nil,
+                                  generation: String? = nil, details: [String: String] = [:]) {
+        var context = ["station_id": selectedStation.id, "audio_source_id": selectedAudioSource.id,
+                       "audio_kbps": String(selectedAudioSource.bitrateKbps), "requested": String(wantsPlayback)]
+        context.merge(details) { _, next in next }
+        diagnostics.event(category: category, name: name, scheduleID: scheduleID ?? scheduleRequest?.id.uuidString,
+                          generation: generation ?? connectionGeneration.uuidString, details: context)
+    }
+
+    private func recordConfirmedMediaProgress() {
+        if debugConfirmedConnection != connectionGeneration {
+            debugConfirmedConnection = connectionGeneration
+            recordDebugEvent(category: "connection", name: "stream_connection_succeeded",
+                             details: ["evidence": "media_clock_advanced"])
+            if debugConnectionWasRetry {
+                recordDebugEvent(category: "connection", name: "reconnect_succeeded")
+            }
+        }
+        if let request = scheduleRequest, scheduleOwnsPlayback, scheduleDidStart,
+           scheduleNow >= request.date, engine.volume > 0, debugConfirmedSchedule != request.id {
+            debugConfirmedSchedule = request.id
+            recordDebugEvent(category: "scheduler", name: "schedule_playback_confirmed",
+                             details: ["evidence": "media_clock_advanced", "gain": String(engine.volume)])
+        }
+    }
+
     func play() {
+        recordDebugEvent(category: "playback", name: "play_requested")
         #if DEBUG
         guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
@@ -402,6 +464,7 @@ import UIKit
     }
 
     func pauseRemote() {
+        recordDebugEvent(category: "playback", name: "pause_requested")
         explicitPlayPending = false; interruptionRetryStarted = nil
         manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
         if let request = scheduleRequest {
@@ -459,6 +522,7 @@ import UIKit
     func canSeek(to date: Date) -> Bool { false }
 
     func startSleep(minutes: Int) {
+        recordDebugEvent(category: "timer", name: "sleep_timer_requested", details: ["minutes": String(minutes)])
         ensureTicker()
         let duration = min(720, max(0, minutes))
         settings.lastSleepMinutes = duration; settings.save()
@@ -467,6 +531,7 @@ import UIKit
         tick()
     }
     func cancelSleep() {
+        recordDebugEvent(category: "timer", name: "sleep_timer_cancelled")
         sleepDeadline = nil; pausedSleepRemaining = nil; sleepDecision = nil; sleepRetryStarted = nil
         sleepDescription = nil; sleepGain = 1; applyGain()
         if state == .fadingOut { state = wantsPlayback ? .playingLive : .pausedLive }
@@ -476,9 +541,12 @@ import UIKit
                        options: ScheduledStartOptions = .init()) async throws {
         guard StandbyPolicy.isValidSchedule(date, now: Date()) else { throw ScheduleError.outsideWindow }
         guard output.mode != .selected || output.route?.isIdentifiable == true else { throw ScheduleError.missingOutput }
+        let replacingID = scheduleRequest?.id
         clearSchedule(stopOwnedPlayback: true)
         let generation = scheduleGeneration.begin()
         let request = ScheduledStartRequest(date: date, output: output, options: options, stationID: selectedStation.id)
+        recordDebugEvent(category: "scheduler", name: "schedule_creation_requested", scheduleID: request.id.uuidString,
+                         generation: String(describing: generation), details: ["target_time": ISO8601DateFormatter().string(from: date)])
         pendingProtectedSchedule = request.requiresDeletionToCancel
         do { try await NotificationCoordinator.shared.schedule(request) }
         catch {
@@ -491,6 +559,8 @@ import UIKit
             if scheduleGeneration.accepts(generation) { notice = "Start armed. Enable notifications for a backup reminder." }
         }
         guard scheduleGeneration.accepts(generation) else {
+            recordDebugEvent(category: "scheduler", name: "stale_schedule_callback_ignored", scheduleID: request.id.uuidString,
+                             generation: String(describing: generation))
             NotificationCoordinator.shared.cancel(requestID: request.id); return
         }
         ensureTicker()
@@ -498,10 +568,16 @@ import UIKit
         pendingProtectedSchedule = false
         settings.scheduledStartDefaults = options; settings.scheduledOutputDefault = output; settings.save()
         persistSchedule(); armScheduleBoundary()
+        recordDebugEvent(category: "scheduler", name: replacingID == nil ? "schedule_created" : "schedule_rescheduled",
+                         details: ["target_time": ISO8601DateFormatter().string(from: date), "replaced_schedule_id": replacingID?.uuidString ?? "none"])
         evaluateSchedule()
     }
     func cancelSchedule() {
+        let cancelledID = scheduleRequest?.id
         clearSchedule(stopOwnedPlayback: true)
+        if let cancelledID, scheduleRequest == nil {
+            recordDebugEvent(category: "scheduler", name: "schedule_cancelled", scheduleID: cancelledID.uuidString)
+        }
     }
     func openScheduleCancellation(requestID: UUID?) {
         guard let requestID, scheduleRequest?.id == requestID else { return }
@@ -512,6 +588,8 @@ import UIKit
     }
     func clearScheduleManagementRequest() { scheduleManagementRequest = nil }
     func startFromNotification(requestID: UUID? = nil) {
+        recordDebugEvent(category: "scheduler", name: "schedule_execution_attempt", scheduleID: requestID?.uuidString,
+                         details: ["source": "notification_response"])
         resolveExpiredSchedule()
         guard let request = scheduleRequest, request.id == requestID else { return }
         if schedulePausedUntil != nil { switchStation(request.stationID, reconnect: false); play(); return }
@@ -728,6 +806,8 @@ import UIKit
         bufferFailureMessage = nil
         connectionTask?.cancel()
         let generation = UUID(); connectionGeneration = generation
+        debugConnectionWasRetry = reconnectStarted != nil
+        recordDebugEvent(category: "connection", name: debugConnectionWasRetry ? "reconnect_started" : "stream_connection_started")
         let source = selectedAudioSource
         if scheduleOwnsPlayback && !preserveScheduledGain { scheduleReachedFullGain = false; scheduleEnvelope = nil; scheduleGain = 0; applyGain() }
         if reconnectStarted == nil { state = .connecting }
@@ -742,10 +822,14 @@ import UIKit
             guard let self, !Task.isCancelled else { return }
             do {
                 try await engine.start(url: source.url, retentionMinutes: 0)
-                guard !Task.isCancelled, connectionGeneration == generation else { return }
+                guard !Task.isCancelled, connectionGeneration == generation else {
+                    recordDebugEvent(category: "connection", name: "stale_connection_callback_ignored", generation: generation.uuidString)
+                    return
+                }
                 applyGain()
                 if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
             } catch is CancellationError {
+                recordDebugEvent(category: "connection", name: "stream_connection_cancelled", generation: generation.uuidString)
                 // A buffer-mode replacement can cancel preparation inside the
                 // engine without cancelling this coordinator task. Its newer
                 // connection owns playback; cancellation is not a stream error.
@@ -758,7 +842,9 @@ import UIKit
     private func connectionFailed(_ error: Error) {
         // Engine failures normally freeze the report before this callback clears
         // their state. Startup failures can arrive directly from startConnection.
-        diagnostics.captureFailure(error, origin: "model.connectionFailed")
+        diagnostics.captureFailure(error, origin: "model.connectionFailed", generation: connectionGeneration.uuidString)
+        recordDebugEvent(category: "connection", name: debugConnectionWasRetry ? "reconnect_failed" : "stream_connection_failed",
+                         details: ["retry_in_seconds": "3", "error": PlaybackDiagnosticLog.sanitizedError(error)])
         guard wantsPlayback else {
             hasStartedEngine = false; engine.stop(); bufferWindow = nil; return
         }
@@ -831,6 +917,7 @@ import UIKit
         if let started = reconnectStarted, !interruptionActive {
             objectWillChange.send()
             if ReconnectPolicy(startedAt: started).decision(at: now) == .stop {
+                recordDebugEvent(category: "connection", name: "reconnect_budget_reached")
                 if protectedSchedule {
                     waitForScheduledAudio("Waiting for the station; this start remains armed.", retryAfter: 15)
                 }
@@ -890,12 +977,14 @@ import UIKit
         if sleepDeadline.map({ $0 <= Date() }) == true { sleepDecision = nil; sleepRetryStarted = nil; sleepGain = 1; applyGain() }
     }
     private func finishSleep() {
+        recordDebugEvent(category: "timer", name: "sleep_timer_endpoint_reached")
         guard !protectedSchedule else { return }
         // Stop before resetting envelopes; cancellation must never expose one full-volume frame.
         if scheduleOwnsPlayback && schedulePausedUntil == nil { clearSchedule(stopOwnedPlayback: true) }
         stopEverything(reason: .stoppedBySleepTimer); cancelSleep()
     }
     private func stopEverything(reason: PlaybackState) {
+        recordDebugEvent(category: "playback", name: "playback_stopped", details: ["reason": String(describing: reason)])
         stationSelectionKeepsActivity = false
         completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
         completedPlaybackUsesSpeaker = false
@@ -1100,6 +1189,8 @@ import UIKit
     }
 
     private func beginScheduledPlayback(_ request: ScheduledStartRequest) {
+        recordDebugEvent(category: "scheduler", name: "schedule_execution_attempt", scheduleID: request.id.uuidString,
+                         details: ["source": "automatic_preparation"])
         guard scheduleRequest?.id == request.id, !scheduleOwnsPlayback, !interruptionActive else { return }
         switchStation(request.stationID, reconnect: false)
         completedPlaybackOptions = nil; completedPlaybackFade = nil; completedPlaybackNeedsFade = false
@@ -1235,6 +1326,9 @@ import UIKit
         guard let request = scheduleRequest,
               ScheduledStartPolicy.hasExpired(target: request.date, now: scheduleNow) else { return }
         let completed = scheduleDidStart
+        recordDebugEvent(category: "scheduler", name: completed ? "schedule_retired" : "scheduled_start_expired_without_playing",
+                         details: ["coordinator_completed": String(completed),
+                                   "media_progress_observed_this_session": String(debugConfirmedSchedule == request.id)])
         // Playback intent survives a temporary stall or interruption. Retiring
         // the request must not drop its battery guard, route or unfinished fade.
         let keepPlaying = scheduleOwnsPlayback && completed && wantsPlayback
@@ -1413,7 +1507,9 @@ import UIKit
     }
 
     private func recordScheduleDiagnostic(_ event: String) {
-        diagnostics.record("schedule id=\(scheduleRequest?.id.uuidString ?? "none") phase=\(schedulePhase?.rawValue ?? "none") gain=\(engine.volume) \(event)")
+        diagnostics.record("schedule id=\(scheduleRequest?.id.uuidString ?? "none") phase=\(schedulePhase?.rawValue ?? "none") gain=\(engine.volume) \(event)", includeHistory: false)
+        recordDebugEvent(category: "scheduler", name: "schedule_state_changed",
+                         details: ["phase": schedulePhase?.rawValue ?? "none", "gain": String(engine.volume)])
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-PhilharmonicAudioDiagnostics") else { return }
         let entry = "schedule=\(scheduleRequest?.id.uuidString ?? "none") uptime=\(ProcessInfo.processInfo.systemUptime) wall=\(Date().timeIntervalSince1970) target=\(scheduledAt?.timeIntervalSince1970 ?? 0) route=\(currentOutputRoute.ports.map { $0.type + ":" + $0.uid }.joined(separator: ",")) \(event)"
@@ -1469,6 +1565,7 @@ import UIKit
         lastMetadataFetch = Date()
         let generation = UUID(); metadataGeneration = generation
         let service = metadata
+        recordDebugEvent(category: "metadata", name: "metadata_requested", details: ["forced": String(force)])
         metadataTask = Task { [weak self] in
             guard let self else { return }
             defer { if metadataGeneration == generation { metadataTask = nil } }
@@ -1479,13 +1576,25 @@ import UIKit
                 }
                 guard !Task.isCancelled, metadataGeneration == generation else { return }
                 timeline.merge(items); resolveMetadata()
-            } catch { /* Metadata failure never interrupts audio or clears the last known item. */ }
+                self.recordDebugEvent(category: "metadata", name: "metadata_received", details: ["items": String(items.count)])
+            } catch {
+                if !Task.isCancelled, metadataGeneration == generation {
+                    recordDebugEvent(category: "metadata", name: "metadata_failed", details: ["error": PlaybackDiagnosticLog.sanitizedError(error)])
+                }
+                // Metadata failure never interrupts audio or clears the last known item.
+            }
         }
     }
     private func resolveMetadata() {
         let date = metadataTimestamp ?? (hasStartedEngine ? heardAt : Date())
         let context = timeline.context(at: date)
         if currentItem != context.current { currentItem = context.current }
+        let presence = "\(selectedStation.id):\(currentItem?.work.isEmpty == false):\(currentItem?.composer.isEmpty == false)"
+        if presence != debugMetadataPresence {
+            debugMetadataPresence = presence
+            recordDebugEvent(category: "metadata", name: "metadata_fields_changed", details: [
+                "has_work": String(currentItem?.work.isEmpty == false), "has_composer": String(currentItem?.composer.isEmpty == false)])
+        }
         let programme = metadata.programme(at: date)
         let name = programme?.name ?? currentItem?.programme
         let host = programme?.host ?? currentItem?.host
@@ -1539,6 +1648,21 @@ import UIKit
     }
 
     private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
+        recordDebugEvent(category: "audio_session", name: "audio_session_activation_started",
+                         details: ["speaker_requested": forceSpeaker.map { String($0) } ?? "automatic",
+                                   "mixing_requested": mixWithOthers.map { String($0) } ?? "automatic"])
+        do {
+            try configureAudioSession(forceSpeaker: forceSpeaker, mixWithOthers: mixWithOthers)
+            recordDebugEvent(category: "audio_session", name: "audio_session_activation_succeeded",
+                             details: ["output_types": AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")])
+        } catch {
+            recordDebugEvent(category: "audio_session", name: "audio_session_activation_failed",
+                             details: ["error": PlaybackDiagnosticLog.sanitizedError(error)])
+            throw error
+        }
+    }
+
+    private func configureAudioSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
         let silentPreparation = scheduleOwnsPlayback && !scheduleUserInitiated && scheduledAt.map { scheduleNow < $0 } == true
         let mixing = mixWithOthers ?? silentPreparation
         let useSpeaker = forceSpeaker ?? (!silentPreparation &&
@@ -1582,6 +1706,7 @@ import UIKit
     }
 
     private func handleMediaServicesReset() {
+        recordDebugEvent(category: "audio_session", name: "media_services_reset")
         // A reset invalidates the media objects even while paused. Do not leave
         // an obsolete renderer available for the next Play or interruption end.
         connectionGeneration = UUID()
@@ -1608,6 +1733,7 @@ import UIKit
     }
 
     private func endInterruption(shouldResume: Bool) {
+        recordDebugEvent(category: "audio_session", name: "interruption_ended", details: ["should_resume": String(shouldResume)])
         if explicitPlayPending {
             retryInterruptedPlayback(immediately: true)
             return
@@ -1656,6 +1782,7 @@ import UIKit
     }
 
     private func beginInterruption() {
+        recordDebugEvent(category: "audio_session", name: "interruption_began")
         wasPlayingBeforeInterruption = wantsPlayback
         interruptionActive = true
         explicitPlayPending = false; scheduledHasAudioFocus = false
@@ -1680,6 +1807,9 @@ import UIKit
     private func handleRouteChange(reason: UInt) {
         let previous = currentOutputRoute
         refreshCurrentOutput()
+        recordDebugEvent(category: "audio_session", name: "route_changed", details: ["reason": String(reason),
+            "previous_types": previous.ports.map(\.type).joined(separator: ","),
+            "current_types": currentOutputRoute.ports.map(\.type).joined(separator: ",")])
         if schedulePausedUntil != nil { return }
         if interruptionActive {
             if !previous.matches(currentOutputRoute) { retryInterruptedPlayback(immediately: true) }
@@ -1732,13 +1862,19 @@ import UIKit
         })
         for name in [UIDevice.batteryStateDidChangeNotification, UIDevice.batteryLevelDidChangeNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.evaluateSchedule() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.recordDebugEvent(category: "power", name: "power_state_changed", details: [
+                        "plugged": String(self.schedulePower.plugged), "battery_level": String(self.schedulePower.level)])
+                    self.evaluateSchedule()
+                }
             })
         }
         observers.append(center.addObserver(forName: UIApplication.significantTimeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 // Active gain ramps keep their monotonic deadline through clock changes.
+                self.recordDebugEvent(category: "app", name: "significant_time_changed")
                 self.armScheduleBoundary(); self.evaluateSchedule()
             }
         })

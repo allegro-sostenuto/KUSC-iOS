@@ -180,13 +180,26 @@ actor HLSIngestor {
     private func fetch(_ url: URL, session: URLSession, maximumSize: Int,
                        diagnostic: @escaping @MainActor (String) -> Void) async throws -> (Data, URL) {
         let began = ProcessInfo.processInfo.systemUptime
+        let requestID = UUID().uuidString
+        PlaybackDebugJournal.emit(category: "network", name: "http_request_started",
+                                  details: ["request_id": requestID, "host": url.host ?? "unknown"])
         await diagnostic("request begin host=\(url.host ?? "unknown")")
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue(StationConfiguration.streamUserAgent, forHTTPHeaderField: "User-Agent")
-        let (incoming, response) = try await session.bytes(for: request)
+        let transfer: (URLSession.AsyncBytes, URLResponse)
+        do { transfer = try await session.bytes(for: request) }
+        catch {
+            PlaybackDebugJournal.emit(category: "network", name: "http_request_failed", details: [
+                "request_id": requestID, "error": PlaybackDiagnosticLog.sanitizedError(error)])
+            throw error
+        }
+        let (incoming, response) = transfer
         guard let response = response as? HTTPURLResponse else { throw AudioStreamError.disconnected }
         await diagnostic("response HTTP=\(response.statusCode) expectedBytes=\(response.expectedContentLength) headerElapsed=\(ProcessInfo.processInfo.systemUptime - began)")
+        PlaybackDebugJournal.emit(category: "network", name: "http_response_received", details: [
+            "request_id": requestID, "status": String(response.statusCode),
+            "header_seconds": String(ProcessInfo.processInfo.systemUptime - began), "expected_bytes": String(response.expectedContentLength)])
         guard (200..<300).contains(response.statusCode) else { throw AudioStreamError.httpStatus(response.statusCode) }
         guard response.expectedContentLength <= Int64(maximumSize) else { throw AudioStreamError.storageLimit }
         var data = Data()
@@ -198,9 +211,13 @@ actor HLSIngestor {
             }
         } catch {
             await diagnostic("download interrupted bytes=\(data.count) elapsed=\(ProcessInfo.processInfo.systemUptime - began)")
+            PlaybackDebugJournal.emit(category: "network", name: "http_download_failed", details: [
+                "request_id": requestID, "bytes": String(data.count), "error": PlaybackDiagnosticLog.sanitizedError(error)])
             throw error
         }
         await diagnostic("download complete bytes=\(data.count) elapsed=\(ProcessInfo.processInfo.systemUptime - began)")
+        PlaybackDebugJournal.emit(category: "network", name: "http_download_completed", details: [
+            "request_id": requestID, "bytes": String(data.count), "seconds": String(ProcessInfo.processInfo.systemUptime - began)])
         return (data, response.url ?? url)
     }
 }

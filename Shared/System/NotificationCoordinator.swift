@@ -13,19 +13,42 @@ import UserNotifications
     }
     func schedule(_ request: ScheduledStartRequest) async throws {
         let center = UNUserNotificationCenter.current()
-        let authorized = try await center.requestAuthorization(options: [.alert, .sound])
+        let authorized: Bool
+        do {
+            authorized = try await center.requestAuthorization(options: [.alert, .sound])
+            PlaybackDebugJournal.emit(category: "notification", name: "notification_authorization_checked", scheduleID: request.id.uuidString,
+                                      details: ["authorized": String(authorized)])
+        } catch {
+            PlaybackDebugJournal.emit(category: "notification", name: "notification_authorization_failed", scheduleID: request.id.uuidString,
+                                      details: ["error": PlaybackDiagnosticLog.sanitizedError(error)])
+            throw error
+        }
         guard authorized else { throw NotificationError.permissionDenied }
         let task = writes.submit(id: request.id, write: { [self] in
             do {
                 try await center.add(headsUpNotification(request))
                 try await center.add(notification(request, body: "Tap to start Philharmonic live. Output: \(request.output.summary)."))
-            } catch { remove(request.id); throw error }
+                PlaybackDebugJournal.emit(category: "notification", name: "notification_scheduled", scheduleID: request.id.uuidString,
+                                          details: ["kind": "heads_up_and_fallback", "evidence": "notification_center_accepted"])
+            } catch {
+                PlaybackDebugJournal.emit(category: "notification", name: "notification_schedule_failed", scheduleID: request.id.uuidString,
+                                          details: ["error": PlaybackDiagnosticLog.sanitizedError(error)])
+                remove(request.id); throw error
+            }
         }, remove: { [self] in remove(request.id) })
         try await task.value
     }
     func replaceFallback(_ request: ScheduledStartRequest, body: String) {
         writes.submit(id: request.id, write: { [self] in
-            try await UNUserNotificationCenter.current().add(notification(request, body: body))
+            do {
+                try await UNUserNotificationCenter.current().add(notification(request, body: body))
+                PlaybackDebugJournal.emit(category: "notification", name: "notification_scheduled", scheduleID: request.id.uuidString,
+                                          details: ["kind": "fallback", "evidence": "notification_center_accepted"])
+            } catch {
+                PlaybackDebugJournal.emit(category: "notification", name: "notification_schedule_failed", scheduleID: request.id.uuidString,
+                                          details: ["kind": "fallback", "error": PlaybackDiagnosticLog.sanitizedError(error)])
+                throw error
+            }
         }, remove: { [self] in remove(request.id) })
     }
     private func notification(_ request: ScheduledStartRequest, body: String) -> UNNotificationRequest {
@@ -49,6 +72,7 @@ import UserNotifications
         return UNNotificationRequest(identifier: Self.identifier + "." + request.id.uuidString + ".heads-up", content: content, trigger: trigger)
     }
     func cancel(requestID: UUID) {
+        PlaybackDebugJournal.emit(category: "notification", name: "notification_removal_requested", scheduleID: requestID.uuidString)
         writes.cancel(id: requestID) { remove(requestID) }
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.identifier])
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.identifier])
@@ -65,6 +89,8 @@ import UserNotifications
             let rawID = response.notification.request.content.userInfo["scheduleID"] as? String
             let id = rawID.flatMap(UUID.init(uuidString:))
             let manage = response.notification.request.content.userInfo["action"] as? String == "manage-schedule"
+            PlaybackDebugJournal.emit(category: "notification", name: "notification_response_received", scheduleID: id?.uuidString,
+                                      details: ["action": response.actionIdentifier == UNNotificationDismissActionIdentifier ? "dismiss" : (manage ? "manage_schedule" : "start_live")])
             Task { @MainActor in
                 if response.actionIdentifier != UNNotificationDismissActionIdentifier {
                     if manage { AppModel.shared.openScheduleCancellation(requestID: id) }
@@ -80,6 +106,10 @@ import UserNotifications
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         Task { @MainActor in
             let reminder = notification.request.content.userInfo["action"] as? String == "manage-schedule"
+            let id = (notification.request.content.userInfo["scheduleID"] as? String).flatMap(UUID.init(uuidString:))
+            PlaybackDebugJournal.emit(category: "notification", name: "notification_presentation_requested", scheduleID: id?.uuidString,
+                                      details: ["kind": reminder ? "heads_up" : "fallback",
+                                                "suppressed_for_active_audio": String(AppModel.shared.isAudible && !reminder)])
             if AppModel.shared.isAudible && !reminder { completionHandler([]) }
             else { completionHandler([.banner, .sound]) }
         }

@@ -66,6 +66,9 @@ if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
         tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests)
     fi
 fi
+if [ "${PHILHARMONIC_DEBUG_UI_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testDiagnosticsCaptureCanBeStartedStoppedAndSharedFromSettings)
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

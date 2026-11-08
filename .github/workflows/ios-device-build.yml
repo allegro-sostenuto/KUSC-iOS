@@ -19,9 +19,9 @@ on:
         default: false
         required: false
       map_quality_check:
-        description: Check all map/quality changes, UI only, or only Quality settings
+        description: Targeted map/quality or debug integration checks
         type: choice
-        options: [none, all, ui, quality]
+        options: [none, all, ui, quality, debug]
         default: none
         required: false
       ui_polish_check:
@@ -75,7 +75,7 @@ concurrency:
 jobs:
   station-picker:
     name: Station switching and native picker checks
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality' || inputs.map_quality_check == 'debug')
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -90,6 +90,9 @@ jobs:
       - name: Check station geography and preset policies
         if: inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui'
         run: swift test --filter 'StationGeographyTests|StationQualityPresetTests|StationCatalogTests'
+      - name: Check debug journal retention and redaction
+        if: inputs.map_quality_check == 'debug'
+        run: swift test --filter 'PlaybackDiagnosticTests|PlaybackDebugJournalTests'
       - name: Check stations and capture picker layouts
         env:
           PHILHARMONIC_QUALITY_UI_ONLY: ${{ (inputs.source_check || inputs.quality_ui_check) && '1' || '0' }}
@@ -97,6 +100,7 @@ jobs:
           PHILHARMONIC_UI_POLISH_APPEARANCE_ONLY: ${{ inputs.ui_polish_scope == 'appearance' && '1' || '0' }}
           PHILHARMONIC_MAP_QUALITY_ONLY: ${{ (inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality') && '1' || '0' }}
           PHILHARMONIC_QUALITY_SETTINGS_ONLY: ${{ inputs.map_quality_check == 'quality' && '1' || '0' }}
+          PHILHARMONIC_DEBUG_UI_ONLY: ${{ inputs.map_quality_check == 'debug' && '1' || '0' }}
         run: bash scripts/test_station_picker.sh
       - name: Upload station evidence
         if: always()
@@ -117,7 +121,7 @@ jobs:
 
   native-audio:
     name: Native playback regression tests
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'debug')
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -131,6 +135,7 @@ jobs:
         env:
           PHILHARMONIC_STATION_SOURCES_ONLY: ${{ inputs.source_check && '1' || '0' }}
           PHILHARMONIC_STATION_BOUNDARIES_ONLY: ${{ inputs.map_quality_check == 'all' && '1' || '0' }}
+          PHILHARMONIC_DEBUG_EVENTS_ONLY: ${{ inputs.map_quality_check == 'debug' && '1' || '0' }}
         run: bash scripts/test_native_audio.sh
       - name: Upload audio test evidence
         if: always()
