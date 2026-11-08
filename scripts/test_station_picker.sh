@@ -57,6 +57,12 @@ if [ "${PHILHARMONIC_UI_POLISH_ONLY:-0}" = 1 ]; then
         tests=(-only-testing:PhilharmonicUITests/UIPolishUITests/testSettingsLargeTextKeepsQualityAndNativeAppearanceReachable)
     fi
 fi
+if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
+    tests=(
+        -only-testing:PhilharmonicUITests/StationMapUITests
+        -only-testing:PhilharmonicUITests/AudioQualityUITests
+    )
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

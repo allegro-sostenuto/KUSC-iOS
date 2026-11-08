@@ -188,7 +188,7 @@ public enum StationCatalog {
 }
 
 public enum StationDisplayMode: String, Codable, CaseIterable, Sendable {
-    case grid, list
+    case grid, list, map
 }
 
 /// Selection is independent of playback intent and never changes when the order changes.

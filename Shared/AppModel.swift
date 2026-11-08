@@ -284,6 +284,26 @@ import UIKit
         let previous = selectedAudioSource
         settings.setAudioSource(sourceID, for: station)
         settings.save()
+        finishAudioQualityChange(previous: previous)
+    }
+
+    func applyAudioQualityPreset(_ preset: StationQualityPreset) {
+        let previous = selectedAudioSource
+        var updated = settings
+        for station in StationCatalog.stations {
+            updated.setAudioSource(preset.source(for: station).id, for: station)
+        }
+        settings = updated
+        settings.save()
+        // Apply the whole batch before considering one active-stream reconnect.
+        finishAudioQualityChange(previous: previous)
+    }
+
+    func matchesAudioQualityPreset(_ preset: StationQualityPreset) -> Bool {
+        StationCatalog.stations.allSatisfy { settings.audioSource(for: $0) == preset.source(for: $0) }
+    }
+
+    private func finishAudioQualityChange(previous: StationAudioSource) {
         guard selectedAudioSource != previous else { return }
         let hadEngine = hasStartedEngine
         stationSelectionKeepsActivity = stationSelectionKeepsActivity || hadEngine

@@ -36,15 +36,17 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    qualityPresets
+                        .modifier(SettingsRow(first: true, last: false))
                     ForEach(model.orderedStations) { station in
                         qualityRow(station)
-                        .modifier(SettingsRow(first: station.id == model.orderedStations.first?.id,
+                        .modifier(SettingsRow(first: false,
                                               last: station.id == model.orderedStations.last?.id))
                     }
                 } header: {
                     Text("Quality")
                 } footer: {
-                    Text("Tap a bitrate to choose that channel's quality. Defaults are near 96–128 kbps where available. Each channel's choice is saved. Changing the playing channel's quality rejoins live; a paused player stays paused.")
+                    Text("Presets apply to all stations. Balanced chooses the available bitrate closest to KUSC (\(StationCatalog.defaultStation.defaultAudioSource.bitrateKbps) kbps), favouring the lower rate in a tie. Tap a station's bitrate to adjust it individually.")
                 }
 
                 Section("Interface") {
@@ -60,8 +62,10 @@ struct SettingsView: View {
                     .modifier(SettingsRow(first: false, last: true))
                 }
                 Section("About") {
-                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"))")
-                        .modifier(SettingsRow(first: true, last: true))
+                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
+                        .modifier(SettingsRow(first: true, last: false))
+                    LabeledContent("Build", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")
+                        .modifier(SettingsRow(first: false, last: true))
                 }
             }
             .environment(\.defaultMinListRowHeight, 52)
@@ -86,6 +90,26 @@ struct SettingsView: View {
         }
         .tint(.philharmonicRed)
         .philharmonicSheetBackground()
+    }
+
+    private var qualityPresets: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            ForEach(StationQualityPreset.allCases) { preset in
+                Button { model.applyAudioQualityPreset(preset) } label: {
+                    Label(preset.title, systemImage: preset.symbol)
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, minHeight: 32)
+                }
+                .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                .tint(.philharmonicRed)
+                .accessibilityIdentifier("quality-preset-\(preset.rawValue)")
+                .accessibilityLabel("\(preset.title) quality for all stations")
+                .accessibilityAddTraits(model.matchesAudioQualityPreset(preset) ? [.isSelected] : [])
+            }
+        }.padding(.vertical, 4)
     }
 
     @ViewBuilder private func qualityRow(_ station: RadioStation) -> some View {

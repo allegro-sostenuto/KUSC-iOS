@@ -4,6 +4,39 @@ import UIKit
 final class AudioQualityUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    @MainActor func testGlobalPresetsKeepActualBitratesAndPausedIntent() {
+        for largeText in [false, true] {
+            let app = XCUIApplication()
+            XCUIDevice.shared.orientation = .portrait
+            app.launchEnvironment["PHILHARMONIC_UI_STATE"] = "paused-live"
+            app.launchEnvironment["PHILHARMONIC_UI_RESET_STATIONS"] = "1"
+            app.launchEnvironment["PHILHARMONIC_UI_DARK"] = "1"
+            app.launchEnvironment["PHILHARMONIC_UI_LARGE_TEXT"] = largeText ? "1" : "0"
+            app.launch()
+            defer { app.terminate() }
+            XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 5))
+            app.buttons["Settings"].tap()
+            let highest = app.buttons["quality-preset-highest"]
+            XCTAssertTrue(highest.waitForExistence(timeout: 5))
+            highest.tap()
+            XCTAssertTrue(highest.isSelected)
+            let swiss = app.buttons["quality-menu-radio-swiss-classic"]
+            if !swiss.isHittable { app.swipeUp() }
+            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
+            // Return to the top so the accessibility-sized preset row remains reachable.
+            if !highest.isHittable { app.swipeDown() }
+            app.buttons["quality-preset-balanced"].tap()
+            if !swiss.isHittable { app.swipeUp() }
+            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            if !highest.isHittable { app.swipeDown() }
+            app.buttons["quality-preset-lowest"].tap()
+            capture(largeText ? "quality-presets-accessibility3-dark" : "quality-presets-dark")
+            app.buttons["Close"].tap()
+            XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["Pause"].exists)
+        }
+    }
+
     @MainActor func testChannelBitrateDropdownsAndPausedPlaybackInLightAndDark() {
         for dark in [false, true] {
             XCUIDevice.shared.orientation = .portrait

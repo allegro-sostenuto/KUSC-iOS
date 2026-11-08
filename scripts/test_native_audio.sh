@@ -55,6 +55,12 @@ if [ "${PHILHARMONIC_STATION_SOURCES_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicTests/StationSwitchTests
     )
 fi
+if [ "${PHILHARMONIC_STATION_BOUNDARIES_ONLY:-0}" = 1 ]; then
+    tests=(
+        -only-testing:PhilharmonicTests/StationSwitchTests
+        -only-testing:PhilharmonicTests/LiveOnlySettingsTests
+    )
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

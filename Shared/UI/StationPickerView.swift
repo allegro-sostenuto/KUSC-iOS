@@ -12,6 +12,7 @@ struct StationPickerView: View {
     @State private var lastReorderedTargetID: String?
 
     private var grid: Bool { model.stationPreferences.displayMode == .grid }
+    private var map: Bool { model.stationPreferences.displayMode == .map }
 
     var body: some View {
         GeometryReader { geometry in
@@ -22,18 +23,23 @@ struct StationPickerView: View {
                     HStack {
                         displayControls
                         Spacer()
-                        reorderButton
-                    }.padding(.horizontal, 20).padding(.bottom, 12)
+                        if !map { reorderButton }
+                    }.padding(.horizontal, 16).padding(.bottom, 8)
                 }
                 Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
                 if reordering && !(landscape && dynamicTypeSize.isAccessibilitySize) {
                     Text("Drag a station, or use the arrows to move it earlier or later.")
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.vertical, 8)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
                 }
                 GeometryReader { viewport in
-                    if landscape {
+                    if map {
+                        StationMapView(stations: model.orderedStations, selectedStation: model.selectedStation) { station in
+                            model.selectStation(station.id)
+                            dismiss()
+                        }
+                    } else if landscape {
                         landscapeStations(size: viewport.size)
                     } else {
                         portraitStations
@@ -45,6 +51,9 @@ struct StationPickerView: View {
         .background(Color.philharmonicBackground.ignoresSafeArea())
         .tint(.philharmonicRed)
         .onAppear { PlayerOrientation.setProgrammeVisible(false); PlayerOrientation.refresh() }
+        .onChange(of: model.stationPreferences.displayMode) { mode in
+            if mode == .map { reordering = false }
+        }
     }
 
     private func pageHeader(landscape: Bool) -> some View {
@@ -57,35 +66,24 @@ struct StationPickerView: View {
             Text("Stations").font(.title2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            if landscape { displayControls; reorderButton }
-        }.padding(.horizontal, 20).padding(.vertical, 8)
+            if landscape { displayControls; if !map { reorderButton } }
+        }.padding(.horizontal, 16).padding(.vertical, 8)
     }
 
     private var displayControls: some View {
-        HStack(spacing: 0) {
-            displayButton(.grid, symbol: "square.grid.2x2", title: "Grid view")
-            displayButton(.list, symbol: "list.bullet", title: "List view")
+        Picker("Station display", selection: Binding(get: { model.stationPreferences.displayMode },
+                                                     set: { model.setStationDisplayMode($0) })) {
+            displayOption(.grid, symbol: "square.grid.2x2", title: "Grid view")
+            displayOption(.list, symbol: "list.bullet", title: "List view")
+            displayOption(.map, symbol: "globe", title: "Map view")
         }
-        .philharmonicControlSurface(Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Station display")
+        .pickerStyle(.segmented).frame(width: 180, height: 44)
+        .accessibilityIdentifier("stations-display")
     }
 
-    private func displayButton(_ mode: StationDisplayMode, symbol: String, title: String) -> some View {
-        Button { model.setStationDisplayMode(mode) } label: {
-            Image(systemName: symbol).font(.system(size: 18, weight: .medium))
-                .frame(width: 52, height: 44)
-                .foregroundStyle(model.stationPreferences.displayMode == mode ? Color.philharmonicRed : Color.philharmonicInk)
-                .overlay(alignment: .bottom) {
-                    if model.stationPreferences.displayMode == mode {
-                        Capsule().fill(Color.philharmonicRed).frame(width: 20, height: 2).padding(.bottom, 5)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(model.stationPreferences.displayMode == mode ? [.isSelected] : [])
-        .accessibilityIdentifier(mode == .grid ? "stations-mode-grid" : "stations-mode-list")
+    private func displayOption(_ mode: StationDisplayMode, symbol: String, title: String) -> some View {
+        Image(systemName: symbol).tag(mode).accessibilityLabel(title)
+            .accessibilityIdentifier("stations-mode-\(mode.rawValue)")
     }
 
     private var reorderButton: some View {
@@ -110,11 +108,11 @@ struct StationPickerView: View {
             if grid {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
                     ForEach(model.orderedStations) { station in stationCard(station, grid: true, compact: false) }
-                }.padding(20)
+                }.padding(16)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(model.orderedStations) { station in stationCard(station, grid: false, compact: false) }
-                }.padding(20)
+                }.padding(16)
             }
         }.accessibilityIdentifier("stations-vertical-scroll")
     }
@@ -129,7 +127,7 @@ struct StationPickerView: View {
         // horizontal scrolling; text and the reorder footer stay untruncated.
         let expandedCardWidth = 360 * max(1, stationTextScale / 15)
         let pageWidth = dynamicTypeSize.isAccessibilitySize
-            ? max(size.width, expandedCardWidth * CGFloat(entriesPerPage) + (grid ? 16 : 0) + 40)
+            ? max(size.width, expandedCardWidth * CGFloat(entriesPerPage) + (grid ? 16 : 0) + 32)
             : size.width
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .center, spacing: 0) {
@@ -143,7 +141,7 @@ struct StationPickerView: View {
                             Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
                         }
                     }
-                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
                     .frame(width: pageWidth, height: size.height)
                 }
             }
@@ -180,8 +178,8 @@ struct StationPickerView: View {
                 }
             }
         }
-        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
+        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
                                                                 lineWidth: selected ? 1.5 : 0.75))
         .onDrop(of: [UTType.plainText], delegate: StationReorderDrop(targetID: station.id, draggedID: $draggedID,
                                                                  lastTargetID: $lastReorderedTargetID) { id, target in
@@ -197,21 +195,22 @@ struct StationPickerView: View {
         if grid && !compact {
             VStack(spacing: 10) {
                 StationLogo(station: station).frame(width: 76, height: 64)
-                stationText(station).multilineTextAlignment(.center)
+                stationText(station, grid: grid).multilineTextAlignment(.center)
                 selectionMark(selected)
             }.frame(maxWidth: .infinity)
         } else {
             HStack(spacing: 12) {
                 StationLogo(station: station).frame(width: compact ? 52 : 62, height: 52)
-                stationText(station).frame(maxWidth: .infinity, alignment: .leading)
+                stationText(station, grid: grid).frame(maxWidth: .infinity, alignment: .leading)
                 selectionMark(selected)
             }
         }
     }
 
-    private func stationText(_ station: RadioStation) -> some View {
+    private func stationText(_ station: RadioStation, grid: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(station: station).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            Text(station: station).font(grid ? .subheadline.weight(.semibold) : .body)
+                .fixedSize(horizontal: false, vertical: true)
             if let subtitle = station.subtitle {
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

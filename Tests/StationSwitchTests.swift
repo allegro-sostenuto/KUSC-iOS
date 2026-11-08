@@ -6,6 +6,27 @@ import UIKit
 /// Hosted coordinator boundaries. The fixture intercepts session activation and
 /// connection starts; these tests never contact a station or emit audio.
 final class StationSwitchTests: XCTestCase {
+    @MainActor func testGlobalQualityPresetReconnectsOnlyOnceAndKeepsMetadataAndPausedIntent() {
+        let (model, restore) = fixture(playing: false)
+        defer { restore() }
+        model.selectStation("radio-swiss-classic")
+        model.configureAudioRecoveryForTesting(playing: true)
+        model.currentItem = .init(id: "preset-work", start: Date(), work: "Current work")
+        model.applyAudioQualityPreset(.highest)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertEqual(model.currentItem?.id, "preset-work")
+        XCTAssertEqual(model.selectedAudioSource.bitrateKbps, 192)
+        XCTAssertTrue(model.matchesAudioQualityPreset(.highest))
+        model.applyAudioQualityPreset(.highest)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        model.pauseRemote()
+        model.applyAudioQualityPreset(.lowest)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertTrue(model.matchesAudioQualityPreset(.lowest))
+        XCTAssertEqual(model.selectedStation.id, "radio-swiss-classic")
+    }
+
     @MainActor func testQualitySwitchRejoinsPlayingStationAndPreservesPausedIntent() {
         let (model, restore) = fixture(playing: false)
         defer { restore() }
