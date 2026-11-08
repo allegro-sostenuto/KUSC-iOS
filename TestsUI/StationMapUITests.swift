@@ -50,6 +50,57 @@ final class StationMapUITests: XCTestCase {
         XCTAssertTrue(app.buttons["choose-station"].label.contains("La Baroque"))
     }
 
+    @MainActor func testPinchZoomFollowsThresholdsAndSettingsChoosesPoliticalOrSatellite() {
+        let app = launch(dark: true)
+        defer { app.terminate() }
+        openMap(app)
+        let map = app.descendants(matching: .any)["stations-map"].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 10))
+        // Use genuine MapKit gestures, with no test-only camera driver.
+        for _ in 0..<4 {
+            if app.buttons["map-zoom-continent"].isSelected || app.buttons["map-zoom-country"].isSelected { break }
+            map.pinch(withScale: 1.6, velocity: 1)
+        }
+        XCTAssertFalse(app.buttons["map-zoom-globe"].isSelected)
+        capture("station-map-satellite-manual-zoom")
+        for _ in 0..<4 {
+            if app.buttons["map-zoom-country"].isSelected { break }
+            map.pinch(withScale: 2, velocity: 1)
+        }
+        XCTAssertTrue(app.buttons["map-zoom-country"].isSelected)
+        capture("station-map-satellite-country-gesture")
+        for _ in 0..<7 {
+            if app.buttons["map-zoom-globe"].isSelected { break }
+            map.pinch(withScale: 0.4, velocity: -1)
+        }
+        XCTAssertTrue(app.buttons["map-zoom-globe"].isSelected)
+        capture("station-map-satellite-globe-gesture")
+        app.buttons["Back to player"].tap()
+        app.buttons["Settings"].tap()
+        let style = app.descendants(matching: .any).matching(identifier: "station-map-style").firstMatch
+        for _ in 0..<10 {
+            if style.exists, style.isHittable, style.frame.maxY < app.frame.maxY - 30 { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(style.isHittable)
+        style.tap()
+        capture("station-map-style-settings")
+        let political = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Political")).firstMatch
+        XCTAssertTrue(political.waitForExistence(timeout: 5))
+        political.tap()
+        let back = app.navigationBars["Map Style"].buttons["Settings"]
+        if back.exists { back.tap() }
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(style.label.contains("Political") || (style.value as? String)?.contains("Political") == true)
+        app.buttons["Close"].tap()
+        app.buttons["choose-station"].tap()
+        capture("station-map-political-globe")
+        app.buttons["map-zoom-continent"].tap()
+        capture("station-map-political-continent")
+        app.buttons["map-zoom-country"].tap()
+        capture("station-map-political-country")
+    }
+
     @MainActor func testMapLandscapeAndExistingNativeGridListControls() {
         let app = launch(dark: false)
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }

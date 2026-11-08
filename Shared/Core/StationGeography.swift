@@ -78,10 +78,30 @@ enum StationGeography {
     }
 }
 
+enum StationMapStyle: String, CaseIterable, Identifiable {
+    case political, satellite
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
 enum StationMapZoom: String, CaseIterable, Identifiable {
     case globe, continent, country
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
+
+    /// Follow native camera distance without snapping it to a named shortcut.
+    /// Fit-derived boundaries account for country size and the viewport shape.
+    /// A small dead band prevents the selected segment flickering at a boundary.
+    func following(distance: Double, continentDistance: Double, countryDistance: Double) -> Self {
+        guard distance.isFinite, distance > 0, continentDistance > countryDistance,
+              countryDistance > 0, continentDistance < 45_000_000 else { return self }
+        let outer = sqrt(45_000_000 * continentDistance)
+        let inner = sqrt(continentDistance * countryDistance)
+        let outerThreshold = outer * (self == .globe ? 0.92 : 1.08)
+        let innerThreshold = inner * (self == .country ? 1.08 : 0.92)
+        if distance >= outerThreshold { return .globe }
+        return distance <= innerThreshold ? .country : .continent
+    }
 
     func span(focusing city: StationCity) -> (latitude: Double, longitude: Double)? {
         switch self {

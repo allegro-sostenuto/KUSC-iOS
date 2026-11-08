@@ -4,6 +4,7 @@ import MapKit
 struct StationMapView: View {
     let stations: [RadioStation]
     let selectedStation: RadioStation
+    let mapStyle: StationMapStyle
     let select: (RadioStation) -> Void
     @State private var zoom: StationMapZoom = .globe
     @State private var focusedCity: StationCity
@@ -11,9 +12,11 @@ struct StationMapView: View {
     @State private var presentedCity: StationCityGroup?
     @State private var pendingStation: RadioStation?
 
-    init(stations: [RadioStation], selectedStation: RadioStation, select: @escaping (RadioStation) -> Void) {
+    init(stations: [RadioStation], selectedStation: RadioStation, mapStyle: StationMapStyle,
+         select: @escaping (RadioStation) -> Void) {
         self.stations = stations
         self.selectedStation = selectedStation
+        self.mapStyle = mapStyle
         self.select = select
         _focusedCity = State(initialValue: StationGeography.city(for: selectedStation) ?? StationGeography.cities[0])
     }
@@ -23,7 +26,10 @@ struct StationMapView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker("Map zoom", selection: $zoom) {
+                Picker("Map zoom", selection: Binding(get: { zoom }, set: { level in
+                    zoom = level
+                    cameraRequest = UUID()
+                })) {
                     ForEach(StationMapZoom.allCases) { level in
                         Text(level.title).tag(level).accessibilityIdentifier("map-zoom-\(level.rawValue)")
                     }
@@ -41,8 +47,11 @@ struct StationMapView: View {
             }.padding(.horizontal, 16).padding(.vertical, 6)
 
             NativeStationMap(cities: cities, selectedCityID: StationGeography.city(for: selectedStation)?.id,
-                             zoom: zoom, focusedCity: focusedCity, cameraRequest: cameraRequest,
-                             choose: choose, focus: { focusedCity = $0 }, expandCluster: { city in
+                             zoom: zoom, mapStyle: mapStyle, focusedCity: focusedCity, cameraRequest: cameraRequest,
+                             choose: choose, cameraChanged: { city, level in
+                focusedCity = city
+                zoom = level // Following a gesture never issues a camera request.
+            }, expandCluster: { city in
                 focusedCity = city
                 if zoom == .globe { zoom = .continent }
                 else if zoom == .continent { zoom = .country }
@@ -51,7 +60,7 @@ struct StationMapView: View {
             .accessibilityIdentifier("stations-map")
 
             HStack(spacing: 8) {
-                Text(zoom == .globe ? "Tap a city to choose a station" : (zoom == .continent ? focusedCity.continent.name : focusedCity.countryName))
+                Text(zoom == .globe ? "Pinch to zoom · Tap a city to choose a station" : (zoom == .continent ? focusedCity.continent.name : focusedCity.countryName))
                     .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Button {
@@ -62,7 +71,6 @@ struct StationMapView: View {
                 }.accessibilityLabel("Centre on selected station").accessibilityIdentifier("map-recentre")
             }.padding(.leading, 16).padding(.trailing, 4)
         }
-        .onChange(of: zoom) { _ in cameraRequest = UUID() }
         .sheet(item: $presentedCity, onDismiss: {
             if let station = pendingStation {
                 pendingStation = nil
@@ -119,10 +127,11 @@ private struct NativeStationMap: UIViewRepresentable {
     let cities: [StationCityGroup]
     let selectedCityID: String?
     let zoom: StationMapZoom
+    let mapStyle: StationMapStyle
     let focusedCity: StationCity
     let cameraRequest: UUID
     let choose: (StationCityGroup) -> Void
-    let focus: (StationCity) -> Void
+    let cameraChanged: (StationCity, StationMapZoom) -> Void
     let expandCluster: (StationCity) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -130,7 +139,7 @@ private struct NativeStationMap: UIViewRepresentable {
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
         map.delegate = context.coordinator
-        map.isZoomEnabled = false // The three named controls are the three zoom levels.
+        map.isZoomEnabled = true
         map.isPitchEnabled = false
         map.showsUserLocation = false
         map.showsScale = false
@@ -144,33 +153,65 @@ private struct NativeStationMap: UIViewRepresentable {
     func updateUIView(_ map: MKMapView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        // Both imagery configurations use the same native globe. Only the
+        // borders/labels change at the continent threshold; camera stays put.
+        let presentation = mapStyle == .political ? "political"
+            : "satellite-\(zoom == .globe ? "globe" : "detail")"
+        if coordinator.lastPresentation != presentation {
+            coordinator.lastPresentation = presentation
+            switch mapStyle {
+            case .political:
+                let configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
+                configuration.pointOfInterestFilter = .excludingAll
+                map.preferredConfiguration = configuration
+            case .satellite where zoom == .globe:
+                map.preferredConfiguration = MKImageryMapConfiguration(elevationStyle: .realistic)
+            case .satellite:
+                let configuration = MKHybridMapConfiguration(elevationStyle: .realistic)
+                configuration.pointOfInterestFilter = .excludingAll
+                map.preferredConfiguration = configuration
+            }
+        }
         guard coordinator.lastCameraRequest != cameraRequest else { return }
         let first = coordinator.lastCameraRequest == nil
         coordinator.lastCameraRequest = cameraRequest
-        if zoom == .globe {
-            map.preferredConfiguration = MKImageryMapConfiguration(elevationStyle: .realistic)
-        } else {
-            let configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
-            configuration.pointOfInterestFilter = .excludingAll
-            map.preferredConfiguration = configuration
+        coordinator.movingToShortcut = true
+        coordinator.observedZoom = zoom
+        map.setCamera(Self.camera(for: zoom, city: focusedCity, map: map), animated: !first)
+    }
+
+    private static func camera(for zoom: StationMapZoom, city: StationCity, map: MKMapView) -> MKMapCamera {
+        let target = zoom.camera(focusing: city)
+        let centre = CLLocationCoordinate2D(latitude: target.latitude, longitude: target.longitude)
+        guard let span = zoom.span(focusing: city) else {
+            return MKMapCamera(lookingAtCenter: centre, fromDistance: target.distance, pitch: 0, heading: 0)
         }
-        let camera = zoom.camera(focusing: focusedCity)
-        let centre = CLLocationCoordinate2D(latitude: camera.latitude, longitude: camera.longitude)
-        if let span = zoom.span(focusing: focusedCity) {
-            let region = MKCoordinateRegion(center: centre,
-                span: .init(latitudeDelta: span.latitude, longitudeDelta: span.longitude))
-            map.setRegion(map.regionThatFits(region), animated: !first)
-        } else {
-            map.setCamera(MKMapCamera(lookingAtCenter: centre, fromDistance: camera.distance,
-                                      pitch: 0, heading: 0), animated: !first)
-        }
+        let northWest = MKMapPoint(CLLocationCoordinate2D(latitude: min(85, target.latitude + span.latitude / 2),
+                                                          longitude: target.longitude - span.longitude / 2))
+        let southEast = MKMapPoint(CLLocationCoordinate2D(latitude: max(-85, target.latitude - span.latitude / 2),
+                                                          longitude: target.longitude + span.longitude / 2))
+        let rect = MKMapRect(x: northWest.x, y: northWest.y,
+                             width: southEast.x - northWest.x, height: southEast.y - northWest.y)
+        let fitted = map.cameraThatFits(rect, edgePadding: UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24))
+        // Large/high-latitude regions must remain closer than the outer globe.
+        let maximumDistance = zoom == .continent ? 25_000_000
+            : camera(for: .continent, city: city, map: map).centerCoordinateDistance * 0.8
+        fitted.centerCoordinateDistance = min(fitted.centerCoordinateDistance, maximumDistance)
+        fitted.pitch = 0
+        fitted.heading = 0
+        return fitted
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         var parent: NativeStationMap
         var lastCameraRequest: UUID?
-        private var userMovedCamera = false
-        init(_ parent: NativeStationMap) { self.parent = parent }
+        var lastPresentation: String?
+        var movingToShortcut = false
+        var observedZoom: StationMapZoom
+        private var lastPublishedCityID: String?
+        private var referenceKey = ""
+        private var referenceDistances: (continent: Double, country: Double) = (15_000_000, 7_000_000)
+        init(_ parent: NativeStationMap) { self.parent = parent; observedZoom = parent.zoom }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             let clustered = annotation is MKClusterAnnotation
@@ -215,16 +256,43 @@ private struct NativeStationMap: UIViewRepresentable {
                 (view.gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
                     || view.subviews.contains(where: hasActiveGesture)
             }
-            userMovedCamera = hasActiveGesture(mapView)
+            if hasActiveGesture(mapView) { movingToShortcut = false }
+        }
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            guard !movingToShortcut else { return }
+            publishCamera(mapView)
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            guard userMovedCamera else { return }
-            userMovedCamera = false
+            if movingToShortcut {
+                movingToShortcut = false
+                return
+            }
+            publishCamera(mapView)
+        }
+
+        private func publishCamera(_ mapView: MKMapView) {
             let centre = mapView.centerCoordinate
             let city = StationGeography.nearestCity(latitude: centre.latitude, longitude: centre.longitude)
+            let key = "\(city.id)-\(mapView.bounds.size)-\(parent.mapStyle.rawValue)"
+            if referenceKey != key {
+                referenceKey = key
+                referenceDistances = (NativeStationMap.camera(for: .continent, city: city, map: mapView).centerCoordinateDistance,
+                                      NativeStationMap.camera(for: .country, city: city, map: mapView).centerCoordinateDistance)
+            }
+            let level = observedZoom.following(distance: mapView.camera.centerCoordinateDistance,
+                                               continentDistance: referenceDistances.continent,
+                                               countryDistance: referenceDistances.country)
+            guard level != observedZoom || city.id != lastPublishedCityID else { return }
+            observedZoom = level
+            lastPublishedCityID = city.id
+            let request = lastCameraRequest
             // Publish after the MapKit callback to avoid mutating SwiftUI state during an update.
-            DispatchQueue.main.async { [weak self] in self?.parent.focus(city) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.lastCameraRequest == request, !self.movingToShortcut else { return }
+                self.parent.cameraChanged(city, level)
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
@@ -50,6 +51,21 @@ struct SettingsView: View {
                     Text("Presets apply to all stations. Balanced chooses the available bitrate closest to KUSC (\(StationCatalog.defaultStation.defaultAudioSource.bitrateKbps) kbps), favouring the lower rate in a tie. Tap a station's bitrate to adjust it individually.")
                 }
 
+                Section {
+                    Picker("Map Style", selection: preference(\.stationMapStyle)) {
+                        ForEach(StationMapStyle.allCases) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    .accessibilityIdentifier("station-map-style")
+                    .modifier(SettingsRow(first: true, last: true))
+                } header: {
+                    Text("Map")
+                } footer: {
+                    Text("Political shows Apple's standard map. Satellite adds country borders and labels from continent zoom inward. Both zoom continuously from the globe to individual cities.")
+                }
+
                 Section("Interface") {
                     Toggle("Minimalist UI", isOn: preference(\.minimalist))
                         .modifier(SettingsRow(first: true, last: false))
@@ -94,26 +110,10 @@ struct SettingsView: View {
     }
 
     private var qualityPresets: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(spacing: 8))
-        return layout {
-            ForEach(StationQualityPreset.allCases) { preset in
-                Button { model.applyAudioQualityPreset(preset) } label: {
-                    Text(preset.title).lineLimit(1)
-                        .font(.subheadline.weight(.medium))
-                        .padding(.vertical, 6).frame(maxWidth: .infinity, minHeight: 44)
-                        .philharmonicControlSurface(Capsule())
-                        .overlay(Capsule().inset(by: 0.5).strokeBorder(
-                            model.matchesAudioQualityPreset(preset) ? Color.philharmonicRed : .clear,
-                            lineWidth: 1))
-                }
-                .buttonStyle(.plain).foregroundStyle(Color.philharmonicRed)
-                .accessibilityIdentifier("quality-preset-\(preset.rawValue)")
-                .accessibilityLabel("\(preset.title) quality for all stations")
-                .accessibilityAddTraits(model.matchesAudioQualityPreset(preset) ? [.isSelected] : [])
-            }
-        }.padding(.vertical, 4)
+        QualityPresetPicker(selection: StationQualityPreset.allCases.first(where: model.matchesAudioQualityPreset),
+                            select: model.applyAudioQualityPreset)
+            .frame(height: 32).frame(minHeight: 44)
+            .accessibilityIdentifier("quality-presets")
     }
 
     @ViewBuilder private func qualityRow(_ station: RadioStation) -> some View {
@@ -168,6 +168,34 @@ struct SettingsView: View {
         .accessibilityValue(model.settings.audioSource(for: station).description)
         .accessibilityIdentifier("quality-menu-\(station.id)")
         .disabled(station.audioSources.count == 1)
+    }
+}
+
+/// The same native segmented control used by the map's segmented Picker.
+/// UIKit explicitly supports noSegment for individually chosen qualities.
+private struct QualityPresetPicker: UIViewRepresentable {
+    let selection: StationQualityPreset?
+    let select: (StationQualityPreset) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UISegmentedControl {
+        let control = UISegmentedControl(items: StationQualityPreset.allCases.map(\.title))
+        control.accessibilityIdentifier = "quality-presets"
+        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        return control
+    }
+    func updateUIView(_ control: UISegmentedControl, context: Context) {
+        context.coordinator.parent = self
+        control.selectedSegmentIndex = selection.flatMap { StationQualityPreset.allCases.firstIndex(of: $0) }
+            ?? UISegmentedControl.noSegment
+    }
+    final class Coordinator: NSObject {
+        var parent: QualityPresetPicker
+        init(_ parent: QualityPresetPicker) { self.parent = parent }
+        @objc func changed(_ control: UISegmentedControl) {
+            guard StationQualityPreset.allCases.indices.contains(control.selectedSegmentIndex) else { return }
+            parent.select(StationQualityPreset.allCases[control.selectedSegmentIndex])
+        }
     }
 }
 

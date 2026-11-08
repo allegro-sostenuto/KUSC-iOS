@@ -30,6 +30,22 @@ final class StationGeographyTests: XCTestCase {
                        ["orpheus-camerata", "orpheus-russian-classical", "orpheus-large-scale"])
     }
 
+    func testGestureZoomCrossesBothThresholdsWithoutBoundaryFlicker() {
+        func follow(_ current: StationMapZoom, _ distance: Double) -> StationMapZoom {
+            current.following(distance: distance, continentDistance: 16_000_000, countryDistance: 4_000_000)
+        }
+        XCTAssertEqual(follow(.globe, 45_000_000), .globe)
+        XCTAssertEqual(follow(.globe, 20_000_000), .continent)
+        XCTAssertEqual(follow(.continent, 4_000_000), .country)
+        XCTAssertEqual(follow(.country, 16_000_000), .continent)
+        XCTAssertEqual(follow(.continent, 45_000_000), .globe)
+        XCTAssertEqual(follow(.globe, 4_000_000), .country, "A continuous fast pinch can cross both boundaries")
+        XCTAssertEqual(follow(.country, 8_100_000), .country)
+        XCTAssertEqual(follow(.continent, 7_900_000), .continent)
+        XCTAssertEqual(follow(.continent, .nan), .continent)
+        XCTAssertEqual(follow(.country, 0), .country)
+    }
+
     func testCountryFramingContainsEveryStationCityIncludingBothUSCities() throws {
         for city in StationGeography.cities {
             let camera = StationMapZoom.country.camera(focusing: city)

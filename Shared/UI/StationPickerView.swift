@@ -35,7 +35,8 @@ struct StationPickerView: View {
                 }
                 GeometryReader { viewport in
                     if map {
-                        StationMapView(stations: model.orderedStations, selectedStation: model.selectedStation) { station in
+                        StationMapView(stations: model.orderedStations, selectedStation: model.selectedStation,
+                                       mapStyle: model.settings.stationMapStyle) { station in
                             model.selectStation(station.id)
                             dismiss()
                         }

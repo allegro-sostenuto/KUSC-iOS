@@ -16,7 +16,8 @@ final class AudioQualityUITests: XCTestCase {
             defer { app.terminate() }
             XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 5))
             app.buttons["Settings"].tap()
-            let highest = app.buttons["quality-preset-highest"]
+            let presets = app.segmentedControls["quality-presets"]
+            let highest = presets.buttons["Highest"]
             XCTAssertTrue(highest.waitForExistence(timeout: 5))
             reach(highest, in: app, towardTop: true)
             highest.tap()
@@ -24,17 +25,26 @@ final class AudioQualityUITests: XCTestCase {
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]
             reach(swiss, in: app, towardTop: false)
             expectValue("192 kbps", of: swiss)
-            // Each stacked button needs its own visible bounds, below the navigation bar.
-            let balanced = app.buttons["quality-preset-balanced"]
+            let balanced = presets.buttons["Balanced"]
             reach(balanced, in: app, towardTop: true)
             balanced.tap()
             XCTAssertTrue(balanced.isSelected)
             reach(swiss, in: app, towardTop: false)
             expectValue("96 kbps", of: swiss)
-            let lowest = app.buttons["quality-preset-lowest"]
+            let lowest = presets.buttons["Lowest"]
             reach(lowest, in: app, towardTop: true)
             lowest.tap()
             XCTAssertTrue(lowest.isSelected)
+            reach(swiss, in: app, towardTop: false)
+            swiss.tap()
+            app.buttons["AAC · 192 kbps"].tap()
+            expectValue("192 kbps", of: swiss)
+            reach(highest, in: app, towardTop: true)
+            XCTAssertFalse(presets.buttons.allElementsBoundByIndex.contains { $0.isSelected },
+                           "Manual station choices leave every native segment unselected")
+            capture(largeText ? "quality-custom-accessibility3-dark" : "quality-custom-dark")
+            balanced.tap()
+            XCTAssertTrue(balanced.isSelected)
             capture(largeText ? "quality-presets-accessibility3-dark" : "quality-presets-dark")
             app.buttons["Close"].tap()
             XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))

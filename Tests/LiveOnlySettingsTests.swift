@@ -3,6 +3,35 @@ import XCTest
 @testable import Philharmonic_SE
 
 final class LiveOnlySettingsTests: XCTestCase {
+    func testMapStyleAndExplicitPresetPersistWithoutChangingOlderPreferences() throws {
+        let suite = "map-quality-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var settings = AppSettings()
+        settings.autoplay = false; settings.appearance = "dark"
+        settings.scheduledStartDefaults = .init(allowOnBattery: true)
+        settings.save(to: defaults)
+        XCTAssertEqual(AppSettings.load(from: defaults).stationMapStyle, .satellite)
+        XCTAssertNil(AppSettings.load(from: defaults).audioQualityPreset)
+        settings.stationMapStyle = .political
+        settings.audioQualityPreset = .highest
+        settings.save(to: defaults)
+        XCTAssertEqual(AppSettings.load(from: defaults), settings)
+        settings.audioQualityPreset = nil
+        settings.save(to: defaults)
+        XCTAssertNil(AppSettings.load(from: defaults).audioQualityPreset)
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        fields["stationMapAppearance"] = "future-style"
+        fields["appliedAudioQualityPreset"] = "future-preset"
+        defaults.set(try JSONSerialization.data(withJSONObject: fields), forKey: "settings.v1")
+        let restored = AppSettings.load(from: defaults)
+        XCTAssertEqual(restored.stationMapStyle, .satellite)
+        XCTAssertNil(restored.audioQualityPreset)
+        XCTAssertFalse(restored.autoplay)
+        XCTAssertEqual(restored.appearance, "dark")
+        XCTAssertEqual(restored.scheduledStartDefaults, settings.scheduledStartDefaults)
+    }
+
     func testPerStationQualityPersistsWithoutLosingLegacySettings() throws {
         let suite = "quality-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

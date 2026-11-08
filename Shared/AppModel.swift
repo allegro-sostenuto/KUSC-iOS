@@ -307,8 +307,14 @@ import Network
 
     func setAudioSource(_ sourceID: String, for stationID: String) {
         guard let station = StationCatalog.station(id: stationID),
-              station.audioSources.contains(where: { $0.id == sourceID }),
-              settings.audioSource(for: station).id != sourceID else { return }
+              station.audioSources.contains(where: { $0.id == sourceID }) else { return }
+        // An explicit individual choice is custom, even if its bitrate happens
+        // to match a preset. Selecting the same source must not reconnect audio.
+        settings.audioQualityPreset = nil
+        guard settings.audioSource(for: station).id != sourceID else {
+            settings.save()
+            return
+        }
         let previous = selectedAudioSource
         recordDebugEvent(category: "settings", name: "quality_changed",
                          details: ["target_station_id": stationID, "chosen_source_id": sourceID])
@@ -324,6 +330,7 @@ import Network
         for station in StationCatalog.stations {
             updated.setAudioSource(preset.source(for: station).id, for: station)
         }
+        updated.audioQualityPreset = preset
         settings = updated
         settings.save()
         // Apply the whole batch before considering one active-stream reconnect.
@@ -331,7 +338,8 @@ import Network
     }
 
     func matchesAudioQualityPreset(_ preset: StationQualityPreset) -> Bool {
-        StationCatalog.stations.allSatisfy { settings.audioSource(for: $0) == preset.source(for: $0) }
+        settings.audioQualityPreset == preset &&
+            StationCatalog.stations.allSatisfy { settings.audioSource(for: $0) == preset.source(for: $0) }
     }
 
     private func finishAudioQualityChange(previous: StationAudioSource) {

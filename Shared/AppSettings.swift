@@ -12,6 +12,16 @@ struct AppSettings: Codable, Equatable {
     var lastSleepMinutes = 0
     var scheduledStartDefaults: ScheduledStartOptions?
     var scheduledOutputDefault: ScheduledOutputPreference?
+    private var stationMapAppearance: String?
+    private var appliedAudioQualityPreset: String?
+    var stationMapStyle: StationMapStyle {
+        get { stationMapAppearance.flatMap(StationMapStyle.init(rawValue:)) ?? .satellite }
+        set { stationMapAppearance = newValue.rawValue }
+    }
+    var audioQualityPreset: StationQualityPreset? {
+        get { appliedAudioQualityPreset.flatMap(StationQualityPreset.init(rawValue:)) }
+        set { appliedAudioQualityPreset = newValue?.rawValue }
+    }
     // Optional storage preserves settings.v1 on upgrade. Unknown/retired source
     // IDs use that station's default without discarding unrelated preferences.
     private var stationAudioSources: [String: String]?
