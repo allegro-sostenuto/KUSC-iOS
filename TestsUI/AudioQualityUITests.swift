@@ -18,23 +18,41 @@ final class AudioQualityUITests: XCTestCase {
             app.buttons["Settings"].tap()
             let highest = app.buttons["quality-preset-highest"]
             XCTAssertTrue(highest.waitForExistence(timeout: 5))
+            reach(highest, in: app, towardTop: true)
             highest.tap()
             XCTAssertTrue(highest.isSelected)
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]
-            if !swiss.isHittable { app.swipeUp() }
+            reach(swiss, in: app, towardTop: false)
             XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
-            // Return to the top so the accessibility-sized preset row remains reachable.
-            if !highest.isHittable { app.swipeDown() }
-            app.buttons["quality-preset-balanced"].tap()
-            if !swiss.isHittable { app.swipeUp() }
+            // Each stacked button needs its own visible bounds, below the navigation bar.
+            let balanced = app.buttons["quality-preset-balanced"]
+            reach(balanced, in: app, towardTop: true)
+            balanced.tap()
+            XCTAssertTrue(balanced.isSelected)
+            reach(swiss, in: app, towardTop: false)
             XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
-            if !highest.isHittable { app.swipeDown() }
-            app.buttons["quality-preset-lowest"].tap()
+            let lowest = app.buttons["quality-preset-lowest"]
+            reach(lowest, in: app, towardTop: true)
+            lowest.tap()
+            XCTAssertTrue(lowest.isSelected)
             capture(largeText ? "quality-presets-accessibility3-dark" : "quality-presets-dark")
             app.buttons["Close"].tap()
             XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["Pause"].exists)
         }
+    }
+
+    @MainActor private func reach(_ button: XCUIElement, in app: XCUIApplication, towardTop: Bool) {
+        for _ in 0..<6 {
+            if button.exists {
+                let frame = button.frame
+                let navigationBottom = app.navigationBars.firstMatch.frame.maxY
+                if frame.minY >= navigationBottom + 2, frame.maxY <= app.frame.maxY - 30,
+                   button.isHittable { return }
+            }
+            if towardTop { app.swipeDown() } else { app.swipeUp() }
+        }
+        XCTFail("Control not fully visible: \(button.identifier)")
     }
 
     @MainActor func testChannelBitrateDropdownsAndPausedPlaybackInLightAndDark() {

@@ -83,6 +83,21 @@ enum StationMapZoom: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
 
+    func span(focusing city: StationCity) -> (latitude: Double, longitude: Double)? {
+        switch self {
+        case .globe: return nil
+        case .continent: return city.continent == .europe ? (60, 100) : (80, 138)
+        case .country:
+            // Native region fitting accommodates portrait and landscape aspect ratios.
+            // US/Portugal frame the mainland; Russia frames the station's western region.
+            let spans: [String: (Double, Double)] = ["us": (32, 64), "ch": (3.4, 5.2),
+                "se": (18, 16), "fr": (11.6, 16), "de": (10, 14), "pl": (10, 14),
+                "ru": (32, 64), "hr": (8, 10), "fi": (15, 16), "it": (17, 16),
+                "ro": (9, 12), "pt": (10, 8), "nl": (5, 6)]
+            return spans[city.countryCode] ?? (10, 14)
+        }
+    }
+
     func camera(focusing city: StationCity) -> StationMapCamera {
         switch self {
         case .globe:

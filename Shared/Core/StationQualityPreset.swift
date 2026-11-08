@@ -10,14 +10,6 @@ enum StationQualityPreset: String, CaseIterable, Identifiable {
         case .highest: return "Highest"
         }
     }
-    var symbol: String {
-        switch self {
-        case .lowest: return "arrow.down"
-        case .balanced: return "equal"
-        case .highest: return "arrow.up"
-        }
-    }
-
     func source(for station: RadioStation) -> StationAudioSource {
         let target = StationCatalog.defaultStation.defaultAudioSource.bitrateKbps
         return station.audioSources.min { left, right in

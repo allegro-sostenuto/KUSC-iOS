@@ -30,6 +30,17 @@ final class StationGeographyTests: XCTestCase {
                        ["orpheus-camerata", "orpheus-russian-classical", "orpheus-large-scale"])
     }
 
+    func testCountryFramingContainsEveryStationCityIncludingBothUSCities() throws {
+        for city in StationGeography.cities {
+            let camera = StationMapZoom.country.camera(focusing: city)
+            let span = try XCTUnwrap(StationMapZoom.country.span(focusing: city))
+            for other in StationGeography.cities where other.countryCode == city.countryCode {
+                XCTAssertLessThan(abs(other.latitude - camera.latitude), span.latitude / 2, other.name)
+                XCTAssertLessThan(abs(other.longitude - camera.longitude), span.longitude / 2, other.name)
+            }
+        }
+    }
+
     func testThreeProgressivelyCloserZoomsAndLongitudeWrap() throws {
         XCTAssertEqual(StationMapZoom.allCases, [.globe, .continent, .country])
         for city in StationGeography.cities {

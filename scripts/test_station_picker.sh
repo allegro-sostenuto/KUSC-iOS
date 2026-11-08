@@ -62,6 +62,9 @@ if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicUITests/StationMapUITests
         -only-testing:PhilharmonicUITests/AudioQualityUITests
     )
+    if [ "${PHILHARMONIC_PRESETS_UI_ONLY:-0}" = 1 ]; then
+        tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests/testGlobalPresetsKeepActualBitratesAndPausedIntent)
+    fi
 fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \

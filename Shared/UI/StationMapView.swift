@@ -155,8 +155,15 @@ private struct NativeStationMap: UIViewRepresentable {
             map.preferredConfiguration = configuration
         }
         let camera = zoom.camera(focusing: focusedCity)
-        map.setCamera(MKMapCamera(lookingAtCenter: .init(latitude: camera.latitude, longitude: camera.longitude),
-                                  fromDistance: camera.distance, pitch: 0, heading: 0), animated: !first)
+        let centre = CLLocationCoordinate2D(latitude: camera.latitude, longitude: camera.longitude)
+        if let span = zoom.span(focusing: focusedCity) {
+            let region = MKCoordinateRegion(center: centre,
+                span: .init(latitudeDelta: span.latitude, longitudeDelta: span.longitude))
+            map.setRegion(map.regionThatFits(region), animated: !first)
+        } else {
+            map.setCamera(MKMapCamera(lookingAtCenter: centre, fromDistance: camera.distance,
+                                      pitch: 0, heading: 0), animated: !first)
+        }
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {

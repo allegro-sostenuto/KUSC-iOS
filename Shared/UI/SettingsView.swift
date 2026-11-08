@@ -99,12 +99,15 @@ struct SettingsView: View {
         return layout {
             ForEach(StationQualityPreset.allCases) { preset in
                 Button { model.applyAudioQualityPreset(preset) } label: {
-                    Label(preset.title, systemImage: preset.symbol)
+                    Text(preset.title).lineLimit(1)
                         .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity, minHeight: 32)
+                        .padding(.vertical, 6).frame(maxWidth: .infinity, minHeight: 44)
+                        .philharmonicControlSurface(Capsule())
+                        .overlay(Capsule().inset(by: 0.5).strokeBorder(
+                            model.matchesAudioQualityPreset(preset) ? Color.philharmonicRed : .clear,
+                            lineWidth: 1))
                 }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                .tint(.philharmonicRed)
+                .buttonStyle(.plain).foregroundStyle(Color.philharmonicRed)
                 .accessibilityIdentifier("quality-preset-\(preset.rawValue)")
                 .accessibilityLabel("\(preset.title) quality for all stations")
                 .accessibilityAddTraits(model.matchesAudioQualityPreset(preset) ? [.isSelected] : [])
