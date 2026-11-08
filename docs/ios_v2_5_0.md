@@ -75,5 +75,55 @@ notification, interruption, route or retry policy. Pause remains live-only.
 
 ## Verification and packages
 
-Pending focused core journal/redaction tests, hosted coordinator/engine checks,
-native debug/share UI evidence and both Release device builds.
+Focused validation passed in [run 79](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42465088172)
+at source `6c90cb44f0c56a75b4158feb1855b640f8c7b9f5`:
+
+- 16 core tests: four persistent journal/retention/share/redaction tests and
+  twelve existing focused-capture tests.
+- 69 hosted simulator tests: five engine cases, two live-only settings cases,
+  six media-service recovery cases, three diagnostics integration cases,
+  41 scheduled-start boundary cases and twelve station-switch cases.
+- One native UI case: Settings → debug, persisted history visible before a
+  focused capture, recent-log navigation, capture start/stop, Copy Recent Logs
+  and an actual native file share sheet. Three original simulator screenshots
+  were reviewed in `artifacts/ios-2.5.0/ui-preview.html`.
+- Both Release device targets compiled with their embedded extensions.
+
+The final source additionally includes read-only device-volume/category fields
+and requests a current engine snapshot on opening, refreshing or sharing debug.
+The existing successful tests were not repeated for those small additions;
+both final Release targets are built again in run 80. Local source validation
+parsed 89 Swift files with no structural errors; that check is not type checking.
+
+All 23 event names suggested by the pasted integration guide have corresponding
+instrumentation. The table above documents the actual callback semantics;
+matching a name alone does not prove a real-device event occurred.
+
+No physical-device installation, audible output, unattended locked-phone
+scheduled start or real 24-hour device endurance run was performed. The rolling
+cutoff and relaunch persistence were tested with controlled timestamps and
+reopened files. The native UI fixture does not establish live station reachability.
+
+Final packages passed [run 80](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42466161082)
+from source **`c04149df91c67d049443c358fd3af810a1996510`**, version **2.5.0**,
+build **80**, with Xcode 26.6 and iPhoneOS SDK 26.5. The build-only run deliberately
+skipped repeat tests. CI checked arm64 iOS platform, deployment targets, signing
+material and package structure. Downloaded archives passed CRC, source/build,
+version, identifier, App Group, extension and CI checksum checks.
+
+| Target | IPA bytes | SHA-256 |
+|---|---:|---|
+| Philharmonic-17 | 1,814,541 | `585e61daf549bc67bcca7de7f6d8e534c04b0d691a52f724ac73860e40512df6` |
+| Philharmonic-SE | 1,779,938 | `223fe8320f8533e6081ef08d748a987a81f2d4f97397ae22ff9d464a5495cbfb` |
+
+Local packages and machine-readable verification:
+
+- `artifacts/ci-42466161082/Philharmonic-17/Philharmonic-17-unsigned.ipa`
+- `artifacts/ci-42466161082/Philharmonic-SE/Philharmonic-SE-unsigned.ipa`
+- `artifacts/ci-42466161082/verified-builds.json`
+
+The modern Live Activity and classic widget extensions remain embedded with
+their existing identifiers/App Groups. Widget and Live Activity presentation
+sources match pre-flag revision `11997c8`; app-only flags remain in the main
+asset catalogue. The IPAs require AltStore signing before installation and
+have not been installed on a phone in this validation.

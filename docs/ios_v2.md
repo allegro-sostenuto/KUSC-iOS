@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.5.0 update](ios_v2_5_0.md) renames Playback Diagnostics to debug,
+integrates the user's Work-mode recovery source and retains a local 24-hour log.
+
 The [2.4.0 update](ios_v2_4_0.md) adds station selection on a globe with three
 zoom levels, global quality presets and minor native UI refinements.
 
