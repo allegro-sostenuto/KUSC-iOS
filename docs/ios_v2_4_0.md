@@ -22,6 +22,9 @@
   16-point page insets and continuous card corners. List names use native body
   typography. Settings About shows Version and Build on separate native rows.
   Accessibility text sizes stack preset buttons instead of compressing labels.
+  Preset titles fit on one line, with black dark-mode surfaces and a border
+  marking the selected preset. Native region fitting keeps country views useful
+  in both orientations, including both US city pins.
 
 Owned dark surfaces remain black with borders. Main player layout, transport
 and header animations, app identifiers, preferences, App Groups, scheduled
@@ -53,16 +56,51 @@ not transmitter locations or a claim that every programme is produced there.
 
 ## Verification
 
-Pending focused GitHub Actions compilation, policy/boundary tests and native UI
-captures. Portable source validation parsed 86 Swift files without syntax
-errors; this is a structural check, not a Swift type-check.
+Both Release device builds passed in [run 78](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42460731144),
+source `587792a9935fe6a03d95dd6b93a954d546746419`, using Xcode 26.6 and SDK 26.5.
+App and embedded widget extension both report 2.4.0 (build 78). ZIP integrity,
+CI checksums, source record, versions, bundle IDs and App Groups were verified.
+Flags remain app-only; widget/Live Activity sources still match `11997c8`.
+
+All 14 hosted station-switching and live-only settings boundary tests passed in
+[run 76](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42458322481),
+including the new global-preset single-reconnect/paused-intent case. These use
+an isolated engine fixture and do not stream or emit audio. The coordinator
+code is unchanged in subsequent runs.
+
+[Run 77](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42459837621)
+passed all 17 portable catalogue, geography and quality-preset policy tests and
+both native map UI cases. These exercise three zoom levels, a real city-pin
+tap, direct selection/dismissal, Paris and Moscow station lists, cancellation,
+saved map mode, grid/list controls, reordering and landscape.
+
+The capture review corrected wrapped preset labels and country framing that
+cropped a US city. The final app uses native region fitting. Both Quality UI
+cases passed in run 78: light/dark channel menus and aligned kbps controls, plus
+global presets at regular/accessibility text sizes and paused intent. Only test
+scrolling/value-wait helpers and CI scope changed between runs 77 and 78; app
+sources are identical. All four focused UI cases passed across runs 77 and 78.
+
+Portable source validation parsed 86 Swift files without syntax errors; this
+is a structural check, not a Swift type-check. Both changed test scripts passed
+`bash -n`. Native captures use an iPhone 17 / iOS 26.5 simulator with Debug
+fixtures (local build 1), and were visually inspected. Gallery:
+`artifacts/ios-2.4.0/ui-preview.html`. iOS 16 has compilation coverage only.
+The historical screenshot sweep, stream probes and physical-device checks were
+not run. No physical installation or audio-output claim is made.
+
+## Verified packages
+
+The IPAs preserve the existing app IDs, App Groups and embedded widget extension.
+AltStore must sign them before installation.
+
+| Package | SHA-256 |
+|---|---|
+| `artifacts/ci-42460731144/Philharmonic-17/Philharmonic-17-unsigned.ipa` | `2bf12b35ba0cfc5c4ebab60fe35c1fcabe1db2c948c8f0f7f131ed620dd35ed1` |
+| `artifacts/ci-42460731144/Philharmonic-SE/Philharmonic-SE-unsigned.ipa` | `7871a3e11b20a7dbe0fbfd7b13141d820ac2c702df3f6c86b5df7dc7fd53cebd` |
 
 ## Recognition follow-up
 
-The user's recognition request is explicitly sequenced after this release and
-the completed evaluation in chat `misc`. That evaluation finds no ready-made
-free/open classical recogniser with a broad public excerpt catalogue. Its first
-recommendation is an audfprint feasibility experiment against a labelled local
-reference collection, including unknown recordings and other performances as
-negative cases. Do not present an unbuilt catalogue or engine as a working
-app identification service. No recognition implementation is included here.
+The user's November 8 instruction holds ShazamIO/recognition integration until
+explicitly resumed. A future recognition catalogue may be closed-source if
+free to use. This release contains UI work only; Android remains deferred.

@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.4.0 update](ios_v2_4_0.md) adds station selection on a globe with three
+zoom levels, global quality presets and minor native UI refinements.
+
 The [2.3.0 UI update](ios_v2_3_0.md) completes the saved Settings, artwork,
 control-shape and header-animation backlog, easiest items first.
 
