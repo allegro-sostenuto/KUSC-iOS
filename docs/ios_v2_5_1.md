@@ -51,7 +51,7 @@ fall back safely for unknown future style/preset values.
 
 Focused validation passed in
 [run 82](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42472156510)
-at the same source as both final IPAs:
+at source `3cbdb3d196b0b55bb1e95282defe93b9a8c323d7` (build 82):
 
 - 18 core policy tests: ten catalogue/migration cases, five geography/zoom cases
   and three quality-preset cases, including threshold crossing and hysteresis.
@@ -70,30 +70,39 @@ at the same source as both final IPAs:
   local script does not type-check or execute the tests.
 
 Native captures use an iPhone 17 / iOS 26.5 simulator with Debug fixtures.
+23 original captures are collected in `artifacts/ios-2.5.1/ui-preview.html`.
+Satellite overview/continent/country and native selected/custom quality controls
+were visually reviewed, including accessibility text size. Political overview
+and style-picker captures landed during navigation transitions; those frames
+are labelled as such and are not settled-map visual evidence.
+
+The final source only adds the Political/World label and the accurate Settings
+description of Apple's flat political map. The successful tests were not
+repeated for these text changes; both Release packages are built again in run 83.
 iOS 16 has compilation coverage only. Live station probes, the historical
 screenshot sweep and physical-device checks were not run. The fixture does not
 establish live audio, unattended scheduling or a physical phone installation.
 
-## Device packages (build 82 validation)
+## Final device packages
 
 Both Release device builds compiled in
-[run 82](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42472156510),
-source `3cbdb3d196b0b55bb1e95282defe93b9a8c323d7`, with version 2.5.1,
-build 82, Xcode 26.6 and iPhoneOS SDK 26.5. Downloaded IPAs passed ZIP CRC,
+[run 83](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42473703011),
+source `0abb8ba3cbf93de9f35974a789358358a6c257e0`, with version 2.5.1,
+build 83, Xcode 26.6 and iPhoneOS SDK 26.5. Downloaded IPAs passed ZIP CRC,
 source/build/version, identifiers, App Groups, embedded extension and CI
 checksum checks. CI also checked arm64 iOS platform, deployment targets and
 signing material.
 
 | Target | IPA bytes | SHA-256 |
 |---|---:|---|
-| Philharmonic-17 | 1,817,289 | `6c8118d75a64070cc7ecd425e1c4e797c394fb7a23ac3d6137c0b598aca6b8ea` |
-| Philharmonic-SE | 1,783,954 | `d7bd766c97f78e55f946efe470221969937bf6a4f1dcb07275be7cbc600d38f0` |
+| Philharmonic-17 | 1,817,492 | `e6a28e6996ccbac6c9e092a3e8dcf54ee167d67f3211a44936771b0db7d1311f` |
+| Philharmonic-SE | 1,784,353 | `f9eb956e8393402be0972698293a47c434644d7c3e2e60b5a15c68ae9482121d` |
 
 Local packages and machine-readable verification:
 
-- `artifacts/ci-42472156510/Philharmonic-17/Philharmonic-17-unsigned.ipa`
-- `artifacts/ci-42472156510/Philharmonic-SE/Philharmonic-SE-unsigned.ipa`
-- `artifacts/ci-42472156510/verified-builds.json`
+- `artifacts/ci-42473703011/Philharmonic-17/Philharmonic-17-unsigned.ipa`
+- `artifacts/ci-42473703011/Philharmonic-SE/Philharmonic-SE-unsigned.ipa`
+- `artifacts/ci-42473703011/verified-builds.json`
 
 AltStore signing is required before installation. Neither IPA is claimed to
 have been installed or tested on a physical iPhone.
