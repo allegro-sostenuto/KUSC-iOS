@@ -1,5 +1,9 @@
 # Philharmonic iOS 2.0.0
 
+The [2.5.2 update](ios_v2_5_2.md) audits animation behavior, adds a geometric
+Play/Pause morph, improves native layout/gesture transitions and keeps station
+selection in Stations.
+
 The [2.5.1 update](ios_v2_5_1.md) makes map zoom continuous, adds a saved map
 style and uses native quality segments with an unselected custom state.
 
