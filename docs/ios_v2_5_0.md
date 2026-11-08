@@ -13,6 +13,8 @@ The pasted source was read directly; the linked private chat was not accessible.
 The wrapper Python was parsed as data, not executed. Original extracted files
 and their checksum are retained locally in
 `artifacts/debug-24h/recovered-source/provenance.json`.
+Pasted source SHA-256:
+`9e826cf457fb34f76b95ecb561b4121c74ee8335da593a28ad8946bccda98ec9`.
 
 The recovered actor's structured JSONL event model and immutable share file are
 integrated with the app's existing observable diagnostics facade and actual
@@ -55,11 +57,11 @@ boundaries visible without claiming that a notification was delivered.
 | Selected station, source, kbps, preset, Play/Pause/Stop | Coordinator actions and state transitions |
 | Stream attempt, failure, cancellation, stale callback, retry budget/outcome | `startConnection`, `connectionFailed`, retry policy and observed media progression |
 | First media data / successful playback | AVPlayer media clock advances while playing; never inferred merely from `play()` |
-| Readiness, waiting reason, rate, buffer-empty/keep-up and loaded ranges | Native player observations and bounded snapshots |
+| Readiness, waiting reason, rate, buffer-empty/keep-up and loaded ranges | Native player observations and bounded snapshots; opening/sharing debug forces a current snapshot |
 | Native access/error log, bytes, observed/indicated bitrate, stalls | AVPlayerItem access/error/stall notifications |
 | HTTP request, response/status, timing, byte count, failure | KUSC HLS preparation fetches; source URLs and headers are not logged |
 | System path status, Wi-Fi/cellular, constrained/expensive | Read-only NWPathMonitor; not a claim of station reachability |
-| Audio activation attempt/success/error, interruption/resume, route/reset | Existing audio-session coordinator entry points |
+| Audio activation attempt/success/error, category/options, device/software volume, interruption/resume, route/reset | Existing audio-session coordinator entry points and snapshots |
 | Scheduled creation/replacement/cancellation/attempt, phases, expiry | Existing request/generation and scheduler transitions |
 | Scheduled playback confirmation | Actual media progression after target time with positive software gain |
 | Notification authorization, scheduling success/error, removal, response | Notification coordinator; scheduling acceptance is distinct from delivery |

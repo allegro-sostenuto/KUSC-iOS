@@ -774,7 +774,8 @@ final class RollingAudioEngine {
             let range = value.timeRangeValue
             return "\(range.start.seconds)+\(range.duration.seconds)"
         }.joined(separator: ",") ?? "none"
-        let native = "rate=\(player?.rate ?? 0) timeControl=\(player?.timeControlStatus.rawValue ?? -1) itemStatus=\(item?.status.rawValue ?? -1) bufferEmpty=\(item?.isPlaybackBufferEmpty ?? false) keepUp=\(item?.isPlaybackLikelyToKeepUp ?? false) loaded=[\(loaded)]"
+        let session = AVAudioSession.sharedInstance()
+        let native = "rate=\(player?.rate ?? 0) timeControl=\(player?.timeControlStatus.rawValue ?? -1) itemStatus=\(item?.status.rawValue ?? -1) bufferEmpty=\(item?.isPlaybackBufferEmpty ?? false) keepUp=\(item?.isPlaybackLikelyToKeepUp ?? false) loaded=[\(loaded)] systemVolume=\(session.outputVolume) otherAudio=\(session.isOtherAudioPlaying)"
         let itemCount = bufferedPlayer?.queueCount ?? (item == nil ? 0 : 1)
         let last = segments.last?.end
         let live = transportClock.sample.window?.live

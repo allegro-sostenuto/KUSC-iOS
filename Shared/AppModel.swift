@@ -359,6 +359,8 @@ import Network
 
     func stopPlaybackDiagnostics() { diagnostics.stop() }
 
+    func captureDebugSnapshot() { engine.recordDiagnosticSnapshot() }
+
     func recordLifecycle(_ phase: String) {
         recordDebugEvent(category: "app", name: "scene_phase_changed", details: ["phase": phase])
     }
@@ -1654,7 +1656,10 @@ import Network
         do {
             try configureAudioSession(forceSpeaker: forceSpeaker, mixWithOthers: mixWithOthers)
             recordDebugEvent(category: "audio_session", name: "audio_session_activation_succeeded",
-                             details: ["output_types": AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")])
+                             details: ["output_types": AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ","),
+                                       "category": AVAudioSession.sharedInstance().category.rawValue,
+                                       "category_options": String(AVAudioSession.sharedInstance().categoryOptions.rawValue),
+                                       "system_volume": String(AVAudioSession.sharedInstance().outputVolume)])
         } catch {
             recordDebugEvent(category: "audio_session", name: "audio_session_activation_failed",
                              details: ["error": PlaybackDiagnosticLog.sanitizedError(error)])

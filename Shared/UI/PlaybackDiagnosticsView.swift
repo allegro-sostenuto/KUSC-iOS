@@ -96,6 +96,7 @@ struct PlaybackDiagnosticsView: View {
             Section("Report") {
                 VStack(alignment: .leading, spacing: 12) {
                     Button {
+                        model.captureDebugSnapshot()
                         preparingReport = true
                         Task {
                             defer { preparingReport = false }
@@ -134,8 +135,8 @@ struct PlaybackDiagnosticsView: View {
         .navigationTitle("debug")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.philharmonicBackground, for: .navigationBar)
-        .task { await diagnostics.refreshHistory() }
-        .refreshable { await diagnostics.refreshHistory() }
+        .task { model.captureDebugSnapshot(); await diagnostics.refreshHistory() }
+        .refreshable { model.captureDebugSnapshot(); await diagnostics.refreshHistory() }
         .sheet(item: $shareReport) { DiagnosticsShareSheet(reportURL: $0.url) }
         .confirmationDialog("Clear the local debug log?", isPresented: $confirmingClear, titleVisibility: .visible) {
             Button("Clear Log", role: .destructive) {
