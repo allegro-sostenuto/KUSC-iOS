@@ -66,6 +66,12 @@ if [ "${PHILHARMONIC_UI_POLISH_ONLY:-0}" = 1 ]; then
             -only-testing:PhilharmonicUITests/AudioQualityUITests/testGlobalPresetsKeepActualBitratesAndPausedIntent
         )
     fi
+    if [ "${PHILHARMONIC_NATIVE_LAYOUT_ONLY:-0}" = 1 ]; then
+        tests=(
+            -only-testing:PhilharmonicUITests/NativeMotionUITests
+            -only-testing:PhilharmonicUITests/StationPickerUITests/testGridListRotationAndHorizontalReachability
+        )
+    fi
 fi
 if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
     tests=(

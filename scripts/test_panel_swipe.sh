@@ -52,6 +52,9 @@ checks=(
 if [ "${PHILHARMONIC_LANDSCAPE_ONLY:-false}" = true ]; then
     checks=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testLandscapeLiveOnlyControlsAndPaging)
 fi
+if [ "${PHILHARMONIC_FIRST_SWIPE_ONLY:-0}" = 1 ]; then
+    checks=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup)
+fi
 configuration=Debug
 if [ "${PHILHARMONIC_RELEASE_SWIPE_ONLY:-false}" = true ]; then
     configuration=Release

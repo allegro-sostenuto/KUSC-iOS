@@ -32,7 +32,7 @@ on:
       ui_polish_scope:
         description: Run focused UI polish, Appearance or native motion checks
         type: choice
-        options: [all, appearance, motion]
+        options: [all, appearance, motion, motion-layout]
         default: all
         required: false
       landscape_only_check:
@@ -77,7 +77,7 @@ jobs:
     name: Station switching and native picker checks
     if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality' || inputs.map_quality_check == 'debug')
     runs-on: macos-26
-    timeout-minutes: ${{ inputs.ui_polish_scope == 'motion' && 25 || 20 }}
+    timeout-minutes: ${{ (inputs.ui_polish_scope == 'motion' || inputs.ui_polish_scope == 'motion-layout') && 35 || 20 }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
@@ -99,6 +99,7 @@ jobs:
           PHILHARMONIC_UI_POLISH_ONLY: ${{ inputs.ui_polish_check && '1' || '0' }}
           PHILHARMONIC_UI_POLISH_APPEARANCE_ONLY: ${{ inputs.ui_polish_scope == 'appearance' && '1' || '0' }}
           PHILHARMONIC_NATIVE_MOTION_ONLY: ${{ inputs.ui_polish_scope == 'motion' && '1' || '0' }}
+          PHILHARMONIC_NATIVE_LAYOUT_ONLY: ${{ inputs.ui_polish_scope == 'motion-layout' && '1' || '0' }}
           PHILHARMONIC_MAP_QUALITY_ONLY: ${{ (inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality') && '1' || '0' }}
           PHILHARMONIC_QUALITY_SETTINGS_ONLY: ${{ inputs.map_quality_check == 'quality' && '1' || '0' }}
           PHILHARMONIC_DEBUG_UI_ONLY: ${{ inputs.map_quality_check == 'debug' && '1' || '0' }}
@@ -162,6 +163,7 @@ jobs:
         env:
           PHILHARMONIC_LANDSCAPE_ONLY: ${{ inputs.landscape_only_check }}
           PHILHARMONIC_RELEASE_SWIPE_ONLY: ${{ inputs.release_swipe_check }}
+          PHILHARMONIC_FIRST_SWIPE_ONLY: ${{ inputs.ui_polish_scope == 'motion-layout' && '1' || '0' }}
         run: bash scripts/test_panel_swipe.sh
       - name: Upload focused gesture evidence
         if: always()
