@@ -135,7 +135,7 @@ struct NowPlayingMetadata: View {
 struct PlayerControls: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     let landscape: Bool
     let togglePlayback: () -> Void
     let showSleep: () -> Void

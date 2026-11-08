@@ -2,7 +2,7 @@ import SwiftUI
 import MapKit
 
 struct StationMapView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     let stations: [RadioStation]
     let selectedStation: RadioStation
     let mapStyle: StationMapStyle

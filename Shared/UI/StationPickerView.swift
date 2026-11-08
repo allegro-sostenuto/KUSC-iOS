@@ -6,7 +6,7 @@ struct StationPickerView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     @ScaledMetric(relativeTo: .subheadline) private var stationTextScale: CGFloat = 15
     @State private var reordering = false
     @State private var draggedID: String?

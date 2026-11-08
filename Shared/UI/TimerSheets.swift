@@ -75,7 +75,7 @@ struct SleepTimerView: View {
 struct ScheduledStartView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     @State private var createdAt = Date()
     @State private var selectedDate = Date().addingTimeInterval(300)
     @State private var outputMode: ScheduledOutputMode = .speaker
@@ -386,7 +386,7 @@ private struct ScheduledValueControl: View {
 
 private struct TimerSheetLayout<Content: View, Footer: View>: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     let title: String
     let content: Content
     let footer: Footer

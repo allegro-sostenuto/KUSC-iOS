@@ -106,15 +106,12 @@ import UIKit
 }
 
 struct UIFixtureTextSize: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewBuilder
     func body(content: Content) -> some View {
         Group {
             if UIFixture.largeText { content.dynamicTypeSize(.accessibility3) }
             else { content }
         }
-        .environment(\.accessibilityReduceMotion,
-                     ProcessInfo.processInfo.environment["PHILHARMONIC_UI_REDUCE_MOTION"] == "1" || reduceMotion)
     }
 }
 #endif

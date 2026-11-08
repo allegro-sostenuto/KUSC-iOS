@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// Read Apple's accessibility preference directly. A DEBUG-only opt-in lets
+/// silent UI fixtures exercise app motion without writing a read-only system
+/// environment value or changing the simulator's global accessibility settings.
+@propertyWrapper struct AppReduceMotion: DynamicProperty {
+    @Environment(\.accessibilityReduceMotion) private var systemValue
+    init() {}
+    var wrappedValue: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PHILHARMONIC_UI_STATE"] != nil,
+           ProcessInfo.processInfo.environment["PHILHARMONIC_UI_REDUCE_MOTION"] == "1" { return true }
+        #endif
+        return systemValue
+    }
+}
+
 /// Keep system transitions in charge. The bespoke player reveal and header use
 /// the same native, critically damped interpolating spring as before.
 enum NativeMotion {
@@ -43,7 +58,7 @@ struct TransportPlayPauseGlyph: Shape {
 /// Native symbol replacement animates glyphs in place, leaving the surrounding
 /// transport geometry fixed. Older systems retain the existing static glyph.
 struct NativeSymbolReplacement<Value: Equatable>: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     let value: Value
 
     @ViewBuilder func body(content: Content) -> some View {
@@ -60,7 +75,7 @@ struct NativeSymbolReplacement<Value: Equatable>: ViewModifier {
 }
 
 struct NativeNumberTransition: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppReduceMotion private var reduceMotion
     let value: Double
 
     @ViewBuilder func body(content: Content) -> some View {
