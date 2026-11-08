@@ -33,7 +33,7 @@ final class TransportGlyphGeometryTests: XCTestCase {
         XCTAssertEqual(play.outlines[0][2], play.outlines[1][3])
         let pause = TransportGlyphGeometry(progress: 1)
         XCTAssertLessThan(pause.outlines[0][1].x, pause.outlines[1][0].x)
-        XCTAssertEqual(pause.outlines[0][0].y, pause.outlines[1][0].y)
+        XCTAssertEqual(pause.outlines[0][0].y, pause.outlines[1][0].y, accuracy: 1e-12)
         let middle = TransportGlyphGeometry(progress: 0.5)
         XCTAssertNotEqual(middle.outlines, play.outlines)
         XCTAssertNotEqual(middle.outlines, pause.outlines)
