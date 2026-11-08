@@ -177,29 +177,33 @@ private struct NativeStationMap: UIViewRepresentable {
         coordinator.lastCameraRequest = cameraRequest
         coordinator.movingToShortcut = true
         coordinator.observedZoom = zoom
-        map.setCamera(Self.camera(for: zoom, city: focusedCity, map: map), animated: !first)
+        if zoom == .globe {
+            let target = zoom.camera(focusing: focusedCity)
+            map.setCamera(MKMapCamera(lookingAtCenter: .init(latitude: target.latitude, longitude: target.longitude),
+                                     fromDistance: target.distance, pitch: 0, heading: 0), animated: !first)
+        } else {
+            map.setVisibleMapRect(Self.fittedRect(for: zoom, city: focusedCity, map: map), animated: !first)
+        }
     }
 
-    private static func camera(for zoom: StationMapZoom, city: StationCity, map: MKMapView) -> MKMapCamera {
+    private static func fittedRect(for zoom: StationMapZoom, city: StationCity, map: MKMapView) -> MKMapRect {
         let target = zoom.camera(focusing: city)
         let centre = CLLocationCoordinate2D(latitude: target.latitude, longitude: target.longitude)
-        guard let span = zoom.span(focusing: city) else {
-            return MKMapCamera(lookingAtCenter: centre, fromDistance: target.distance, pitch: 0, heading: 0)
-        }
+        guard let span = zoom.span(focusing: city) else { return .world }
         let northWest = MKMapPoint(CLLocationCoordinate2D(latitude: min(85, target.latitude + span.latitude / 2),
                                                           longitude: target.longitude - span.longitude / 2))
         let southEast = MKMapPoint(CLLocationCoordinate2D(latitude: max(-85, target.latitude - span.latitude / 2),
                                                           longitude: target.longitude + span.longitude / 2))
         let rect = MKMapRect(x: northWest.x, y: northWest.y,
                              width: southEast.x - northWest.x, height: southEast.y - northWest.y)
-        let fitted = map.cameraThatFits(rect, edgePadding: UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24))
-        // Large/high-latitude regions must remain closer than the outer globe.
-        let maximumDistance = zoom == .continent ? 25_000_000
-            : camera(for: .continent, city: city, map: map).centerCoordinateDistance * 0.8
-        fitted.centerCoordinateDistance = min(fitted.centerCoordinateDistance, maximumDistance)
-        fitted.pitch = 0
-        fitted.heading = 0
-        return fitted
+        let fitted = map.mapRectThatFits(rect, edgePadding: UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24))
+        // Keep large/high-latitude shortcuts closer than the whole globe.
+        let maximumWidth = zoom == .continent ? MKMapRect.world.width * 0.4
+            : fittedRect(for: .continent, city: city, map: map).width * 0.8
+        let ratio = min(1, maximumWidth / fitted.width)
+        let point = MKMapPoint(centre)
+        return MKMapRect(x: point.x - fitted.width * ratio / 2, y: point.y - fitted.height * ratio / 2,
+                         width: fitted.width * ratio, height: fitted.height * ratio)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -210,7 +214,7 @@ private struct NativeStationMap: UIViewRepresentable {
         var observedZoom: StationMapZoom
         private var lastPublishedCityID: String?
         private var referenceKey = ""
-        private var referenceDistances: (continent: Double, country: Double) = (15_000_000, 7_000_000)
+        private var referenceWidths: (continent: Double, country: Double) = (1, 0.5)
         init(_ parent: NativeStationMap) { self.parent = parent; observedZoom = parent.zoom }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
@@ -278,12 +282,13 @@ private struct NativeStationMap: UIViewRepresentable {
             let key = "\(city.id)-\(mapView.bounds.size)-\(parent.mapStyle.rawValue)"
             if referenceKey != key {
                 referenceKey = key
-                referenceDistances = (NativeStationMap.camera(for: .continent, city: city, map: mapView).centerCoordinateDistance,
-                                      NativeStationMap.camera(for: .country, city: city, map: mapView).centerCoordinateDistance)
+                referenceWidths = (NativeStationMap.fittedRect(for: .continent, city: city, map: mapView).width,
+                                   NativeStationMap.fittedRect(for: .country, city: city, map: mapView).width)
             }
             let level = observedZoom.following(distance: mapView.camera.centerCoordinateDistance,
-                                               continentDistance: referenceDistances.continent,
-                                               countryDistance: referenceDistances.country)
+                                               visibleWidth: mapView.visibleMapRect.width,
+                                               continentWidth: referenceWidths.continent,
+                                               countryWidth: referenceWidths.country)
             guard level != observedZoom || city.id != lastPublishedCityID else { return }
             observedZoom = level
             lastPublishedCityID = city.id

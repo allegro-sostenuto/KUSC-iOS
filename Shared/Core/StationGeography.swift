@@ -89,18 +89,17 @@ enum StationMapZoom: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
 
-    /// Follow native camera distance without snapping it to a named shortcut.
-    /// Fit-derived boundaries account for country size and the viewport shape.
+    /// Follow native camera/viewport scale without snapping to a named shortcut.
+    /// Fit-derived widths account for country size and the viewport shape.
     /// A small dead band prevents the selected segment flickering at a boundary.
-    func following(distance: Double, continentDistance: Double, countryDistance: Double) -> Self {
-        guard distance.isFinite, distance > 0, continentDistance > countryDistance,
-              countryDistance > 0, continentDistance < 45_000_000 else { return self }
-        let outer = sqrt(45_000_000 * continentDistance)
-        let inner = sqrt(continentDistance * countryDistance)
-        let outerThreshold = outer * (self == .globe ? 0.92 : 1.08)
+    func following(distance: Double, visibleWidth: Double, continentWidth: Double, countryWidth: Double) -> Self {
+        guard distance.isFinite, distance > 0, visibleWidth.isFinite, visibleWidth > 0,
+              continentWidth > countryWidth, countryWidth > 0 else { return self }
+        let inner = sqrt(continentWidth * countryWidth)
+        let outerThreshold = 30_000_000 * (self == .globe ? 0.92 : 1.08)
         let innerThreshold = inner * (self == .country ? 1.08 : 0.92)
         if distance >= outerThreshold { return .globe }
-        return distance <= innerThreshold ? .country : .continent
+        return visibleWidth <= innerThreshold ? .country : .continent
     }
 
     func span(focusing city: StationCity) -> (latitude: Double, longitude: Double)? {

@@ -31,19 +31,19 @@ final class StationGeographyTests: XCTestCase {
     }
 
     func testGestureZoomCrossesBothThresholdsWithoutBoundaryFlicker() {
-        func follow(_ current: StationMapZoom, _ distance: Double) -> StationMapZoom {
-            current.following(distance: distance, continentDistance: 16_000_000, countryDistance: 4_000_000)
+        func follow(_ current: StationMapZoom, _ distance: Double, _ width: Double) -> StationMapZoom {
+            current.following(distance: distance, visibleWidth: width, continentWidth: 0.4, countryWidth: 0.1)
         }
-        XCTAssertEqual(follow(.globe, 45_000_000), .globe)
-        XCTAssertEqual(follow(.globe, 20_000_000), .continent)
-        XCTAssertEqual(follow(.continent, 4_000_000), .country)
-        XCTAssertEqual(follow(.country, 16_000_000), .continent)
-        XCTAssertEqual(follow(.continent, 45_000_000), .globe)
-        XCTAssertEqual(follow(.globe, 4_000_000), .country, "A continuous fast pinch can cross both boundaries")
-        XCTAssertEqual(follow(.country, 8_100_000), .country)
-        XCTAssertEqual(follow(.continent, 7_900_000), .continent)
-        XCTAssertEqual(follow(.continent, .nan), .continent)
-        XCTAssertEqual(follow(.country, 0), .country)
+        XCTAssertEqual(follow(.globe, 45_000_000, 1), .globe)
+        XCTAssertEqual(follow(.globe, 20_000_000, 0.4), .continent)
+        XCTAssertEqual(follow(.continent, 4_000_000, 0.1), .country)
+        XCTAssertEqual(follow(.country, 16_000_000, 0.4), .continent)
+        XCTAssertEqual(follow(.continent, 45_000_000, 1), .globe)
+        XCTAssertEqual(follow(.globe, 4_000_000, 0.1), .country, "A continuous fast pinch can cross both boundaries")
+        XCTAssertEqual(follow(.country, 8_000_000, 0.205), .country)
+        XCTAssertEqual(follow(.continent, 8_000_000, 0.195), .continent)
+        XCTAssertEqual(follow(.continent, .nan, 0.4), .continent)
+        XCTAssertEqual(follow(.country, 0, 0.1), .country)
     }
 
     func testCountryFramingContainsEveryStationCityIncludingBothUSCities() throws {

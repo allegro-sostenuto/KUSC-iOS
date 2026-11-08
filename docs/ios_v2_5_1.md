@@ -6,8 +6,9 @@ This update follows the user's explicit patch version, 2.5.1.
 
 - Pinch, double-tap, pan and rotation use the native Apple map. Globe,
   Continent and Country are animated shortcuts, rather than zoom restrictions.
-- The selected segment follows camera distance. Thresholds use native fitted
-  continent/country cameras for the current base city and viewport. An 8%
+- The selected segment follows native camera distance and viewport scale.
+  Thresholds use native fitted continent/country rectangles for the current
+  base city and viewport. An 8%
   dead band prevents rapid selection changes at a threshold. Following a
   gesture only updates the segment and never sends a new camera request.
 - Settings → Map → Map Style offers Political and Satellite, saved with the
@@ -17,7 +18,7 @@ This update follows the user's explicit patch version, 2.5.1.
   borders/labels from Continent zoom inward, following the user's clarification.
   The imagery stays satellite throughout; no custom boundary overlays force a
   flat projection. Apple controls the geographic detail and its availability.
-- All shortcuts use native camera animation and retain the active map style.
+- All shortcuts use native map animation and retain the active map style.
   Native region fitting still accommodates portrait/landscape country framing.
   Single-city selection, multiple-station choice sheets, saved order and paused
   playback intent remain in place.
