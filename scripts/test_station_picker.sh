@@ -62,8 +62,8 @@ if [ "${PHILHARMONIC_MAP_QUALITY_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicUITests/StationMapUITests
         -only-testing:PhilharmonicUITests/AudioQualityUITests
     )
-    if [ "${PHILHARMONIC_PRESETS_UI_ONLY:-0}" = 1 ]; then
-        tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests/testGlobalPresetsKeepActualBitratesAndPausedIntent)
+    if [ "${PHILHARMONIC_QUALITY_SETTINGS_ONLY:-0}" = 1 ]; then
+        tests=(-only-testing:PhilharmonicUITests/AudioQualityUITests)
     fi
 fi
 set +e

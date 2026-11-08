@@ -19,9 +19,9 @@ on:
         default: false
         required: false
       map_quality_check:
-        description: Check all map/quality changes, UI only, or only presets
+        description: Check all map/quality changes, UI only, or only Quality settings
         type: choice
-        options: [none, all, ui, presets]
+        options: [none, all, ui, quality]
         default: none
         required: false
       ui_polish_check:
@@ -75,7 +75,7 @@ concurrency:
 jobs:
   station-picker:
     name: Station switching and native picker checks
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'presets')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality')
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -95,8 +95,8 @@ jobs:
           PHILHARMONIC_QUALITY_UI_ONLY: ${{ (inputs.source_check || inputs.quality_ui_check) && '1' || '0' }}
           PHILHARMONIC_UI_POLISH_ONLY: ${{ inputs.ui_polish_check && '1' || '0' }}
           PHILHARMONIC_UI_POLISH_APPEARANCE_ONLY: ${{ inputs.ui_polish_scope == 'appearance' && '1' || '0' }}
-          PHILHARMONIC_MAP_QUALITY_ONLY: ${{ (inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'presets') && '1' || '0' }}
-          PHILHARMONIC_PRESETS_UI_ONLY: ${{ inputs.map_quality_check == 'presets' && '1' || '0' }}
+          PHILHARMONIC_MAP_QUALITY_ONLY: ${{ (inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality') && '1' || '0' }}
+          PHILHARMONIC_QUALITY_SETTINGS_ONLY: ${{ inputs.map_quality_check == 'quality' && '1' || '0' }}
         run: bash scripts/test_station_picker.sh
       - name: Upload station evidence
         if: always()

@@ -23,14 +23,14 @@ final class AudioQualityUITests: XCTestCase {
             XCTAssertTrue(highest.isSelected)
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]
             reach(swiss, in: app, towardTop: false)
-            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
+            expectValue("192 kbps", of: swiss)
             // Each stacked button needs its own visible bounds, below the navigation bar.
             let balanced = app.buttons["quality-preset-balanced"]
             reach(balanced, in: app, towardTop: true)
             balanced.tap()
             XCTAssertTrue(balanced.isSelected)
             reach(swiss, in: app, towardTop: false)
-            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            expectValue("96 kbps", of: swiss)
             let lowest = app.buttons["quality-preset-lowest"]
             reach(lowest, in: app, towardTop: true)
             lowest.tap()
@@ -49,10 +49,27 @@ final class AudioQualityUITests: XCTestCase {
                 let navigationBottom = app.navigationBars.firstMatch.frame.maxY
                 if frame.minY >= navigationBottom + 2, frame.maxY <= app.frame.maxY - 30,
                    button.isHittable { return }
+                if frame.height > 0, frame.minY < navigationBottom + 2 {
+                    app.swipeDown()
+                    continue
+                }
+                if frame.height > 0, frame.maxY > app.frame.maxY - 30 {
+                    app.swipeUp()
+                    continue
+                }
             }
             if towardTop { app.swipeDown() } else { app.swipeUp() }
         }
-        XCTFail("Control not fully visible: \(button.identifier)")
+        capture("quality-unreachable-\(button.identifier)")
+        XCTFail("Control not fully visible: \(button.identifier), frame: \(button.frame)")
+    }
+
+    @MainActor private func expectValue(_ text: String, of element: XCUIElement) {
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (element.value as? String)?.contains(text) == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 5), .completed,
+                       "Expected \(text), received \(String(describing: element.value))")
     }
 
     @MainActor func testChannelBitrateDropdownsAndPausedPlaybackInLightAndDark() {
@@ -77,7 +94,7 @@ final class AudioQualityUITests: XCTestCase {
             XCTAssertEqual(fixed.frame.minX, swiss.frame.minX, accuracy: 1, "Fixed and selectable qualities share one column")
             XCTAssertEqual(fixed.frame.maxX, swiss.frame.maxX, accuracy: 1)
             XCTAssertEqual(fixed.frame.height, swiss.frame.height, accuracy: 1)
-            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            expectValue("96 kbps", of: swiss)
             capture("quality-channel-list" + (dark ? "-dark" : "-light"))
             swiss.tap()
             XCTAssertTrue(app.buttons["AAC · 192 kbps"].waitForExistence(timeout: 3))
@@ -85,18 +102,18 @@ final class AudioQualityUITests: XCTestCase {
             XCTAssertTrue(app.buttons["AAC · 96 kbps"].exists)
             capture("quality-bitrate-dropdown" + (dark ? "-dark" : "-light"))
             app.buttons["AAC · 192 kbps"].tap()
-            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
+            expectValue("192 kbps", of: swiss)
             app.buttons["Close"].tap()
             XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["Pause"].exists)
             app.buttons["Settings"].tap()
-            XCTAssertTrue((swiss.value as? String)?.contains("192 kbps") == true)
+            expectValue("192 kbps", of: swiss)
             swiss.tap()
             app.buttons["MP3 · 128 kbps"].tap()
-            XCTAssertTrue((swiss.value as? String)?.contains("MP3 · 128 kbps") == true)
+            expectValue("MP3 · 128 kbps", of: swiss)
             swiss.tap()
             app.buttons["AAC · 96 kbps"].tap()
-            XCTAssertTrue((swiss.value as? String)?.contains("96 kbps") == true)
+            expectValue("96 kbps", of: swiss)
             app.buttons["Close"].tap()
             XCTAssertTrue(app.buttons["Play"].isHittable)
         }
