@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.5.1 update](ios_v2_5_1.md) makes map zoom continuous, adds a saved map
+style and uses native quality segments with an unselected custom state.
+
 The [2.5.0 update](ios_v2_5_0.md) renames Playback Diagnostics to debug,
 integrates the user's Work-mode recovery source and retains a local 24-hour log.
 

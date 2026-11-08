@@ -31,7 +31,8 @@ struct StationMapView: View {
                     cameraRequest = UUID()
                 })) {
                     ForEach(StationMapZoom.allCases) { level in
-                        Text(level.title).tag(level).accessibilityIdentifier("map-zoom-\(level.rawValue)")
+                        Text(mapStyle == .political && level == .globe ? "World" : level.title)
+                            .tag(level).accessibilityIdentifier("map-zoom-\(level.rawValue)")
                     }
                 }.pickerStyle(.segmented).accessibilityIdentifier("map-zoom")
                 Menu {

@@ -63,7 +63,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Map")
                 } footer: {
-                    Text("Political shows Apple's standard map. Satellite adds country borders and labels from continent zoom inward. Both zoom continuously from the globe to individual cities.")
+                    Text("Satellite shows a globe, adding country borders and labels from continent zoom inward. Political uses Apple's flat world map. Both allow continuous zoom.")
                 }
 
                 Section("Interface") {
