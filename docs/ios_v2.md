@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.5.3 debug attempt](ios_v2_5_3.md) addresses background scheduled audio
+activation, standby recovery and failure evidence for an iOS 26.7.2 device.
+
 The [2.5.2 update](ios_v2_5_2.md) audits animation behavior, adds a geometric
 Play/Pause morph, improves native layout/gesture transitions and keeps station
 selection in Stations.

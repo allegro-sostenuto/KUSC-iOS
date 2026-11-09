@@ -21,7 +21,7 @@ on:
       map_quality_check:
         description: Targeted map/quality or debug integration checks
         type: choice
-        options: [none, all, ui, quality, debug]
+        options: [none, all, ui, quality, debug, schedule-debug]
         default: none
         required: false
       ui_polish_check:
@@ -123,9 +123,9 @@ jobs:
 
   native-audio:
     name: Native playback regression tests
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'debug')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug')
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
@@ -133,11 +133,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check scheduled-start policy and debug journal
+        if: inputs.map_quality_check == 'schedule-debug'
+        run: swift test --filter 'ScheduleRegressionTests|PlaybackDiagnosticTests|PlaybackDebugJournalTests'
       - name: Run hosted media tests
         env:
           PHILHARMONIC_STATION_SOURCES_ONLY: ${{ inputs.source_check && '1' || '0' }}
           PHILHARMONIC_STATION_BOUNDARIES_ONLY: ${{ inputs.map_quality_check == 'all' && '1' || '0' }}
-          PHILHARMONIC_DEBUG_EVENTS_ONLY: ${{ inputs.map_quality_check == 'debug' && '1' || '0' }}
+          PHILHARMONIC_DEBUG_EVENTS_ONLY: ${{ (inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug') && '1' || '0' }}
         run: bash scripts/test_native_audio.sh
       - name: Upload audio test evidence
         if: always()

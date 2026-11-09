@@ -1,12 +1,169 @@
 #if canImport(UIKit) && !canImport(PhilharmonicCore) && DEBUG
 import XCTest
 import UserNotifications
+import AVFoundation
 @testable import Philharmonic_SE
 
 /// Hosted iOS tests, not Swift Package policy tests. These invoke actual
 /// AppModel actions and read the real RollingAudioEngine.volume boundary.
 /// The fixture launch environment prevents station networking and audio output.
 final class ScheduleModelBoundaryTests: XCTestCase {
+    @MainActor func testBackgroundSpeakerStartKeepsMixingAndTheFullFadeWithOtherAudio() {
+        let model = AppModel.shared
+        var power = environment()
+        power.backgrounded = true
+        power.otherAudioPlaying = true
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: 10, environment: power)
+        defer { model.finishScheduleForTesting() }
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 10)
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, 0)
+        XCTAssertEqual(model.sessionOptionsForTesting, .some([.defaultToSpeaker, .mixWithOthers]))
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 30)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0.5, accuracy: 0.001)
+        model.advanceScheduleForTesting(seconds: 30)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testLateBackgroundStartDoesNotRequireSuccessfulPrerollOrExclusiveFocus() {
+        let model = AppModel.shared
+        var power = environment()
+        power.backgrounded = true
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, 0)
+        XCTAssertEqual(model.sessionOptionsForTesting, .some([.defaultToSpeaker, .mixWithOthers]))
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 1)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+    }
+
+    @MainActor func testFailedSpeakerHandoffRestoresStandbyUntilTheRetriedStreamIsReady() {
+        let model = AppModel.shared
+        var power = environment()
+        power.backgrounded = true
+        model.configureScheduleForTesting(environment: power)
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.scheduleStateForTesting.standby)
+        model.advanceScheduleForTesting(seconds: 120, speakerOverrideFails: true)
+        XCTAssertTrue(model.scheduleStateForTesting.standby)
+        XCTAssertTrue(model.sessionStateForTesting.mixing)
+        XCTAssertFalse(model.scheduleStateForTesting.owned)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.currentOutputRoute, headphones, "Denied speaker routing must never play on headphones")
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        let attempts = model.sessionStateForTesting.attempts
+        model.advanceScheduleForTesting(seconds: 4, speakerOverrideFails: false)
+        XCTAssertEqual(model.sessionStateForTesting.attempts, attempts)
+        model.advanceScheduleForTesting(seconds: 1)
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertTrue(model.scheduleStateForTesting.standby, "Keep standby during actual connection preparation")
+        model.simulateScheduledReadinessForTesting()
+        XCTAssertFalse(model.scheduleStateForTesting.standby)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.advanceScheduleForTesting(seconds: 60)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testForegroundWakeRetriesDeniedStartBeforeTheFiveSecondTimer() {
+        let model = AppModel.shared
+        var power = environment()
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.scheduleStateForTesting.standby)
+        model.advanceScheduleForTesting(seconds: 1, exclusiveActivationFails: false)
+        XCTAssertFalse(model.scheduleStateForTesting.owned)
+        model.onForeground()
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertFalse(model.sessionStateForTesting.mixing, "Foreground focus behavior remains unchanged")
+    }
+
+    @MainActor func testChangedRouteRetriesDeniedStartWithoutWaitingForTheTimer() {
+        let model = AppModel.shared
+        var power = environment()
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        model.advanceScheduleForTesting(seconds: 1, route: speaker, exclusiveActivationFails: false)
+        XCTAssertTrue(model.scheduleStateForTesting.owned)
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+    }
+
+    @MainActor func testPauseAndDeleteWinOverPendingMixedStandbyRecovery() {
+        let model = AppModel.shared
+        var power = environment()
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        model.pauseRemote()
+        let connections = model.audioRecoveryStateForTesting.connections
+        model.advanceScheduleForTesting(seconds: 6, route: speaker, exclusiveActivationFails: false)
+        model.onForeground()
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, connections)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+        model.cancelSchedule()
+        model.endAudioInterruptionForTesting(shouldResume: true)
+        model.onForeground()
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        XCTAssertFalse(model.scheduleStateForTesting.standby)
+        XCTAssertFalse(model.isPlaying)
+    }
+
+    @MainActor func testBackgroundExplicitPlayStillRequestsFocusAndReleasesSpeakerPolicy() {
+        let model = AppModel.shared
+        var power = environment()
+        power.backgrounded = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        model.play()
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertFalse(model.sessionStateForTesting.mixing)
+        XCTAssertFalse(model.scheduleStateForTesting.speakerSession)
+        XCTAssertEqual(model.sessionOptionsForTesting, .some([]))
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testFailedScheduleJournalKeepsActivationStepWaitReasonAndExecutionGap() async throws {
+        let model = AppModel.shared
+        var power = environment()
+        power.exclusiveActivationFails = true
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        let id = try XCTUnwrap(model.scheduleIDForTesting).uuidString
+        model.elapseScheduleWithoutRunningForTesting(seconds: 601)
+        model.onForeground()
+        XCTAssertFalse(model.scheduleStateForTesting.exists)
+        XCTAssertFalse(model.isPlaying)
+        let report = try await model.diagnostics.makeHistoryReport()
+        let events = try String(contentsOf: report, encoding: .utf8).split(separator: "\n").compactMap {
+            try? JSONDecoder().decode(PlaybackDebugJournal.Event.self, from: Data($0.utf8))
+        }.filter { $0.scheduleID == id }
+        let failure = try XCTUnwrap(events.first { $0.name == "audio_session_activation_failed" })
+        XCTAssertEqual(failure.details["error_code"], "560557684")
+        XCTAssertEqual(failure.details["step"], "set_active")
+        XCTAssertTrue(events.contains { $0.name == "standby_started" })
+        XCTAssertTrue(events.contains { $0.name == "schedule_retry_scheduled" })
+        XCTAssertTrue(events.contains { $0.name == "schedule_execution_gap" && $0.details["elapsed_seconds"] == "601.0" })
+        XCTAssertTrue(events.contains { $0.name == "schedule_state_changed" && $0.details["message"]?.contains("Waiting for iPhone audio") == true })
+        let expired = try XCTUnwrap(events.first { $0.name == "scheduled_start_expired_without_playing" })
+        XCTAssertTrue(expired.details["last_audio_error"]?.contains("560557684") == true)
+        XCTAssertTrue(expired.details["wait_reason"]?.contains("Waiting for iPhone audio") == true)
+    }
+
     @MainActor func testInterruptedScheduleExpiryKeepsSpeakerOnAutomaticResumeUntilManualPlay() {
         let model = AppModel.shared
         model.configureScheduleForTesting(options: .init(batteryOnlyStop: true),
