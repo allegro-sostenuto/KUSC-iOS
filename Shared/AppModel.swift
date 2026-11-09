@@ -136,6 +136,14 @@ import Network
     private var lastScheduleEventRetryUptime: TimeInterval?
     private var lastScheduleTickUptime: TimeInterval?
     private var audioSessionActivationStep = "idle"
+    private struct VolumeSetupSuspension {
+        let stationID: String
+        let wasPlaying: Bool
+        let wasStandby: Bool
+        let mixing: Bool
+        var resumeAllowed = true
+    }
+    private var volumeSetupSuspension: VolumeSetupSuspension?
     private var scheduledBattery = ScheduledBatteryGuard()
     private var speakerSessionActive = false
     private var sessionMixesWithOthers = false
@@ -260,7 +268,10 @@ import Network
         goLive()
     }
 
-    func selectStation(_ id: String) { switchStation(id) }
+    func selectStation(_ id: String) {
+        volumeSetupSuspension?.resumeAllowed = false
+        switchStation(id)
+    }
     func nextStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: 1)) }
     func previousStation() { selectStation(stationPreferences.adjacent(to: selectedStation.id, offset: -1)) }
     func setStationDisplayMode(_ mode: StationDisplayMode) {
@@ -377,6 +388,61 @@ import Network
 
     func captureDebugSnapshot() { engine.recordDiagnosticSnapshot() }
 
+    func makeSpeakerVolumeSetup(audio: SpeakerVolumeSessionAccess? = nil, timeout: TimeInterval = 4) -> SpeakerVolumeSetup {
+        SpeakerVolumeSetup(audio: audio, timeout: timeout, suspend: { [weak self] in
+            guard let self else { throw CancellationError() }
+            guard self.volumeSetupSuspension == nil else { throw SpeakerVolumeSetup.SetupError.busy }
+            self.volumeSetupSuspension = .init(stationID: self.selectedStation.id, wasPlaying: self.wantsPlayback,
+                                               wasStandby: self.standbyIsRunning, mixing: self.sessionMixesWithOthers)
+            self.applyGain()
+            self.connectionTask?.cancel(); self.connectionTask = nil
+            self.connectionGeneration = UUID()
+            self.engine.pause(); self.stopStandby(reason: "speaker_volume_setup")
+            self.audioIsAdvancing = false
+        }, resume: { [weak self] permitResume in
+            self?.finishSpeakerVolumeSetup(permitResume: permitResume)
+        }, save: { [weak self] volume in
+            guard let self else { return }
+            self.settings.scheduledSpeakerVolume = volume
+            self.settings.scheduledStartDefaults?.speakerVolume = volume
+            self.settings.save()
+            if let request = self.scheduleRequest {
+                var options = request.options; options.speakerVolume = volume
+                self.scheduleRequest = .init(id: request.id, date: request.date, output: request.output,
+                                            options: options, stationID: request.stationID)
+                self.persistSchedule()
+            }
+        }, log: { [weak self] name, details in
+            self?.recordDebugEvent(category: "audio_session", name: name, details: details)
+        })
+    }
+
+    private func finishSpeakerVolumeSetup(permitResume: Bool) {
+        guard let saved = volumeSetupSuspension else { return }
+        volumeSetupSuspension = nil
+        refreshCurrentOutput()
+        let resume = permitResume && saved.resumeAllowed && !interruptionActive && wantsPlayback
+            && saved.wasPlaying && selectedStation.id == saved.stationID
+        if resume {
+            if scheduleOwnsPlayback {
+                scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false; scheduledHasAudioFocus = false
+            }
+            do {
+                try activateSession(mixWithOthers: saved.mixing)
+                applyGain()
+                // Route setup invalidates any pending preparation. Rejoin live.
+                startConnection(preserveScheduledGain: true)
+            } catch {
+                interruptionActive = true; state = .interrupted
+                notice = "Audio setup ended. Tap Play when audio is available."
+            }
+        } else {
+            wantsPlayback = false; applyGain(); state = hasStartedEngine ? .pausedLive : .idle
+        }
+        if saved.wasStandby || scheduleRequest != nil { evaluateSchedule() }
+        refreshSystemSurfaces()
+    }
+
     func recordLifecycle(_ phase: String) {
         recordDebugEvent(category: "app", name: "scene_phase_changed", details: ["phase": phase])
     }
@@ -446,6 +512,11 @@ import Network
 
     func play() {
         recordDebugEvent(category: "playback", name: "play_requested")
+        if volumeSetupSuspension != nil {
+            volumeSetupSuspension?.resumeAllowed = false
+            notice = "Finish speaker volume setup, then tap Play."
+            return
+        }
         #if DEBUG
         guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
@@ -492,6 +563,7 @@ import Network
     }
 
     private func retryInterruptedPlayback(immediately: Bool = false) {
+        guard volumeSetupSuspension == nil else { return }
         guard interruptionActive, wantsPlayback, schedulePausedUntil == nil, !scheduleOwnsPlayback else { return }
         // Automatic recovery must not take audio back from an app the user chose.
         // Pressing Play explicitly requests focus even while another app plays.
@@ -519,6 +591,7 @@ import Network
     }
 
     func pauseRemote() {
+        volumeSetupSuspension?.resumeAllowed = false
         recordDebugEvent(category: "playback", name: "pause_requested")
         explicitPlayPending = false; interruptionRetryStarted = nil
         manualPlaybackOverridesSchedule = false; manualPlaybackPrecedesStart = false
@@ -561,6 +634,7 @@ import Network
     }
 
     func goLive() {
+        if volumeSetupSuspension != nil { volumeSetupSuspension?.resumeAllowed = false; return }
         if protectedSchedule { if scheduleOwnsPlayback { engine.goLive() }; return }
         scheduleGeneration.invalidate()
         if scheduleOwnsPlayback { clearSchedule(stopOwnedPlayback: false); scheduleGain = 1; applyGain() }
@@ -868,6 +942,7 @@ import Network
     #endif
 
     private func startConnection(preserveScheduledGain: Bool = false) {
+        guard volumeSetupSuspension == nil else { return }
         #if DEBUG
         guard !isUIFixture || audioRecoveryTestConnections != nil else { return }
         #endif
@@ -895,7 +970,7 @@ import Network
                     return
                 }
                 applyGain()
-                if wantsPlayback && !interruptionActive { engine.play() } else { engine.pause() }
+                if wantsPlayback && !interruptionActive && volumeSetupSuspension == nil { engine.play() } else { engine.pause() }
             } catch is CancellationError {
                 recordDebugEvent(category: "connection", name: "stream_connection_cancelled", generation: generation.uuidString)
                 // A buffer-mode replacement can cancel preparation inside the
@@ -926,6 +1001,7 @@ import Network
     }
 
     private func receive(_ snapshot: EngineSnapshot) {
+        guard volumeSetupSuspension == nil else { return }
         if snapshot.hasConfirmedPosition {
             heardAt = snapshot.heardAt
             if !wantsPlayback { pausedAt = snapshot.heardAt }
@@ -991,6 +1067,7 @@ import Network
         }
         resolveExpiredSchedule()
         evaluateCompletedPlaybackBattery()
+        guard volumeSetupSuspension == nil else { return }
         retryInterruptedPlayback()
         if let started = reconnectStarted, !interruptionActive {
             objectWillChange.send()
@@ -1075,10 +1152,11 @@ import Network
         artworkTask?.cancel(); artworkTask = nil
         engine.stop(); bufferWindow = nil; state = reason
         refreshSystemSurfaces()
-        if scheduledAt == nil && !isScheduleTesting { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        if scheduledAt == nil && !isScheduleTesting && volumeSetupSuspension == nil { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 
     private func evaluateSchedule() {
+        guard volumeSetupSuspension == nil else { return }
         #if DEBUG
         guard !isUIFixture || scheduleTestEnvironment != nil else { return }
         #endif
@@ -1347,6 +1425,11 @@ import Network
             catch { waitForScheduledAudio("Waiting for audio; scheduled start remains armed.", error: error); return false }
             scheduledHasAudioFocus = true
             refreshCurrentOutput()
+            if scheduledSpeakerRequired {
+                recordDebugEvent(category: "scheduler", name: "scheduled_speaker_volume_snapshot", details: [
+                    "prepared_volume": request.options.speakerVolume.map { String($0) } ?? "not_set",
+                    "system_volume": String(AVAudioSession.sharedInstance().outputVolume)])
+            }
         }
         if scheduledSpeakerRequired {
             guard !currentOutputRoute.isBuiltInSpeaker else { return true }
@@ -1473,6 +1556,7 @@ import Network
     }
 
     private func releaseScheduledSessionIfIdle() {
+        guard volumeSetupSuspension == nil else { return }
         guard !wantsPlayback else { return }
         if !isScheduleTesting {
             let session = AVAudioSession.sharedInstance()
@@ -1543,6 +1627,7 @@ import Network
     }
 
     private func updateGains() {
+        guard volumeSetupSuspension == nil else { applyGain(); return }
         let now = scheduleNow
         resolveExpiredSchedule()
         if scheduleOwnsPlayback, let request = scheduleRequest {
@@ -1612,7 +1697,7 @@ import Network
 
     private func applyGain() {
         engine.volume = ScheduledStartPolicy.composedGain(schedule: scheduleGain, sleep: protectedSchedule ? 1 : sleepGain,
-                                                        muted: !wantsPlayback || interruptionActive)
+                                                        muted: !wantsPlayback || interruptionActive || volumeSetupSuspension != nil)
         #if DEBUG
         boundaryGainTrace?.append(engine.volume)
         if scheduleOwnsPlayback && abs(lastDiagnosticGain - engine.volume) >= 0.025 {
@@ -1874,6 +1959,7 @@ import Network
         pausedAt = nil
         bufferWindow = nil
         acquisitionIsStale = false
+        guard volumeSetupSuspension == nil else { return }
         if wantsPlayback && !interruptionActive {
             do { try activateSession(); startConnection() }
             catch { connectionFailed(error) }
@@ -1892,6 +1978,7 @@ import Network
             return
         }
         interruptionActive = false
+        guard volumeSetupSuspension == nil else { return }
         if schedulePausedUntil != nil {
             wasPlayingBeforeInterruption = false
             evaluateSchedule(); return
@@ -1935,6 +2022,7 @@ import Network
     }
 
     private func beginInterruption() {
+        volumeSetupSuspension?.resumeAllowed = false
         recordDebugEvent(category: "audio_session", name: "interruption_began")
         wasPlayingBeforeInterruption = wantsPlayback
         interruptionActive = true
@@ -1943,6 +2031,7 @@ import Network
         if scheduleOwnsPlayback { scheduleGain = 0; scheduleEnvelope = nil; scheduleReachedFullGain = false }
         applyGain(); engine.pause(); stopStandby()
         audioIsAdvancing = false
+        guard volumeSetupSuspension == nil else { return }
         if wantsPlayback { state = .interrupted }
         if schedulePausedUntil != nil { return }
         if let request = scheduleRequest, (scheduleOwnsPlayback || !wasPlayingBeforeInterruption) {
@@ -1963,6 +2052,7 @@ import Network
         recordDebugEvent(category: "audio_session", name: "route_changed", details: ["reason": String(reason),
             "previous_types": previous.ports.map(\.type).joined(separator: ","),
             "current_types": currentOutputRoute.ports.map(\.type).joined(separator: ",")])
+        guard volumeSetupSuspension == nil else { return }
         if schedulePausedUntil != nil { return }
         let changed = !previous.matches(currentOutputRoute)
         if changed, (reason == AVAudioSession.RouteChangeReason.newDeviceAvailable.rawValue

@@ -74,20 +74,23 @@ public struct ScheduledStartOptions: Codable, Equatable {
     public var batteryOnlyStop: Bool
     public private(set) var batteryPercent: Int
     public private(set) var lowBatteryMinutes: Int
+    public var speakerVolume: Float?
     public init(allowOnBattery: Bool = false, batteryOnlyStop: Bool = false,
-                batteryPercent: Int = 25, lowBatteryMinutes: Int = 20) {
+                batteryPercent: Int = 25, lowBatteryMinutes: Int = 20, speakerVolume: Float? = nil) {
         self.allowOnBattery = allowOnBattery || batteryOnlyStop
         self.batteryOnlyStop = batteryOnlyStop
         self.batteryPercent = min(100, max(25, batteryPercent))
         self.lowBatteryMinutes = min(20, max(1, lowBatteryMinutes))
+        self.speakerVolume = speakerVolume.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
     }
-    private enum CodingKeys: String, CodingKey { case allowOnBattery, batteryOnlyStop, batteryPercent, lowBatteryMinutes }
+    private enum CodingKeys: String, CodingKey { case allowOnBattery, batteryOnlyStop, batteryPercent, lowBatteryMinutes, speakerVolume }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(allowOnBattery: try values.decodeIfPresent(Bool.self, forKey: .allowOnBattery) ?? false,
                   batteryOnlyStop: try values.decodeIfPresent(Bool.self, forKey: .batteryOnlyStop) ?? false,
                   batteryPercent: try values.decodeIfPresent(Int.self, forKey: .batteryPercent) ?? 25,
-                  lowBatteryMinutes: try values.decodeIfPresent(Int.self, forKey: .lowBatteryMinutes) ?? 20)
+                  lowBatteryMinutes: try values.decodeIfPresent(Int.self, forKey: .lowBatteryMinutes) ?? 20,
+                  speakerVolume: try values.decodeIfPresent(Float.self, forKey: .speakerVolume))
     }
 }
 
@@ -121,7 +124,8 @@ public struct ScheduledStartRequest: Codable, Equatable {
         self.stationID = StationCatalog.station(id: stationID)?.id ?? StationCatalog.defaultStation.id
         self.options = .init(allowOnBattery: options.allowOnBattery,
                              batteryOnlyStop: output.mode == .speaker && options.batteryOnlyStop,
-                             batteryPercent: options.batteryPercent, lowBatteryMinutes: options.lowBatteryMinutes)
+                             batteryPercent: options.batteryPercent, lowBatteryMinutes: options.lowBatteryMinutes,
+                             speakerVolume: options.speakerVolume)
     }
     private enum CodingKeys: String, CodingKey { case id, date, output, options, stationID }
     public init(from decoder: Decoder) throws {

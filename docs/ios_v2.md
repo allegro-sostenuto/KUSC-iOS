@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.6.0 update](ios_v2_6_0.md) adds foreground speaker-volume setup in Scheduled
+Start, with interruption only when switching from another output to speaker.
+
 The [2.5.3 debug attempt](ios_v2_5_3.md) addresses background scheduled audio
 activation, standby recovery and failure evidence for an iOS 26.7.2 device.
 

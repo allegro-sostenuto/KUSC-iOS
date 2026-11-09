@@ -9,6 +9,19 @@ import XCTest
 final class ScheduleRegressionTests: XCTestCase {
     private let target = Date(timeIntervalSince1970: 1_000_000)
 
+    func testPreparedSpeakerVolumeIsOptionalAndOldRequestsRemainReadable() throws {
+        let oldOptions = try JSONDecoder().decode(ScheduledStartOptions.self, from: Data("{}".utf8))
+        XCTAssertNil(oldOptions.speakerVolume)
+        let options = ScheduledStartOptions(speakerVolume: 0.65)
+        let request = ScheduledStartRequest(date: target, output: .speaker, options: options)
+        let restored = try JSONDecoder().decode(ScheduledStartRequest.self, from: JSONEncoder().encode(request))
+        XCTAssertEqual(restored.options.speakerVolume, 0.65)
+        XCTAssertEqual(restored.id, request.id)
+        XCTAssertEqual(ScheduledStartOptions(speakerVolume: 2).speakerVolume, 1)
+        XCTAssertEqual(ScheduledStartOptions(speakerVolume: -1).speakerVolume, 0)
+        XCTAssertNil(ScheduledStartOptions(speakerVolume: .nan).speakerVolume)
+    }
+
     func testSpeakerPolicyNeverAcceptsAnotherOutputOrAnEmptyRoute() {
         XCTAssertTrue(ScheduledOutputPreference.speaker.permits(route("speaker", "Speaker", "iPhone")))
         XCTAssertFalse(ScheduledOutputPreference.speaker.permits(route("bt:1", "BluetoothA2DP", "Headphones")))

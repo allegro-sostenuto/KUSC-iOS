@@ -44,6 +44,7 @@ tests=(
     -only-testing:PhilharmonicTests/AudioEngineIntegrationTests
     -only-testing:PhilharmonicTests/LiveOnlySettingsTests
     -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests
+    -only-testing:PhilharmonicTests/SpeakerVolumeSetupTests
     -only-testing:PhilharmonicTests/StationSwitchTests
     -only-testing:PhilharmonicTests/StationSourcePlaybackTests
 )
@@ -66,6 +67,7 @@ if [ "${PHILHARMONIC_DEBUG_EVENTS_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicTests/PlaybackDiagnosticsIntegrationTests
         -only-testing:PhilharmonicTests/MediaServicesRecoveryTests
         -only-testing:PhilharmonicTests/ScheduleModelBoundaryTests
+        -only-testing:PhilharmonicTests/SpeakerVolumeSetupTests
         -only-testing:PhilharmonicTests/StationSwitchTests
         -only-testing:PhilharmonicTests/LiveOnlySettingsTests
         -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testProgressiveStreamsNeverEnterTheHLSPreparationPath

@@ -12,6 +12,7 @@ struct AppSettings: Codable, Equatable {
     var lastSleepMinutes = 0
     var scheduledStartDefaults: ScheduledStartOptions?
     var scheduledOutputDefault: ScheduledOutputPreference?
+    var scheduledSpeakerVolume: Float?
     private var stationMapAppearance: String?
     private var appliedAudioQualityPreset: String?
     var stationMapStyle: StationMapStyle {
@@ -38,6 +39,7 @@ struct AppSettings: Codable, Equatable {
         guard let data = defaults.data(forKey: "settings.v1"),
               var value = try? JSONDecoder().decode(Self.self, from: data) else { return .init() }
         value.lastSleepMinutes = min(720, max(0, value.lastSleepMinutes))
+        value.scheduledSpeakerVolume = value.scheduledSpeakerVolume.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
         value.save(to: defaults)
         return value
     }

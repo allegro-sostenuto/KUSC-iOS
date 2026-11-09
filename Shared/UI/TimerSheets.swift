@@ -87,6 +87,7 @@ struct ScheduledStartView: View {
     @State private var batteryOnlyStop = false
     @State private var batteryPercent = 25
     @State private var lowBatteryMinutes = 20
+    @State private var volumeSetup: SpeakerVolumeSetup?
 
     private var outputPreference: ScheduledOutputPreference {
         outputMode == .speaker ? .speaker
@@ -95,7 +96,8 @@ struct ScheduledStartView: View {
 
     private var options: ScheduledStartOptions {
         .init(allowOnBattery: allowOnBattery, batteryOnlyStop: outputMode == .speaker && batteryOnlyStop,
-              batteryPercent: batteryPercent, lowBatteryMinutes: lowBatteryMinutes)
+              batteryPercent: batteryPercent, lowBatteryMinutes: lowBatteryMinutes,
+              speakerVolume: model.settings.scheduledSpeakerVolume ?? model.scheduledOptions.speakerVolume)
     }
 
     var body: some View {
@@ -120,7 +122,7 @@ struct ScheduledStartView: View {
                     .disabled(isScheduling)
             }
 
-            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, Philharmonic takes over and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
+            Text("Prepares silently 1 minute early while other apps can keep playing. Once audio is ready at or after the selected time, Philharmonic starts and fades in over a full minute. The schedule clears 10 minutes after its selected time.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -183,6 +185,7 @@ struct ScheduledStartView: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .sheet(item: $volumeSetup) { SpeakerVolumeSetupView(setup: $0) }
         .onAppear {
             model.refreshCurrentOutput()
             let saved = model.scheduledOutput
@@ -221,6 +224,35 @@ struct ScheduledStartView: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("scheduled-output-mode")
+
+            Button {
+                #if DEBUG
+                if UIFixture.state == "schedule-volume" {
+                    volumeSetup = model.makeSpeakerVolumeSetup(audio: SpeakerVolumePreviewSession())
+                } else {
+                    volumeSetup = model.makeSpeakerVolumeSetup()
+                }
+                #else
+                volumeSetup = model.makeSpeakerVolumeSetup()
+                #endif
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Scheduled Start Volume").font(.body)
+                        Text("Set iPhone speaker volume").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if let level = model.settings.scheduledSpeakerVolume ?? model.scheduledOptions.speakerVolume {
+                        Text(level.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
+                    } else { Text("Not set").foregroundStyle(.secondary) }
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("scheduled-start-volume")
+            Text("Sets speaker volume now. Other audio is interrupted only if setup needs to switch to the speaker. Later volume changes still apply.")
+                .font(.caption).foregroundStyle(.secondary)
 
             if outputMode == .selected {
             HStack(spacing: 14) {

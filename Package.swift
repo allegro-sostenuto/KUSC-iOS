@@ -10,7 +10,7 @@ let package = Package(
         .target(name: "PhilharmonicCore", path: "Shared",
                 exclude: ["AppSettings.swift", "AppModel.swift", "PhilharmonicApp.swift", "StationConfiguration.swift", "Metadata/MetadataService.swift",
                           "System", "Timers", "UI", "Audio/RollingAudioEngine.swift", "Audio/HLSIngestor.swift", "Audio/PlaybackDiagnostics.swift",
-                          "Audio/BufferedAudioSampleSource.swift", "Audio/BufferedAudioRenderer.swift"],
+                          "Audio/BufferedAudioSampleSource.swift", "Audio/BufferedAudioRenderer.swift", "Audio/SpeakerVolumeSetup.swift"],
                 sources: ["Core", "Audio/ADTSParser.swift", "Audio/HLSManifest.swift",
                           "Metadata/StationMetadataParser.swift", "Metadata/BroadcastMetadataParser.swift"]),
         .testTarget(name: "PhilharmonicCoreTests", dependencies: ["PhilharmonicCore"], path: "Tests",

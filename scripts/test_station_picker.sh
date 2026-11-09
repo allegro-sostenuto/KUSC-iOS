@@ -85,6 +85,9 @@ fi
 if [ "${PHILHARMONIC_DEBUG_UI_ONLY:-0}" = 1 ]; then
     tests=(-only-testing:PhilharmonicUITests/PlayerInteractionTests/testDiagnosticsCaptureCanBeStartedStoppedAndSharedFromSettings)
 fi
+if [ "${PHILHARMONIC_SCHEDULE_VOLUME_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicUITests/ScheduledVolumeUITests)
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \
