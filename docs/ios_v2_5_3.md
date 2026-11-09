@@ -48,7 +48,27 @@ playing, cold late starts, rejected speaker routing, standby continuity through
 retry/preparation, foreground and accessory-triggered retries, pause/deletion,
 explicit Play focus, and persistent failure/execution-gap evidence. They run with
 the existing scheduler, media-recovery, station, live-only and journal checks.
-Local structural parsing and CI compilation/results will be recorded below.
+
+[Run 88](https://github.com/allegro-sostenuto/philharmonic/actions/runs/42543585020)
+completed successfully for source `5bb118dcff79872aeac807d1197a331f4ab356ec`:
+
+| Check | Result |
+|---|---|
+| Schedule policy / diagnostic core / rolling journal | 42 passed (26 + 12 + 4) |
+| Hosted schedule coordinator | 49 passed, including all eight new regressions |
+| Hosted engine / media-services recovery / diagnostics | 14 passed (5 + 6 + 3) |
+| Hosted live-only settings / station switching | 16 passed (3 + 13) |
+| Both ordinary Release device targets and embedded extensions | Compiled and package-verified |
+| Local source parsing | 93 Swift files, no structural errors; not a local type check |
+
+All 79 hosted cases ran on an iPhone 17 / iOS 26.5 simulator with the silent
+coordinator fixture where applicable. The new tests exercise session-policy and
+failure injection; they do not make another app play audio, reproduce the actual
+iOS 26.7.2 focus refusal, or prove overnight background execution. No UI screenshot
+sweep was repeated because presentation sources are unchanged. The SE target
+received Release compilation and package inspection, not an iOS 16 UI run.
+
+The simulator evidence is saved at `artifacts/ios-2.5.3/native-audio88/`.
 
 No UI, station catalogue, quality default, widget presentation, app identifiers,
 saved preferences, Android or recognition implementation is changed. AlarmKit
@@ -58,4 +78,21 @@ Physical validation must use the user's iOS 26.7.2 phone: locked/background star
 Bluetooth connected with speaker selected, another app playing, cancellation and
 an overnight start. Simulator results cannot establish these device behaviors.
 
-Build source, build number, IPA checksums and exact CI results: pending.
+Version **2.5.3**, build **88**, source
+`5bb118dcff79872aeac807d1197a331f4ab356ec`. CI used Xcode 26.6 and iPhoneOS SDK
+26.5. Both downloaded IPAs passed ZIP CRC, source/version/build, CI checksum,
+identifier, App Group, app-only flags and embedded-extension checks. CI also
+checked arm64 device platform, deployment targets and signing material.
+
+| Target | IPA bytes | SHA-256 |
+|---|---:|---|
+| Philharmonic-17 | 1,845,652 | `9498610f9aa1e10f4079d89367fad8e082a0d87d10654d032366a85e06defa2f` |
+| Philharmonic-SE | 1,811,043 | `4288b4d4ca7da30517c452339cfdc16f0c5c162e33f5bb735f0ed6700c14538c` |
+
+Packages and verification are under `artifacts/ci-42543585020/`. AltStore signing
+is required before installation; no installation has been observed. Widget and
+Live Activity presentation sources still match `11997c8`.
+
+After the next locked-phone test, use Settings → debug → **Share Report** to
+export the full rolling journal. **Copy Recent Logs** is a 64 KiB tail preview,
+so it can omit the original schedule setup and earlier standby evidence.
