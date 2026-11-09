@@ -118,6 +118,21 @@ import AVFoundation
         XCTAssertEqual(resumes, 1); XCTAssertEqual(setup.phase, .finished)
     }
 
+    func testDisappearingDuringCleanupCannotLeaveExclusiveSessionWaitingForInvisiblePicker() async {
+        let audio = TestSpeakerVolumeSession(); audio.restoreRoute = false
+        var resumed: [Bool] = []
+        let setup = SpeakerVolumeSetup(audio: audio, timeout: 0.2, suspend: {}, resume: { resumed.append($0) },
+                                      save: { _ in }, log: { _, _ in })
+        await setup.begin()
+        let cleanup = Task { await setup.finish(save: false) }
+        while setup.phase != .restoring { await Task.yield() }
+        await setup.finish(save: false, allowRoutePicker: false, permitResume: false)
+        await cleanup.value
+        XCTAssertEqual(setup.phase, .finished)
+        XCTAssertEqual(audio.operations.filter { $0 == "notify" }.count, 1)
+        XCTAssertEqual(resumed, [false])
+    }
+
     func testRouteChangeCannotSaveVolumeForTheWrongOutput() async {
         let audio = TestSpeakerVolumeSession(speaker: true)
         let setup = SpeakerVolumeSetup(audio: audio, timeout: 0, suspend: { XCTFail() }, resume: { _ in XCTFail() },

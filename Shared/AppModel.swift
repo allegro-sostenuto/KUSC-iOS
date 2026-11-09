@@ -1853,6 +1853,7 @@ import Network
     }
 
     private func activateSession(forceSpeaker: Bool? = nil, mixWithOthers: Bool? = nil) throws {
+        guard volumeSetupSuspension == nil else { throw SpeakerVolumeSetup.SetupError.busy }
         let started = ProcessInfo.processInfo.systemUptime
         audioSessionActivationStep = "configuration"
         do {

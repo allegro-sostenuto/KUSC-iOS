@@ -45,6 +45,7 @@ struct SpeakerVolumeSessionConfiguration {
     private var observation: NSKeyValueObservation?
     private var observers: [NSObjectProtocol] = []
     private var cleanupTask: UIBackgroundTaskIdentifier = .invalid
+    private var observing = false
     var route: ObservedAudioRoute {
         .init(ports: audio.currentRoute.outputs.map { .init(uid: $0.uid, type: $0.portType.rawValue, name: $0.portName) })
     }
@@ -75,6 +76,7 @@ struct SpeakerVolumeSessionConfiguration {
     func releaseAndNotifyOthers() throws { try audio.setActive(false, options: .notifyOthersOnDeactivation) }
     func observe(_ callback: @escaping (Bool) -> Void) {
         stopObserving()
+        observing = true
         observation = audio.observe(\.outputVolume, options: [.new]) { _, _ in
             Task { @MainActor in callback(false) }
         }
@@ -87,7 +89,8 @@ struct SpeakerVolumeSessionConfiguration {
                 let mustEnd = interrupted || name == UIApplication.didEnterBackgroundNotification
                     || name == AVAudioSession.mediaServicesWereResetNotification
                 Task { @MainActor in
-                    if name == UIApplication.didEnterBackgroundNotification, let self, self.cleanupTask == .invalid {
+                    guard let self, self.observing else { return }
+                    if name == UIApplication.didEnterBackgroundNotification, self.cleanupTask == .invalid {
                         self.cleanupTask = UIApplication.shared.beginBackgroundTask(withName: "Restore speaker volume setup")
                     }
                     callback(mustEnd)
@@ -96,6 +99,7 @@ struct SpeakerVolumeSessionConfiguration {
         }
     }
     func stopObserving() {
+        observing = false
         observation?.invalidate(); observation = nil
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
@@ -128,6 +132,7 @@ struct SpeakerVolumeSessionConfiguration {
     private var operation = UUID()
     private var cleaning = false
     private var permitResume = true
+    private var routePickerAllowed = true
 
     init(audio: SpeakerVolumeSessionAccess? = nil, timeout: TimeInterval = 4,
          suspend: @escaping () throws -> Void, resume: @escaping (Bool) -> Void,
@@ -184,9 +189,10 @@ struct SpeakerVolumeSessionConfiguration {
     func finish(save shouldSave: Bool, allowRoutePicker: Bool = true, permitResume: Bool = true) async {
         guard phase != .finished else { return }
         self.permitResume = self.permitResume && permitResume
+        routePickerAllowed = routePickerAllowed && allowRoutePicker
         if phase == .restoreOutput {
             refresh()
-            if !allowRoutePicker || previousOutputRestored { finalize() }
+            if !routePickerAllowed || previousOutputRestored { finalize() }
             return
         }
         guard !cleaning else { return }
@@ -209,7 +215,7 @@ struct SpeakerVolumeSessionConfiguration {
             let token = operation
             try? await waitForRoute(token: token) { self.previousRoute.matches($0) }
             refresh()
-            if !previousOutputRestored, allowRoutePicker, audio.foreground {
+            if !previousOutputRestored, routePickerAllowed, audio.foreground {
                 phase = .restoreOutput; cleaning = false
                 log("volume_setup_route_picker_needed", [:])
                 return
