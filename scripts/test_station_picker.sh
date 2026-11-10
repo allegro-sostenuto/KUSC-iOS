@@ -88,6 +88,9 @@ fi
 if [ "${PHILHARMONIC_SCHEDULE_VOLUME_ONLY:-0}" = 1 ]; then
     tests=(-only-testing:PhilharmonicUITests/ScheduledVolumeUITests)
 fi
+if [ "${PHILHARMONIC_SPEAKER_REPRO_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicUITests/BackgroundAudioSessionProbeTests)
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

@@ -11,6 +11,8 @@ import UIKit
                 #if DEBUG
                 if let state = UIFixture.state, state.hasPrefix("widget-") {
                     HomeWidgetFixture(state: state)
+                } else if UIFixture.state == "audio-session-probe" {
+                    BackgroundAudioSessionProbeView()
                 } else { ContentView() }
                 #else
                 ContentView()

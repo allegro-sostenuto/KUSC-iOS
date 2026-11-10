@@ -77,6 +77,9 @@ if [ "${PHILHARMONIC_DEBUG_EVENTS_ONLY:-0}" = 1 ]; then
         -only-testing:PhilharmonicTests/AudioEngineIntegrationTests/testPauseWinsAfterPlayWhileDirectReplacementIsStillPreparing
     )
 fi
+if [ "${PHILHARMONIC_SPEAKER_REPRO_ONLY:-0}" = 1 ]; then
+    tests=(-only-testing:PhilharmonicTests/ScheduledSpeakerCategoryTests)
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

@@ -17,6 +17,8 @@ import UIKit
     @discardableResult
     static func configure(model: AppModel) -> Bool {
         guard let state else { return false }
+        // The explicit native probe owns its real audio session separately.
+        if state == "audio-session-probe" { return true }
         let paused = ["paused", "paused-live", "no-artwork", "schedule-reminder"].contains(state)
         model.configureUIFixturePlayback(active: !paused)
         model.settings = AppSettings()

@@ -169,11 +169,12 @@ import Network
         var otherAudioPlaying = false
         var backgrounded = false
         var exclusiveActivationFails = false
+        var speakerCategoryFails = false
         var speakerOverrideFails = false
     }
     private var scheduleTestEnvironment: ScheduleTestEnvironment?
     private var scheduleTestStandby = false
-    private var sessionActivationAttempts: [(speaker: Bool, mixing: Bool, options: AVAudioSession.CategoryOptions)] = []
+    private var sessionActivationAttempts: [(speaker: Bool, mixing: Bool, options: AVAudioSession.CategoryOptions, category: AVAudioSession.Category)] = []
     #endif
     private var unpluggedAt: Date?
     private var notificationOnly = false
@@ -938,6 +939,7 @@ import Network
         (sessionMixesWithOthers, sessionActivationAttempts.count, sessionActivationAttempts.filter { !$0.mixing }.count)
     }
     var sessionOptionsForTesting: AVAudioSession.CategoryOptions? { sessionActivationAttempts.last?.options }
+    var sessionCategoriesForTesting: [AVAudioSession.Category] { sessionActivationAttempts.map(\.category) }
     var scheduleIDForTesting: UUID? { scheduleRequest?.id }
     #endif
 
@@ -1899,7 +1901,11 @@ import Network
             "standby_running": String(standbyIsRunning)])
         #if DEBUG
         if let environment = scheduleTestEnvironment {
-            sessionActivationAttempts.append((useSpeaker, mixing, options))
+            sessionActivationAttempts.append((useSpeaker, mixing, options, category))
+            if category == .playAndRecord && environment.speakerCategoryFails {
+                audioSessionActivationStep = "set_category"
+                throw NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+            }
             audioSessionActivationStep = "set_active"
             if environment.activationFails || (!mixing && environment.exclusiveActivationFails) {
                 throw NSError(domain: NSOSStatusErrorDomain, code: 560557684)
