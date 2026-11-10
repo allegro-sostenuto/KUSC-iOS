@@ -21,7 +21,7 @@ on:
       map_quality_check:
         description: Targeted map/quality or debug integration checks
         type: choice
-        options: [none, all, ui, quality, debug, schedule-debug, schedule-volume, schedule-repro]
+        options: [none, all, ui, quality, debug, schedule-debug, schedule-volume, schedule-repro, schedule-category]
         default: none
         required: false
       ui_polish_check:
@@ -75,7 +75,7 @@ concurrency:
 jobs:
   station-picker:
     name: Station switching and native picker checks
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality' || inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-repro')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.station_check || inputs.source_check || inputs.quality_ui_check || inputs.ui_polish_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'ui' || inputs.map_quality_check == 'quality' || inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-repro' || inputs.map_quality_check == 'schedule-category')
     runs-on: macos-26
     timeout-minutes: ${{ (inputs.ui_polish_scope == 'motion' || inputs.ui_polish_scope == 'motion-layout') && 35 || 20 }}
     env:
@@ -104,7 +104,7 @@ jobs:
           PHILHARMONIC_QUALITY_SETTINGS_ONLY: ${{ inputs.map_quality_check == 'quality' && '1' || '0' }}
           PHILHARMONIC_DEBUG_UI_ONLY: ${{ inputs.map_quality_check == 'debug' && '1' || '0' }}
           PHILHARMONIC_SCHEDULE_VOLUME_ONLY: ${{ inputs.map_quality_check == 'schedule-volume' && '1' || '0' }}
-          PHILHARMONIC_SPEAKER_REPRO_ONLY: ${{ inputs.map_quality_check == 'schedule-repro' && '1' || '0' }}
+          PHILHARMONIC_SPEAKER_REPRO_ONLY: ${{ (inputs.map_quality_check == 'schedule-repro' || inputs.map_quality_check == 'schedule-category') && '1' || '0' }}
         run: bash scripts/test_station_picker.sh
       - name: Upload station evidence
         if: always()
@@ -125,7 +125,7 @@ jobs:
 
   native-audio:
     name: Native playback regression tests
-    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-repro')
+    if: github.event.repository.private == false && (!(github.event_name == 'workflow_dispatch' && inputs.build_only) || inputs.source_check || inputs.map_quality_check == 'all' || inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-repro' || inputs.map_quality_check == 'schedule-category')
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -136,13 +136,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Check scheduled-start policy and debug journal
-        if: inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume'
+        if: inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-category'
         run: swift test --filter 'ScheduleRegressionTests|PlaybackDiagnosticTests|PlaybackDebugJournalTests'
       - name: Run hosted media tests
         env:
           PHILHARMONIC_STATION_SOURCES_ONLY: ${{ inputs.source_check && '1' || '0' }}
           PHILHARMONIC_STATION_BOUNDARIES_ONLY: ${{ inputs.map_quality_check == 'all' && '1' || '0' }}
-          PHILHARMONIC_DEBUG_EVENTS_ONLY: ${{ (inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume') && '1' || '0' }}
+          PHILHARMONIC_DEBUG_EVENTS_ONLY: ${{ (inputs.map_quality_check == 'debug' || inputs.map_quality_check == 'schedule-debug' || inputs.map_quality_check == 'schedule-volume' || inputs.map_quality_check == 'schedule-category') && '1' || '0' }}
           PHILHARMONIC_SPEAKER_REPRO_ONLY: ${{ inputs.map_quality_check == 'schedule-repro' && '1' || '0' }}
         run: bash scripts/test_native_audio.sh
       - name: Upload audio test evidence

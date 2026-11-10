@@ -1,5 +1,8 @@
 # Philharmonic iOS 2.0.0
 
+The [2.6.1 fix attempt](ios_v2_6_1.md) replays the captured background category
+failure and avoids forcing a category change when Speaker is already selected.
+
 The [2.6.0 update](ios_v2_6_0.md) adds foreground speaker-volume setup in Scheduled
 Start, with interruption only when switching from another output to speaker.
 

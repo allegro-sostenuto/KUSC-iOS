@@ -169,6 +169,7 @@ import Network
         var otherAudioPlaying = false
         var backgrounded = false
         var exclusiveActivationFails = false
+        var audioCategory: AVAudioSession.Category = .playback
         var speakerCategoryFails = false
         var speakerOverrideFails = false
     }
@@ -1888,15 +1889,32 @@ import Network
         let mixing = mixWithOthers ?? (silentPreparation || (automaticSchedule && !applicationIsActive))
         let useSpeaker = forceSpeaker ?? (!silentPreparation &&
             ((scheduleOwnsPlayback && scheduledSpeakerRequired) || completedPlaybackUsesSpeaker))
-        var options: AVAudioSession.CategoryOptions = useSpeaker ? [.defaultToSpeaker] : []
+        let audio = AVAudioSession.sharedInstance()
+        var route = ObservedAudioRoute(ports: audio.currentRoute.outputs.map {
+            .init(uid: $0.uid, type: $0.portType.rawValue, name: $0.portName)
+        })
+        var previousCategory = audio.category
+        #if DEBUG
+        if let environment = scheduleTestEnvironment {
+            route = environment.route; previousCategory = environment.audioCategory
+        }
+        #endif
+        // A verified speaker output needs no recording-category transition.
+        // Keep an established override session while it is still needed to hold
+        // the speaker against a connected accessory; dropping it can reroute.
+        let speakerSessionRequired = useSpeaker && (!route.isBuiltInSpeaker ||
+            (speakerSessionActive && previousCategory == .playAndRecord))
+        var options: AVAudioSession.CategoryOptions = speakerSessionRequired ? [.defaultToSpeaker] : []
         if mixing { options.insert(.mixWithOthers) }
-        let category: AVAudioSession.Category = useSpeaker ? .playAndRecord : .playback
+        let category: AVAudioSession.Category = speakerSessionRequired ? .playAndRecord : .playback
         recordDebugEvent(category: "audio_session", name: "audio_session_activation_started", details: [
             "speaker_requested": String(useSpeaker), "mixing_requested": String(mixing),
+            "speaker_route_already_selected": String(route.isBuiltInSpeaker),
+            "speaker_session_required": String(speakerSessionRequired),
             "category_requested": category.rawValue, "options_requested": String(options.rawValue),
-            "previous_category": AVAudioSession.sharedInstance().category.rawValue,
+            "previous_category": previousCategory.rawValue,
             "previous_options": String(AVAudioSession.sharedInstance().categoryOptions.rawValue),
-            "output_types": currentOutputRoute.ports.map(\.type).joined(separator: ","),
+            "output_types": route.ports.map(\.type).joined(separator: ","),
             "app_state": applicationStateDescription, "other_audio_playing": String(otherAudioIsPlaying),
             "standby_running": String(standbyIsRunning)])
         #if DEBUG
@@ -1910,8 +1928,9 @@ import Network
             if environment.activationFails || (!mixing && environment.exclusiveActivationFails) {
                 throw NSError(domain: NSOSStatusErrorDomain, code: 560557684)
             }
-            speakerSessionActive = useSpeaker
+            speakerSessionActive = speakerSessionRequired
             sessionMixesWithOthers = mixing
+            scheduleTestEnvironment?.audioCategory = category
             if useSpeaker, !environment.route.isBuiltInSpeaker {
                 audioSessionActivationStep = "override_speaker"
                 if environment.speakerOverrideFails { throw SilentStandby.StandbyError.failed }
@@ -1922,8 +1941,7 @@ import Network
         }
         if audioRecoveryTestConnections != nil { return }
         #endif
-        let audio = AVAudioSession.sharedInstance()
-        if useSpeaker {
+        if speakerSessionRequired {
             // Public speaker override requires playAndRecord. No input tap,
             // recorder, or microphone data is used by Philharmonic.
             if audio.category != category || audio.categoryOptions != options || audio.mode != .default {

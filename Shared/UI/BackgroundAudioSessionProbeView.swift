@@ -10,6 +10,8 @@ import UIKit
     @State private var rows: [String] = []
     @State private var phase = "idle"
     @State private var standby = SilentStandby()
+    @State private var probeTask: Task<Void, Never>?
+    @State private var backgroundedAt: TimeInterval?
     private let audio = AVAudioSession.sharedInstance()
 
     var body: some View {
@@ -22,22 +24,32 @@ import UIKit
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             guard phase == "prepared" else { return }
-            attempt("background_playback") {
-                try audio.setCategory(.playback, mode: .default, policy: .default, options: [.mixWithOthers])
-                try audio.setActive(true)
+            backgroundedAt = ProcessInfo.processInfo.systemUptime
+            phase = "waiting"
+            probeTask = Task { @MainActor in
+                do { try await Task.sleep(nanoseconds: 30_000_000_000) }
+                catch { return }
+                guard phase == "waiting" else { return }
+                runBackgroundProbe()
             }
-            attempt("background_play_and_record") {
-                try audio.setCategory(.playAndRecord, mode: .default, policy: .default,
-                                      options: [.defaultToSpeaker, .mixWithOthers])
-                try audio.setActive(true)
-            }
-            attempt("background_playback_restore") {
-                try audio.setCategory(.playback, mode: .default, policy: .default, options: [.mixWithOthers])
-                try audio.setActive(true)
-            }
-            cleanup(); phase = "complete"
         }
-        .onDisappear(perform: cleanup)
+        .onDisappear { probeTask?.cancel(); phase = "cancelled"; cleanup() }
+    }
+    private func runBackgroundProbe() {
+        attempt("background_playback") {
+            try audio.setCategory(.playback, mode: .default, policy: .default, options: [.mixWithOthers])
+            try audio.setActive(true)
+        }
+        attempt("background_play_and_record") {
+            try audio.setCategory(.playAndRecord, mode: .default, policy: .default,
+                                  options: [.defaultToSpeaker, .mixWithOthers])
+            try audio.setActive(true)
+        }
+        attempt("background_playback_restore") {
+            try audio.setCategory(.playback, mode: .default, policy: .default, options: [.mixWithOthers])
+            try audio.setActive(true)
+        }
+        cleanup(); phase = "complete"
     }
     private func prepare() {
         attempt("foreground_prepare") {
@@ -57,6 +69,7 @@ import UIKit
         entry["outputs"] = audio.currentRoute.outputs.map { $0.portType.rawValue }
         entry["volume"] = audio.outputVolume
         entry["standby_running"] = standby.running
+        if let backgroundedAt { entry["background_elapsed_seconds"] = ProcessInfo.processInfo.systemUptime - backgroundedAt }
         let line = String(data: try! JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]), encoding: .utf8)!
         rows.append(line); print("NATIVE_SPEAKER_PROBE " + line)
     }

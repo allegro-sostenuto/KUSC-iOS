@@ -55,6 +55,52 @@ final class ScheduledSpeakerCategoryTests: XCTestCase {
         XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
     }
 
+    @MainActor func testAlreadySpeakerStillRequiresActivationAndPreservesForegroundFocus() {
+        let model = AppModel.shared
+        for backgrounded in [true, false] {
+            var power = environment(route: speaker)
+            power.backgrounded = backgrounded; power.activationFails = true
+            model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+            defer { model.finishScheduleForTesting() }
+            XCTAssertFalse(model.isPlaying)
+            XCTAssertFalse(model.scheduleStateForTesting.owned)
+            XCTAssertEqual(model.audioRecoveryStateForTesting.connections, 0)
+            XCTAssertTrue(model.sessionCategoriesForTesting.allSatisfy { $0 == .playback })
+            if backgrounded { XCTAssertEqual(model.sessionStateForTesting.exclusiveAttempts, 0) }
+            else { XCTAssertGreaterThan(model.sessionStateForTesting.exclusiveAttempts, 0) }
+        }
+    }
+
+    @MainActor func testEstablishedSpeakerOverrideIsNotDroppedDuringReadinessOrFade() {
+        let model = AppModel.shared
+        var power = environment(route: headphones); power.speakerCategoryFails = false
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: power)
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertTrue(model.currentOutputRoute.isBuiltInSpeaker)
+        XCTAssertTrue(model.scheduleStateForTesting.speakerSession)
+        model.simulateScheduledReadinessForTesting()
+        model.advanceScheduleForTesting(seconds: 60)
+        XCTAssertTrue(model.sessionCategoriesForTesting.allSatisfy { $0 == .playAndRecord })
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 1)
+    }
+
+    @MainActor func testAlreadySpeakerPlaybackStopsIfNewHeadphonesCannotBeRerouted() {
+        let model = AppModel.shared
+        model.configureScheduleForTesting(secondsUntilStart: -1, environment: environment(route: speaker))
+        defer { model.finishScheduleForTesting() }
+        XCTAssertTrue(model.isPlaying)
+        model.simulateScheduledReadinessForTesting()
+        let connections = model.audioRecoveryStateForTesting.connections
+        model.advanceScheduleForTesting(seconds: 1, route: headphones)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertFalse(model.scheduleStateForTesting.owned)
+        XCTAssertEqual(model.currentOutputRoute, headphones)
+        XCTAssertTrue(model.sessionCategoriesForTesting.contains(.playAndRecord))
+        XCTAssertEqual(model.audioRecoveryStateForTesting.connections, connections)
+        XCTAssertEqual(model.scheduledGainBoundaryState.gain, 0)
+    }
+
     private var speaker: ObservedAudioRoute {
         .init(ports: [.init(uid: "speaker", type: "Speaker", name: "iPhone")])
     }
