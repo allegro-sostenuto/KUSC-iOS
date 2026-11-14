@@ -62,6 +62,19 @@ final class PanelSwipeTests: XCTestCase {
         swipe = PanelSwipeState()
         XCTAssertEqual(swipe.translation(x: 30, y: 0, width: 390), 30)
     }
+
+    func testUnavailableProgrammeMovementStaysSmallEvenPastTheOpeningThreshold() {
+        let threshold = PanelSwipeState.openingThreshold(width: 390)
+        let initial = PanelSwipeState.unavailableProgrammeMotion(20)
+        let crossing = PanelSwipeState.unavailableProgrammeMotion(threshold)
+        let long = PanelSwipeState.unavailableProgrammeMotion(390)
+        XCTAssertGreaterThan(initial.offset, 0)
+        XCTAssertGreaterThan(crossing.offset, initial.offset)
+        XCTAssertLessThanOrEqual(long.offset, 16)
+        XCTAssertGreaterThan(long.offset, crossing.offset)
+        XCTAssertLessThan(crossing.slope, initial.slope)
+        XCTAssertEqual(PanelSwipeState.unavailableProgrammeMotion(-30).offset, 0)
+    }
     func testLightResistanceRespondsImmediatelyAndLosesAtMostThreePoints() {
         for width in [320.0, 402, 844] {
             var previous = 0.0

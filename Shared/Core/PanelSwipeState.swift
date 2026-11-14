@@ -55,11 +55,22 @@ struct PanelSwipeState {
         return 1 / (1 + exp(odds))
     }
 
+    static func openingThreshold(width: Double) -> Double {
+        min(90, max(52, width * 0.20))
+    }
+
+    /// A short elastic movement with the derivative needed for the release spring.
+    static func unavailableProgrammeMotion(_ distance: Double) -> (offset: Double, slope: Double) {
+        guard distance > 0, distance.isFinite else { return (0, 0) }
+        let progress = tanh(distance / 32)
+        return (16 * progress, 0.5 * (1 - progress * progress))
+    }
+
     /// Either sign switches panels. Small movements must not become a page
     /// change solely because a recognizer predicts a large release velocity.
     func releaseDirection(x: Double, predictedX: Double, width: Double) -> Int? {
         guard axis == .horizontal, width > 0, x.isFinite, predictedX.isFinite else { return nil }
-        let threshold = min(90, max(52, width * 0.20))
+        let threshold = Self.openingThreshold(width: width)
         let farEnough = abs(x) >= threshold
         let flick = abs(x) >= 18 && abs(predictedX) >= threshold
             && (x > 0) == (predictedX > 0)

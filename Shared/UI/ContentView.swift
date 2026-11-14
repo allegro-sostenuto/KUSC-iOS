@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
@@ -15,6 +16,11 @@ struct ContentView: View {
     @State private var panelTransition: PanelTransition?
     @State private var draggingPanel = false
     @State private var stationHeaderPosition: CGFloat?
+    @State private var programmeNoticeVisible = false
+    @State private var programmeNoticeShownForDrag = false
+    @State private var programmeNoticeDismissal: Task<Void, Never>?
+
+    private static let programmeUnavailableMessage = "Programme unavailable for this station"
 
     private struct PanelTransition {
         let id = UUID()
@@ -68,6 +74,7 @@ struct ContentView: View {
             #endif
             .onChange(of: geometry.size) { dimensions in
                 resetPanelDrag()
+                clearProgrammeNotice()
                 if dimensions.width > dimensions.height { showingProgramme = false }
                 #if DEBUG
                 if dimensions.width < dimensions.height {
@@ -77,6 +84,7 @@ struct ContentView: View {
             }
             .onChange(of: model.selectedStation.id) { _ in
                 synchronizeStationHeader()
+                clearProgrammeNotice()
                 guard !hasProgrammeContent else { return }
                 // Keep an existing reveal coherent when the new station has no
                 // Program. Retarget the native spring rather than zeroing it.
@@ -130,8 +138,10 @@ struct ContentView: View {
         }
         .onChange(of: model.settings.minimalist) { enabled in
             resetPanelDrag()
+            clearProgrammeNotice()
             if enabled { showingProgramme = false }
         }
+        .onChange(of: sheet) { _ in clearProgrammeNotice() }
         .onChange(of: model.stationPreferences.orderedIDs) { _ in
             synchronizeStationHeader(force: true)
         }
@@ -149,9 +159,13 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { model.onForeground(); PlayerOrientation.refresh() }
-            else { resetPanelDrag() }
+            else { resetPanelDrag(); clearProgrammeNotice() }
         }
-        .onDisappear { resetPanelDrag(); PlayerOrientation.setProgrammeVisible(false) }
+        .onDisappear {
+            resetPanelDrag()
+            clearProgrammeNotice()
+            PlayerOrientation.setProgrammeVisible(false)
+        }
         #if DEBUG
         .onAppear {
             guard let fixture = UIFixture.state else { return }
@@ -169,7 +183,8 @@ struct ContentView: View {
     }
 
     private func header(width: CGFloat, landscape: Bool) -> some View {
-        let progress = landscape ? 0 : (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
+        let progress = landscape || (!hasProgrammeContent && !showingProgramme)
+            ? 0 : (showingProgramme ? 1 : 0) + panelOffset / max(1, width)
         return HStack(alignment: .center, spacing: 10) {
             ZStack(alignment: .leading) {
                 RollingChannelHeader(progress: progress, showingProgramme: showingProgramme,
@@ -179,6 +194,7 @@ struct ContentView: View {
                     .allowsHitTesting(false)
                 Button {
                     resetPanelDrag()
+                    clearProgrammeNotice()
                     PlayerOrientation.setProgrammeVisible(false)
                     choosingStation = true
                 } label: {
@@ -214,9 +230,11 @@ struct ContentView: View {
                 ZStack {
                     // Keep both layers mounted; a first drag must not replace its
                     // own ScrollView or recognizer when Program appears underneath.
-                    panel(programme: true, size: size, height: viewport.size.height)
-                        .allowsHitTesting(showingProgramme && panelTransition == nil)
-                        .accessibilityHidden(!showingProgramme)
+                    if hasProgrammeContent || showingProgramme {
+                        panel(programme: true, size: size, height: viewport.size.height)
+                            .allowsHitTesting(showingProgramme && panelTransition == nil)
+                            .accessibilityHidden(!showingProgramme)
+                    }
                     panel(programme: false, size: size, height: viewport.size.height)
                         .overlay(alignment: .leading) {
                             if isSwipingPanel {
@@ -233,7 +251,7 @@ struct ContentView: View {
                         .accessibilityHidden(showingProgramme)
                 }
                 .background {
-                    PanelPanGesture(enabled: hasProgrammeContent && panelTransition == nil && !model.settings.minimalist &&
+                    PanelPanGesture(enabled: panelTransition == nil && !model.settings.minimalist &&
                                         sheet == nil && !choosingStation && !choosingPauseBehavior && scenePhase == .active,
                                     opening: !showingProgramme,
                                     changed: { panelDragChanged($0, width: viewport.size.width) },
@@ -245,6 +263,21 @@ struct ContentView: View {
                 }
                 .coordinateSpace(name: "player-panels")
                 .clipped()
+                .overlay(alignment: .bottom) {
+                    if programmeNoticeVisible {
+                        Text(Self.programmeUnavailableMessage)
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .philharmonicControlSurface(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityIdentifier("programme-unavailable-message")
+                    }
+                }
             }
         }
         #if DEBUG
@@ -360,14 +393,20 @@ struct ContentView: View {
     }
 
     private func panelDragChanged(_ x: CGFloat, width: CGFloat) {
-        guard hasProgrammeContent, !model.settings.minimalist, panelTransition == nil else { return }
+        guard !model.settings.minimalist, panelTransition == nil else { return }
         draggingPanel = true
         if let offset = panelSwipe.translation(x: Double(x), y: 0, width: Double(width)) {
             let allowed = showingProgramme ? min(0, offset) : max(0, offset)
+            let unavailable = !hasProgrammeContent && !showingProgramme
+            if unavailable { showProgrammeNoticeIfNeeded(distance: allowed, width: Double(width)) }
             var transaction = Transaction(animation: nil)
             transaction.isContinuous = true
             withTransaction(transaction) {
-                panelOffset = CGFloat(PanelSwipeState.resistedTranslation(allowed, width: Double(width)))
+                if unavailable {
+                    panelOffset = reduceMotion ? 0 : CGFloat(PanelSwipeState.unavailableProgrammeMotion(allowed).offset)
+                } else {
+                    panelOffset = CGFloat(PanelSwipeState.resistedTranslation(allowed, width: Double(width)))
+                }
             }
         }
     }
@@ -379,23 +418,54 @@ struct ContentView: View {
         // recognizer has already locked the horizontal direction; include the
         // final translation so a valid release cannot retain an undecided axis.
         _ = panelSwipe.translation(x: Double(x), y: 0, width: Double(width))
+        let unavailable = !hasProgrammeContent && !showingProgramme
+        if unavailable, !cancelled, panelSwipe.axis == .horizontal {
+            showProgrammeNoticeIfNeeded(distance: Double(x), width: Double(width))
+        }
+        if programmeNoticeShownForDrag { dismissProgrammeNoticeAfterRelease() }
         let predicted = x + velocity * 0.18
         let direction = cancelled ? nil : panelSwipe.releaseDirection(
             x: Double(x), predictedX: Double(predicted), width: Double(width))
         let allowedDirection = showingProgramme ? -1 : 1
-        let selected = hasProgrammeContent && direction == allowedDirection ? direction : nil
+        let selected = !unavailable && direction == allowedDirection ? direction : nil
         #if DEBUG
         if UIFixture.state != nil {
             PanelGestureTrace.record("release x=\(x), velocity=\(velocity), cancelled=\(cancelled), direction=\(String(describing: selected)), width=\(width)")
         }
         #endif
         let remaining = (selected.map { CGFloat($0) * width } ?? 0) - panelOffset
-        let panelVelocity = PanelSwipeState.resistedVelocity(Double(velocity), at: Double(x), width: Double(width))
+        let panelVelocity = unavailable
+            ? Double(velocity) * PanelSwipeState.unavailableProgrammeMotion(Double(x)).slope
+            : PanelSwipeState.resistedVelocity(Double(velocity), at: Double(x), width: Double(width))
         // A cancelled short drag can still be moving outward. Preserve that
         // sign so the spring decelerates it before returning, without a kink.
         let normalized = cancelled || abs(remaining) < 1 ? 0 :
             min(4, max(-4, panelVelocity / Double(remaining)))
         settlePanel(direction: selected, width: width, velocity: normalized)
+    }
+
+    private func showProgrammeNoticeIfNeeded(distance: Double, width: Double) {
+        guard !programmeNoticeShownForDrag, distance >= PanelSwipeState.openingThreshold(width: width) else { return }
+        programmeNoticeShownForDrag = true
+        programmeNoticeDismissal?.cancel()
+        programmeNoticeVisible = true
+        UIAccessibility.post(notification: .announcement, argument: Self.programmeUnavailableMessage)
+    }
+
+    private func dismissProgrammeNoticeAfterRelease() {
+        programmeNoticeDismissal?.cancel()
+        programmeNoticeDismissal = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            programmeNoticeVisible = false
+            programmeNoticeDismissal = nil
+        }
+    }
+
+    private func clearProgrammeNotice() {
+        programmeNoticeDismissal?.cancel()
+        programmeNoticeDismissal = nil
+        programmeNoticeVisible = false
     }
 
     private func selectPanel(programme: Bool, width: CGFloat) {
@@ -451,6 +521,7 @@ struct ContentView: View {
         panelTransition = nil
         panelSwipe = PanelSwipeState()
         draggingPanel = false
+        programmeNoticeShownForDrag = false
         panelOffset = 0
     }
 

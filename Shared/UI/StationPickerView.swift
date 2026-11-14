@@ -1,5 +1,5 @@
 import SwiftUI
-import UniformTypeIdentifiers
+import UIKit
 
 /// A separate page leaves the player's fixed transport and Program gestures intact.
 struct StationPickerView: View {
@@ -9,8 +9,6 @@ struct StationPickerView: View {
     @AppReduceMotion private var reduceMotion
     @ScaledMetric(relativeTo: .subheadline) private var stationTextScale: CGFloat = 15
     @State private var reordering = false
-    @State private var draggedID: String?
-    @State private var lastReorderedTargetID: String?
 
     private var grid: Bool { model.stationPreferences.displayMode == .grid }
     private var map: Bool { model.stationPreferences.displayMode == .map }
@@ -24,27 +22,29 @@ struct StationPickerView: View {
                     HStack {
                         displayControls
                         Spacer()
-                        if !map { reorderButton }
+                        if reordering && !map { doneButton }
                     }.padding(.horizontal, 16).padding(.bottom, 8)
                 }
                 Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
                 if reordering && !(landscape && dynamicTypeSize.isAccessibilitySize) {
-                    Text("Drag a station, or use the arrows to move it earlier or later.")
+                    Text(grid ? "Drag stations to reorder." : "Drag a reorder handle to move a station.")
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16).padding(.vertical, 8)
                 }
-                GeometryReader { viewport in
-                    if map {
-                        StationMapView(stations: model.orderedStations, selectedStation: model.selectedStation,
-                                       mapStyle: model.settings.stationMapStyle) { station in
-                            model.selectStation(station.id)
-                        }
-                    } else if landscape {
-                        landscapeStations(size: viewport.size)
-                    } else {
-                        portraitStations
+                if map {
+                    StationMapView(stations: model.orderedStations, selectedStation: model.selectedStation,
+                                   mapStyle: model.settings.stationMapStyle) { station in
+                        model.selectStation(station.id)
                     }
+                } else {
+                    NativeStationCollection(stations: model.orderedStations, selectedID: model.selectedStation.id,
+                                            grid: grid, landscape: landscape, reordering: reordering,
+                                            reduceMotion: reduceMotion, dynamicTypeSize: dynamicTypeSize,
+                                            stationTextScale: stationTextScale,
+                                            select: { model.selectStation($0) },
+                                            beginReordering: { setReordering(true) },
+                                            move: { model.moveStation($0, by: $1) })
                 }
             }
         }
@@ -67,7 +67,10 @@ struct StationPickerView: View {
             Text("Stations").font(.title2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            if landscape { displayControls; if !map { reorderButton } }
+            if landscape {
+                displayControls
+                if reordering && !map { doneButton }
+            }
         }.padding(.horizontal, 16).padding(.vertical, 8)
     }
 
@@ -91,108 +94,253 @@ struct StationPickerView: View {
             .accessibilityIdentifier("stations-mode-\(mode.rawValue)")
     }
 
-    private var reorderButton: some View {
-        Button { withAnimation(reduceMotion ? nil : .default) { reordering.toggle() } } label: {
+    private var doneButton: some View {
+        Button { setReordering(false) } label: {
             Group {
                 if dynamicTypeSize.isAccessibilitySize {
-                    Image(systemName: reordering ? "checkmark" : "arrow.up.arrow.down")
+                    Image(systemName: "checkmark")
                         .font(.system(size: 18, weight: .medium)).frame(width: 44, height: 44)
                 } else {
-                    Label(reordering ? "Done" : "Reorder", systemImage: reordering ? "checkmark" : "arrow.up.arrow.down")
+                    Label("Done", systemImage: "checkmark")
                         .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
                 }
             }.philharmonicControlSurface(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(reordering ? "Done reordering" : "Reorder stations")
-        .accessibilityIdentifier("stations-reorder")
+        .accessibilityLabel("Done reordering")
+        .accessibilityIdentifier("stations-reorder-done")
     }
 
-    private var portraitStations: some View {
-        ScrollView(.vertical) {
-            // One stable native grid preserves each card's identity while its
-            // columns and internal AnyLayout interpolate between grid and list.
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: grid ? 2 : 1),
-                      spacing: grid ? 14 : 12) {
-                ForEach(model.orderedStations) { station in stationCard(station, grid: grid, compact: false) }
-            }.padding(16)
-        }.accessibilityIdentifier("stations-vertical-scroll")
+    private func setReordering(_ enabled: Bool) {
+        withAnimation(reduceMotion ? nil : .default) { reordering = enabled }
+    }
+}
+
+private struct NativeStationCollection: UIViewControllerRepresentable {
+    let stations: [RadioStation]
+    let selectedID: String
+    let grid: Bool
+    let landscape: Bool
+    let reordering: Bool
+    let reduceMotion: Bool
+    let dynamicTypeSize: DynamicTypeSize
+    let stationTextScale: CGFloat
+    let select: (String) -> Void
+    let beginReordering: () -> Void
+    let move: (String, Int) -> Void
+
+    func makeUIViewController(context: Context) -> Controller { Controller(self) }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.update(self)
     }
 
-    private func landscapeStations(size: CGSize) -> some View {
-        let entriesPerPage = grid ? 2 : 1
-        let stations = model.orderedStations
-        let pageCount = (stations.count + entriesPerPage - 1) / entriesPerPage
-        // At accessibility sizes, let each row extend horizontally instead of
-        // forcing large names into a short landscape viewport. The same row
-        // still contains two grid entries or one list entry, all reachable by
-        // horizontal scrolling; text and the reorder footer stay untruncated.
-        let expandedCardWidth = 360 * max(1, stationTextScale / 15)
-        let pageWidth = dynamicTypeSize.isAccessibilitySize
-            ? max(size.width, expandedCardWidth * CGFloat(entriesPerPage) + (grid ? 16 : 0) + 32)
-            : size.width
-        return ScrollView(.horizontal) {
-            LazyHStack(alignment: .center, spacing: 0) {
-                ForEach(0..<pageCount, id: \.self) { page in
-                    HStack(spacing: 16) {
-                        ForEach(Array(stations.dropFirst(page * entriesPerPage).prefix(entriesPerPage))) { station in
-                            stationCard(station, grid: grid, compact: true)
-                                .frame(maxWidth: .infinity)
-                        }
-                        if grid && page == pageCount - 1 && stations.count % 2 != 0 {
-                            Color.clear.frame(maxWidth: .infinity).accessibilityHidden(true)
-                        }
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .frame(width: pageWidth, height: size.height)
+    final class Controller: UICollectionViewController {
+        private var configuration: NativeStationCollection
+        private var stations: [RadioStation]
+        private let reuseIdentifier = "station"
+
+        init(_ configuration: NativeStationCollection) {
+            self.configuration = configuration
+            self.stations = configuration.stations
+            super.init(collectionViewLayout: Self.layout(for: configuration))
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("Use init(_:) for station collections") }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = UIColor(Color.philharmonicBackground)
+            collectionView.backgroundColor = UIColor(Color.philharmonicBackground)
+            collectionView.contentInsetAdjustmentBehavior = .never
+            collectionView.register(UICollectionViewListCell.self, forCellWithReuseIdentifier: reuseIdentifier)
+            collectionView.dragInteractionEnabled = false
+            updateEditing()
+            applyScrollingDirection()
+        }
+
+        func update(_ next: NativeStationCollection) {
+            let previous = configuration
+            configuration = next
+            guard isViewLoaded else { stations = next.stations; return }
+            let layoutChanged = previous.grid != next.grid || previous.landscape != next.landscape ||
+                previous.stationTextScale != next.stationTextScale || previous.dynamicTypeSize != next.dynamicTypeSize
+            let orderChanged = stations.map(\.id) != next.stations.map(\.id)
+            let editingChanged = previous.reordering != next.reordering
+            if layoutChanged || editingChanged || orderChanged { collectionView.cancelInteractiveMovement() }
+            if editingChanged { updateEditing() }
+            if orderChanged {
+                stations = next.stations
+                collectionView.reloadData()
+            }
+            if layoutChanged {
+                collectionView.setCollectionViewLayout(Self.layout(for: next), animated: !next.reduceMotion && !editingChanged)
+                applyScrollingDirection()
+            }
+            if layoutChanged || editingChanged || previous.selectedID != next.selectedID { refreshVisibleCells() }
+        }
+
+        private func updateEditing() {
+            installsStandardGestureForInteractiveMovement = configuration.reordering
+            collectionView.isEditing = configuration.reordering
+        }
+
+        private func applyScrollingDirection() {
+            collectionView.alwaysBounceHorizontal = configuration.landscape
+            collectionView.alwaysBounceVertical = !configuration.landscape
+            collectionView.accessibilityIdentifier = configuration.landscape
+                ? "stations-horizontal-scroll" : "stations-vertical-scroll"
+        }
+
+        private static func layout(for configuration: NativeStationCollection) -> UICollectionViewLayout {
+            let settings = UICollectionViewCompositionalLayoutConfiguration()
+            settings.scrollDirection = configuration.landscape ? .horizontal : .vertical
+            return UICollectionViewCompositionalLayout(sectionProvider: { _, environment in
+                let columns = configuration.grid ? 2 : 1
+                let spacing: CGFloat = configuration.landscape ? 16 : (configuration.grid ? 14 : 12)
+                let estimatedHeight: CGFloat = configuration.grid ? 188 : 88
+                let height: NSCollectionLayoutDimension = configuration.landscape
+                    ? .fractionalHeight(1) : .estimated(estimatedHeight)
+                let width = environment.container.effectiveContentSize.width
+                let accessibleCardWidth = 360 * max(1, configuration.stationTextScale / 15)
+                let pageWidth = configuration.dynamicTypeSize.isAccessibilitySize
+                    ? max(width, accessibleCardWidth * CGFloat(columns) + spacing * CGFloat(columns - 1) + 32)
+                    : width
+                let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1 / CGFloat(columns)),
+                                                                    heightDimension: height))
+                let group = NSCollectionLayoutGroup.horizontal(
+                    layoutSize: .init(widthDimension: configuration.landscape ? .absolute(max(1, pageWidth - 32)) : .fractionalWidth(1),
+                                      heightDimension: height),
+                    repeatingSubitem: item, count: columns)
+                group.interItemSpacing = .fixed(spacing)
+                let section = NSCollectionLayoutSection(group: group)
+                section.interGroupSpacing = configuration.landscape ? 32 : spacing
+                section.contentInsets = .init(top: configuration.landscape ? 12 : 16, leading: 16,
+                                              bottom: configuration.landscape ? 12 : 16, trailing: 16)
+                return section
+            }, configuration: settings)
+        }
+
+        override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+            stations.count
+        }
+
+        override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseIdentifier, for: indexPath) as! UICollectionViewListCell
+            configure(cell, at: indexPath.item)
+            return cell
+        }
+
+        private func configure(_ cell: UICollectionViewListCell, at index: Int) {
+            let station = stations[index]
+            let selected = station.id == configuration.selectedID
+            let corners = RoundedRectangle(cornerRadius: 16, style: .continuous)
+            cell.backgroundConfiguration = .clear()
+            cell.contentConfiguration = UIHostingConfiguration {
+                StationCardContents(station: station, selected: selected, grid: configuration.grid,
+                                    compact: configuration.landscape)
+                    .foregroundStyle(Color.philharmonicInk)
+                    .environment(\.dynamicTypeSize, configuration.dynamicTypeSize)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.margins(.all, 0)
+                .minSize(width: 0, height: configuration.landscape ? 82 : (configuration.grid ? 188 : 88))
+                .background {
+                    corners.fill(Color.philharmonicSurface)
+                        .overlay(corners.strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
+                                                      lineWidth: selected ? 1.5 : 0.75))
                 }
+            cell.accessories = configuration.reordering && !configuration.grid ? [.reorder(displayed: .always)] : []
+            cell.contentView.accessibilityElementsHidden = true
+            cell.isAccessibilityElement = true
+            cell.accessibilityIdentifier = "station-\(station.id)"
+            cell.accessibilityLabel = station.name
+            cell.accessibilityValue = selected ? "Selected, position \(index + 1)" : "Position \(index + 1)"
+            cell.accessibilityTraits = selected ? [.button, .selected] : [.button]
+            if configuration.reordering {
+                var actions: [UIAccessibilityCustomAction] = []
+                if index > 0 { actions.append(accessibleMove(station.id, by: -1, name: "Move earlier")) }
+                if index + 1 < stations.count { actions.append(accessibleMove(station.id, by: 1, name: "Move later")) }
+                cell.accessibilityCustomActions = actions
+            } else {
+                cell.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Reorder Stations") { [weak self] _ in
+                    self?.configuration.beginReordering()
+                    return self != nil
+                }]
             }
-        }.accessibilityIdentifier("stations-horizontal-scroll")
-    }
+        }
 
-    private func stationCard(_ station: RadioStation, grid: Bool, compact: Bool) -> some View {
-        let selected = station.id == model.selectedStation.id
-        let index = model.orderedStations.firstIndex(where: { $0.id == station.id }) ?? 0
-        return VStack(spacing: 0) {
-            Button { model.selectStation(station.id) } label: {
-                stationLabel(station, selected: selected, grid: grid, compact: compact)
-                    .padding(14).frame(maxWidth: .infinity, minHeight: compact ? 82 : (grid ? 188 : 88))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(station.name)
-            .accessibilityValue(selected ? "Selected, position \(index + 1)" : "Position \(index + 1)")
-            .accessibilityAddTraits(selected ? [.isSelected] : [])
-            .accessibilityIdentifier("station-\(station.id)")
-            .accessibilityAction(named: Text("Move earlier")) { moveStation(station.id, by: -1) }
-            .accessibilityAction(named: Text("Move later")) { moveStation(station.id, by: 1) }
-            .onDrag {
-                draggedID = station.id
-                lastReorderedTargetID = nil
-                return NSItemProvider(object: ("philharmonic-station:" + station.id) as NSString)
-            }
-            if reordering {
-                Rectangle().fill(Color.philharmonicSeparator).frame(height: 0.5)
-                HStack(spacing: 0) {
-                    moveButton(station, earlier: true, enabled: index > 0)
-                    Rectangle().fill(Color.philharmonicSeparator).frame(width: 0.5, height: 24)
-                    moveButton(station, earlier: false, enabled: index < model.orderedStations.count - 1)
+        private func refreshVisibleCells() {
+            for path in collectionView.indexPathsForVisibleItems where stations.indices.contains(path.item) {
+                if let cell = collectionView.cellForItem(at: path) as? UICollectionViewListCell {
+                    configure(cell, at: path.item)
                 }
             }
         }
-        .background(Color.philharmonicSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
-                                                                lineWidth: selected ? 1.5 : 0.75))
-        .onDrop(of: [UTType.plainText], delegate: StationReorderDrop(targetID: station.id, draggedID: $draggedID,
-                                                                 lastTargetID: $lastReorderedTargetID) { id, target in
-            let order = model.orderedStations
-            guard let source = order.firstIndex(where: { $0.id == id }),
-                  let destination = order.firstIndex(where: { $0.id == target }) else { return }
-            moveStation(id, by: destination - source)
-        })
-    }
 
-    private func stationLabel(_ station: RadioStation, selected: Bool, grid: Bool, compact: Bool) -> some View {
+        private func accessibleMove(_ id: String, by offset: Int, name: String) -> UIAccessibilityCustomAction {
+            UIAccessibilityCustomAction(name: name) { [weak self] _ in
+                guard let self, self.configuration.reordering,
+                      let source = self.stations.firstIndex(where: { $0.id == id }),
+                      self.stations.indices.contains(source + offset) else { return false }
+                let from = IndexPath(item: source, section: 0)
+                let to = IndexPath(item: source + offset, section: 0)
+                let move = {
+                    self.collectionView.performBatchUpdates({
+                        self.moveStation(from: from, to: to)
+                        self.collectionView.moveItem(at: from, to: to)
+                    }, completion: nil)
+                }
+                if self.configuration.reduceMotion { UIView.performWithoutAnimation(move) }
+                else { move() }
+                return true
+            }
+        }
+
+        override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+            collectionView.deselectItem(at: indexPath, animated: false)
+            guard !configuration.reordering, stations.indices.contains(indexPath.item) else { return }
+            configuration.select(stations[indexPath.item].id)
+        }
+
+        override func collectionView(_ collectionView: UICollectionView,
+                                     contextMenuConfigurationForItemsAt indexPaths: [IndexPath], point: CGPoint) -> UIContextMenuConfiguration? {
+            guard !configuration.reordering, indexPaths.count == 1 else { return nil }
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                let reorder = UIAction(title: "Reorder Stations", image: UIImage(systemName: "arrow.up.arrow.down")) { _ in
+                    self?.configuration.beginReordering()
+                }
+                return UIMenu(children: [reorder])
+            }
+        }
+
+        override func collectionView(_ collectionView: UICollectionView, canMoveItemAt indexPath: IndexPath) -> Bool {
+            configuration.reordering
+        }
+
+        override func collectionView(_ collectionView: UICollectionView, moveItemAt source: IndexPath, to destination: IndexPath) {
+            moveStation(from: source, to: destination)
+        }
+
+        private func moveStation(from source: IndexPath, to destination: IndexPath) {
+            guard configuration.reordering, source != destination,
+                  stations.indices.contains(source.item), stations.indices.contains(destination.item) else { return }
+            let station = stations.remove(at: source.item)
+            stations.insert(station, at: destination.item)
+            configuration.move(station.id, destination.item - source.item)
+            DispatchQueue.main.async { [weak self] in self?.refreshVisibleCells() }
+        }
+    }
+}
+
+private struct StationCardContents: View {
+    let station: RadioStation
+    let selected: Bool
+    let grid: Bool
+    let compact: Bool
+
+    var body: some View {
         let vertical = grid && !compact
         let layout = vertical ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 12))
         return layout {
@@ -219,47 +367,5 @@ struct StationPickerView: View {
             .font(.system(size: 19)).foregroundStyle(selected ? Color.philharmonicRed : Color.philharmonicSeparator)
             .modifier(NativeSymbolReplacement(value: selected))
             .accessibilityHidden(true)
-    }
-
-    private func moveButton(_ station: RadioStation, earlier: Bool, enabled: Bool) -> some View {
-        Button { moveStation(station.id, by: earlier ? -1 : 1) } label: {
-            Image(systemName: earlier ? "arrow.left" : "arrow.right")
-                .font(.system(size: 16, weight: .medium)).frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.3)
-        .accessibilityLabel("Move \(station.name) \(earlier ? "earlier" : "later")")
-        .accessibilityIdentifier("station-move-\(earlier ? "earlier" : "later")-\(station.id)")
-    }
-
-    private func moveStation(_ id: String, by offset: Int) {
-        withAnimation(reduceMotion ? nil : .default) { model.moveStation(id, by: offset) }
-    }
-}
-
-private struct StationReorderDrop: DropDelegate {
-    let targetID: String
-    @Binding var draggedID: String?
-    @Binding var lastTargetID: String?
-    let move: (String, String) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool {
-        draggedID != nil && info.hasItemsConforming(to: [UTType.plainText.identifier])
-    }
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-    func dropEntered(info: DropInfo) {
-        guard let draggedID, draggedID != targetID, lastTargetID != targetID else { return }
-        lastTargetID = targetID
-        move(draggedID, targetID)
-    }
-    func performDrop(info: DropInfo) -> Bool {
-        let source = draggedID
-        let reorderedOnEntry = lastTargetID != nil
-        draggedID = nil; lastTargetID = nil
-        guard let source else { return false }
-        // A final drop still works if the native interaction omitted hover
-        // entry. Once hover already reordered, a second move would swap back.
-        if !reorderedOnEntry && source != targetID { move(source, targetID) }
-        return true
     }
 }

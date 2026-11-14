@@ -48,16 +48,9 @@ final class StationPickerUITests: XCTestCase {
             XCTAssertGreaterThan(swiss.frame.minY, kusc.frame.maxY, "List has one entry per row")
             capture("stations-list-portrait" + (dark ? "-dark" : ""))
             rotate(.landscapeRight, app: app)
-            XCTAssertTrue(app.scrollViews["stations-horizontal-scroll"].exists)
-            XCTAssertFalse(app.scrollViews["stations-vertical-scroll"].exists)
+            XCTAssertTrue(app.collectionViews["stations-horizontal-scroll"].exists)
+            XCTAssertFalse(app.collectionViews["stations-vertical-scroll"].exists)
             capture("stations-list-landscape" + (dark ? "-dark" : ""))
-            app.buttons["stations-reorder"].tap()
-            app.buttons["station-move-later-kusc"].tap()
-            reach("kusc", app: app, horizontal: true)
-            XCTAssertTrue(kusc.isSelected)
-            capture("stations-list-landscape-reordered" + (dark ? "-dark" : ""))
-            app.buttons["station-move-earlier-kusc"].tap()
-            app.buttons["stations-reorder"].tap()
             reach("concertzender-oude-muziek", app: app, horizontal: true)
             XCTAssertTrue(app.buttons["station-concertzender-oude-muziek"].isHittable, "Horizontal list reaches the last entry")
             reach("kusc", app: app, horizontal: true, forward: false)
@@ -75,12 +68,6 @@ final class StationPickerUITests: XCTestCase {
             XCTAssertTrue(kusc.waitForExistence(timeout: 5))
             XCTAssertEqual(kusc.frame.minY, swiss.frame.minY, accuracy: 2)
             capture("stations-grid-landscape" + (dark ? "-dark" : ""))
-            app.buttons["stations-reorder"].tap()
-            app.buttons["station-move-later-kusc"].tap()
-            XCTAssertLessThan(swiss.frame.minX, kusc.frame.minX)
-            capture("stations-grid-landscape-reordered" + (dark ? "-dark" : ""))
-            app.buttons["station-move-earlier-kusc"].tap()
-            app.buttons["stations-reorder"].tap()
             reach("concertzender-oude-muziek", app: app, horizontal: true)
             reach("kusc", app: app, horizontal: true, forward: false)
             XCTAssertTrue(kusc.isSelected)
@@ -98,23 +85,37 @@ final class StationPickerUITests: XCTestCase {
     }
 
     @MainActor
-    func testReorderAcrossModesPersistsAndStationTransportUsesSavedOrder() {
+    func testDragReordersInGridAndListWithoutSelectingStation() {
         let app = launch()
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
         app.buttons["choose-station"].tap()
-        app.buttons["stations-reorder"].tap()
-        app.buttons["station-move-later-kusc"].tap()
         let swiss = app.buttons["station-radio-swiss-classic"]
         let kusc = app.buttons["station-kusc"]
-        XCTAssertLessThan(swiss.frame.minX, kusc.frame.minX)
-        capture("stations-grid-reordered")
+        let done = app.buttons["stations-reorder-done"]
+        XCTAssertFalse(done.exists)
+        kusc.press(forDuration: 0.8)
+        let option = app.buttons["Reorder Stations"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        XCTAssertFalse(done.exists, "The menu requires confirmation before entering reorder mode")
+        capture("stations-context-menu")
+        option.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        drag(kusc, to: swiss)
+        expectBefore(swiss, kusc, horizontal: true)
+        XCTAssertTrue(kusc.isSelected, "A reorder does not select another station")
+        capture("stations-grid-drag-reordered")
+        done.tap()
         app.buttons["stations-mode-list"].tap()
-        XCTAssertLessThan(swiss.frame.minY, kusc.frame.minY)
-        app.buttons["station-move-earlier-kusc"].tap()
-        XCTAssertLessThan(kusc.frame.minY, swiss.frame.minY)
-        capture("stations-list-reordered")
-        app.buttons["station-move-later-kusc"].tap()
-        app.buttons["stations-reorder"].tap()
+        expectBefore(swiss, kusc, horizontal: false)
+        enterReordering(on: swiss, in: app)
+        drag(swiss, to: kusc, list: true)
+        expectBefore(kusc, swiss, horizontal: false)
+        XCTAssertTrue(kusc.isSelected)
+        drag(kusc, to: swiss, list: true)
+        expectBefore(swiss, kusc, horizontal: false)
+        capture("stations-list-drag-reordered")
+        done.tap()
+        XCTAssertFalse(done.exists)
         swiss.tap()
         app.buttons["Back to player"].tap()
         XCTAssertTrue(app.buttons["choose-station"].label.contains("Swiss"))
@@ -138,65 +139,55 @@ final class StationPickerUITests: XCTestCase {
     }
 
     @MainActor
-    func testDragReordersInGridAndListWithoutSelectingStation() {
-        let app = launch()
-        defer { app.terminate() }
-        app.buttons["choose-station"].tap()
-        app.buttons["stations-reorder"].tap()
-        let kusc = app.buttons["station-kusc"]
-        let swiss = app.buttons["station-radio-swiss-classic"]
-        kusc.press(forDuration: 1.2, thenDragTo: swiss, withVelocity: .slow, thenHoldForDuration: 0.3)
-        let gridChanged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            swiss.frame.minX < kusc.frame.minX
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [gridChanged], timeout: 5), .completed)
-        XCTAssertTrue(kusc.isSelected, "Dragging changes order without changing the selected station")
-        capture("stations-grid-drag-reordered")
-        app.buttons["stations-mode-list"].tap()
-        swiss.press(forDuration: 1.2, thenDragTo: kusc, withVelocity: .slow, thenHoldForDuration: 0.3)
-        let listChanged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            kusc.frame.minY < swiss.frame.minY
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [listChanged], timeout: 5), .completed)
-        XCTAssertTrue(kusc.isSelected)
-        capture("stations-list-drag-reordered")
-        app.buttons["Back to player"].tap()
-        XCTAssertTrue(app.buttons["Play"].isHittable)
-        XCTAssertTrue(app.buttons["choose-station"].label.contains("KUSC"))
-    }
-
-    @MainActor
     func testAccessibilityLandscapeGridAndListKeepNamesAndReorderControlsReachable() {
         let app = launch(largeText: true)
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
         app.buttons["choose-station"].tap()
         rotate(.landscapeRight, app: app)
-        app.buttons["stations-reorder"].tap()
         for mode in ["grid", "list"] {
             app.buttons["stations-mode-" + mode].tap()
             // Reopening retains mode/order and returns the horizontal roll to
             // its first row, so each presentation independently reaches the end.
             app.buttons["Back to player"].tap()
             app.buttons["choose-station"].tap()
-            app.buttons["stations-reorder"].tap()
             reach("orpheus-russian-classical", app: app, horizontal: true)
             let station = app.buttons["station-orpheus-russian-classical"]
-            let move = app.buttons["station-move-earlier-orpheus-russian-classical"]
-            let scroll = app.scrollViews["stations-horizontal-scroll"]
+            enterReordering(on: station, in: app)
+            let scroll = app.collectionViews["stations-horizontal-scroll"]
             XCTAssertTrue(station.label.contains("Russian Classical Music"))
-            XCTAssertTrue(move.isHittable)
+            XCTAssertTrue(app.buttons["stations-reorder-done"].isHittable)
             XCTAssertGreaterThanOrEqual(station.frame.minY, scroll.frame.minY - 1)
-            XCTAssertLessThanOrEqual(move.frame.maxY, scroll.frame.maxY + 1,
-                                     "The reorder footer must fit the short landscape viewport")
+            XCTAssertLessThanOrEqual(station.frame.maxY, scroll.frame.maxY + 1)
             capture("stations-" + mode + "-landscape-accessibility3-reorder")
-            move.tap()
+            app.buttons["stations-reorder-done"].tap()
             // Selecting and moving are separate actions even at large text.
             app.buttons["Back to player"].tap()
             XCTAssertTrue(app.buttons["choose-station"].label.contains("KUSC"))
             XCTAssertTrue(app.buttons["Play"].isHittable)
             app.buttons["choose-station"].tap()
-            app.buttons["stations-reorder"].tap()
         }
+    }
+
+    @MainActor private func enterReordering(on station: XCUIElement, in app: XCUIApplication) {
+        station.press(forDuration: 0.8)
+        let option = app.buttons["Reorder Stations"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+        XCTAssertTrue(app.buttons["stations-reorder-done"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor private func drag(_ station: XCUIElement, to destination: XCUIElement, list: Bool = false) {
+        let origin = station.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let start = list ? origin.withOffset(CGVector(dx: station.frame.width / 2 - 25, dy: 0)) : origin
+        let end = destination.coordinate(withNormalizedOffset: CGVector(dx: list ? 0.9 : 0.5, dy: 0.5))
+        start.press(forDuration: 0.8, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+
+    @MainActor private func expectBefore(_ first: XCUIElement, _ second: XCUIElement, horizontal: Bool) {
+        let ordered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            horizontal ? first.frame.minX < second.frame.minX : first.frame.minY < second.frame.minY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ordered], timeout: 5), .completed)
     }
 
     @MainActor
@@ -216,12 +207,9 @@ final class StationPickerUITests: XCTestCase {
     @MainActor
     private func reach(_ id: String, app: XCUIApplication, horizontal: Bool, forward: Bool = true) {
         let station = app.buttons["station-" + id]
-        let scroll = app.scrollViews[horizontal ? "stations-horizontal-scroll" : "stations-vertical-scroll"]
+        let scroll = app.collectionViews[horizontal ? "stations-horizontal-scroll" : "stations-vertical-scroll"]
         for _ in 0..<32 {
-            // Lazy stacks expose placeholder accessibility entries before their
-            // native views exist. Asking XCTest for a placeholder's activation
-            // point throws instead of returning false, so first require a real
-            // finite frame and an on-screen centre inside this scroll viewport.
+            // Require a real on-screen cell before asking XCTest to activate it.
             if station.exists {
                 let frame = station.frame
                 let viewport = scroll.frame.intersection(app.frame)

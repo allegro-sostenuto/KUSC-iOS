@@ -46,6 +46,39 @@ final class NativeMotionUITests: XCTestCase {
         capture("motion-reduced-player")
     }
 
+    @MainActor func testProgrammeUnavailableFeedbackKeepsHomeAndControlsInPlace() {
+        for reduceMotion in [false, true] {
+            let app = launch(extra: ["PHILHARMONIC_UI_REDUCE_MOTION": reduceMotion ? "1" : "0"])
+            defer { app.terminate() }
+            app.buttons["Next station"].tap()
+            XCTAssertTrue(app.buttons["choose-station"].label.contains("Swiss"))
+            let home = app.scrollViews["now-playing-scroll"]
+            let notice = app.staticTexts["programme-unavailable-message"]
+            let controls = app.buttons["Play"].frame
+            let start = home.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.4))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 30, dy: 0)))
+            XCTAssertFalse(notice.exists, "Short drags stay below the feedback threshold")
+            home.swipeLeft()
+            XCTAssertFalse(notice.exists, "The gesture must point toward Programme")
+            home.swipeRight()
+            XCTAssertTrue(notice.waitForExistence(timeout: 1))
+            XCTAssertEqual(notice.label, "Programme unavailable for this station")
+            XCTAssertTrue(app.buttons["now-playing-page"].isSelected)
+            XCTAssertFalse(app.buttons["programme-page"].exists)
+            XCTAssertTrue(app.staticTexts["station-header"].label.contains("Swiss"))
+            XCTAssertEqual(app.buttons["Play"].frame, controls)
+            capture(reduceMotion ? "programme-unavailable-reduced-motion" : "programme-unavailable-inline")
+            app.buttons["Previous station"].tap()
+            XCTAssertFalse(notice.exists, "Changing stations clears its previous feedback")
+            home.swipeRight()
+            XCTAssertTrue(app.buttons["programme-page"].waitForExistence(timeout: 5))
+            let opened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                app.buttons["programme-page"].isSelected
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 5), .completed)
+        }
+    }
+
     @MainActor private func launch(extra: [String: String] = [:]) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

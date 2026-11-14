@@ -15,6 +15,7 @@ final class ScheduledVolumeUITests: XCTestCase {
                 app.scrollViews.firstMatch.swipeUp()
             }
             XCTAssertTrue(row.waitForExistence(timeout: 5))
+            XCTAssertTrue(row.label.contains("Prepare"))
             row.tap()
             let done = app.buttons["speaker-volume-done"]
             XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -22,12 +23,14 @@ final class ScheduledVolumeUITests: XCTestCase {
             capture("speaker-volume-setup-" + (dark ? "dark" : "light"))
             done.tap()
             XCTAssertTrue(row.waitForExistence(timeout: 5))
-            XCTAssertFalse(row.label.contains("Not set"))
-            capture("scheduled-volume-saved-" + (dark ? "dark" : "light"))
+            XCTAssertTrue(row.label.contains("Prepare"))
+            XCTAssertFalse(row.label.contains("%"), "A prior confirmation is not the current speaker volume")
+            capture("scheduled-volume-prepare-" + (dark ? "dark" : "light"))
             row.tap()
             XCTAssertTrue(done.waitForExistence(timeout: 5))
             app.buttons["speaker-volume-cancel"].tap()
             XCTAssertTrue(row.waitForExistence(timeout: 5))
+            XCTAssertTrue(row.label.contains("Prepare"))
             app.terminate()
         }
     }

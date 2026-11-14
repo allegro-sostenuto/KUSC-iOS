@@ -91,6 +91,16 @@ fi
 if [ "${PHILHARMONIC_SPEAKER_REPRO_ONLY:-0}" = 1 ]; then
     tests=(-only-testing:PhilharmonicUITests/BackgroundAudioSessionProbeTests)
 fi
+if [ "${PHILHARMONIC_NATIVE_STATION_UI_ONLY:-0}" = 1 ]; then
+    tests=(
+        -only-testing:PhilharmonicUITests/StationPickerUITests
+        -only-testing:PhilharmonicUITests/StationMapUITests/testMapLandscapeAndExistingNativeGridListControls
+        -only-testing:PhilharmonicUITests/ScheduledVolumeUITests
+        -only-testing:PhilharmonicUITests/NativeMotionUITests/testProgrammeUnavailableFeedbackKeepsHomeAndControlsInPlace
+        -only-testing:PhilharmonicUITests/NativeMotionUITests/testReducedMotionPanelSelectionAndUnsupportedStationKeepControlsFixed
+        -only-testing:PhilharmonicUITests/PlayerInteractionTests/testFirstSwipeOpensProgramWithoutWarmup
+    )
+fi
 set +e
 xcodebuild -project Philharmonic.xcodeproj -scheme Philharmonic-SE -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$work/build" \

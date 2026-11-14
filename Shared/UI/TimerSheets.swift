@@ -242,9 +242,7 @@ struct ScheduledStartView: View {
                         Text("Set iPhone speaker volume").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if let level = model.settings.scheduledSpeakerVolume ?? model.scheduledOptions.speakerVolume {
-                        Text(level.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
-                    } else { Text("Not set").foregroundStyle(.secondary) }
+                    Text("Prepare").foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
                 .frame(minHeight: 44)

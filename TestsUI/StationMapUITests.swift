@@ -8,7 +8,7 @@ final class StationMapUITests: XCTestCase {
         let app = launch(dark: true)
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
         openMap(app)
-        XCTAssertFalse(app.buttons["stations-reorder"].exists)
+        XCTAssertFalse(app.buttons["stations-reorder-done"].exists)
         let map = app.descendants(matching: .any)["stations-map"].firstMatch
         XCTAssertTrue(map.waitForExistence(timeout: 10))
         capture("station-map-globe-dark")
@@ -122,19 +122,20 @@ final class StationMapUITests: XCTestCase {
         app.buttons["stations-mode-grid"].tap()
         XCTAssertEqual(kusc.frame.minY, swiss.frame.minY, accuracy: 2)
         capture("station-native-grid-light")
-        app.buttons["stations-reorder"].tap()
-        app.buttons["station-move-later-kusc"].tap()
+        kusc.press(forDuration: 0.8)
+        app.buttons["Reorder Stations"].tap()
+        XCTAssertTrue(app.buttons["stations-reorder-done"].exists)
         app.buttons["stations-mode-map"].tap()
-        XCTAssertFalse(app.buttons["stations-reorder"].exists)
+        XCTAssertFalse(app.buttons["stations-reorder-done"].exists)
         XCUIDevice.shared.orientation = .landscapeRight
         let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 8), .completed)
         app.buttons["map-zoom-country"].tap()
         capture("station-map-country-landscape-light")
         app.buttons["stations-mode-list"].tap()
-        XCTAssertTrue(app.scrollViews["stations-horizontal-scroll"].exists)
-        XCTAssertTrue(swiss.isHittable)
-        XCTAssertFalse(app.buttons["station-move-later-kusc"].exists, "Map leaves reorder mode")
+        XCTAssertTrue(app.collectionViews["stations-horizontal-scroll"].exists)
+        XCTAssertTrue(kusc.isHittable)
+        XCTAssertFalse(app.buttons["stations-reorder-done"].exists, "Map leaves reorder mode")
     }
 
     @MainActor private func launch(dark: Bool) -> XCUIApplication {
