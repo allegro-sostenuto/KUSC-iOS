@@ -116,7 +116,7 @@ final class StationMapUITests: XCTestCase {
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
         app.buttons["choose-station"].tap()
         app.buttons["stations-mode-list"].tap()
-        let kusc = app.buttons["station-kusc"], swiss = app.buttons["station-radio-swiss-classic"]
+        let kusc = app.cells["station-kusc"], swiss = app.cells["station-radio-swiss-classic"]
         XCTAssertGreaterThan(swiss.frame.minY, kusc.frame.maxY)
         capture("station-native-list-light")
         app.buttons["stations-mode-grid"].tap()

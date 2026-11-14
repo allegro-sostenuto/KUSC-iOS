@@ -235,8 +235,12 @@ private struct NativeStationCollection: UIViewControllerRepresentable {
         private func configure(_ cell: UICollectionViewListCell, at index: Int) {
             let station = stations[index]
             let selected = station.id == configuration.selectedID
-            let corners = RoundedRectangle(cornerRadius: 16, style: .continuous)
-            cell.backgroundConfiguration = .clear()
+            var background = UIBackgroundConfiguration.clear()
+            background.backgroundColor = UIColor(Color.philharmonicSurface)
+            background.cornerRadius = 16
+            background.strokeColor = UIColor(selected ? Color.philharmonicRed : Color.philharmonicSeparator)
+            background.strokeWidth = selected ? 1.5 : 0.75
+            cell.backgroundConfiguration = background
             cell.contentConfiguration = UIHostingConfiguration {
                 StationCardContents(station: station, selected: selected, grid: configuration.grid,
                                     compact: configuration.landscape)
@@ -246,11 +250,6 @@ private struct NativeStationCollection: UIViewControllerRepresentable {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }.margins(.all, 0)
                 .minSize(width: 0, height: configuration.landscape ? 82 : (configuration.grid ? 188 : 88))
-                .background {
-                    corners.fill(Color.philharmonicSurface)
-                        .overlay(corners.strokeBorder(selected ? Color.philharmonicRed : Color.philharmonicSeparator,
-                                                      lineWidth: selected ? 1.5 : 0.75))
-                }
             cell.accessories = configuration.reordering && !configuration.grid ? [.reorder(displayed: .always)] : []
             cell.contentView.accessibilityElementsHidden = true
             cell.isAccessibilityElement = true

@@ -93,7 +93,7 @@ final class AudioQualityUITests: XCTestCase {
             defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
             XCTAssertTrue(app.buttons["choose-station"].waitForExistence(timeout: 5))
             app.buttons["choose-station"].tap()
-            app.buttons["station-radio-swiss-classic"].tap()
+            app.cells["station-radio-swiss-classic"].tap()
             app.buttons["Back to player"].tap()
             app.buttons["Settings"].tap()
             let swiss = app.buttons["quality-menu-radio-swiss-classic"]

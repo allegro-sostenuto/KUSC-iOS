@@ -15,7 +15,7 @@ final class StationPickerUITests: XCTestCase {
         for id in ["yle-klassinen", "rete-toscana-classica", "wfmt", "romania-muzical",
                    "rtp-opera", "concertzender-oude-muziek"] {
             reach(id, app: app, horizontal: false)
-            let station = app.buttons["station-" + id]
+            let station = app.cells["station-" + id]
             station.tap()
             XCTAssertTrue(station.isSelected)
         }
@@ -27,7 +27,7 @@ final class StationPickerUITests: XCTestCase {
         app.buttons["stations-mode-grid"].tap()
         rotate(.landscapeRight, app: app)
         reach("concertzender-oude-muziek", app: app, horizontal: true)
-        XCTAssertTrue(app.buttons["station-concertzender-oude-muziek"].isSelected)
+        XCTAssertTrue(app.cells["station-concertzender-oude-muziek"].isSelected)
         capture("stations-six-added-grid-landscape-dark")
         app.buttons["Back to player"].tap()
         XCTAssertTrue(app.buttons["Play"].isHittable)
@@ -39,8 +39,8 @@ final class StationPickerUITests: XCTestCase {
             let app = launch(dark: dark)
             defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
             app.buttons["choose-station"].tap()
-            let kusc = app.buttons["station-kusc"]
-            let swiss = app.buttons["station-radio-swiss-classic"]
+            let kusc = app.cells["station-kusc"]
+            let swiss = app.cells["station-radio-swiss-classic"]
             XCTAssertTrue(kusc.waitForExistence(timeout: 5))
             XCTAssertEqual(kusc.frame.minY, swiss.frame.minY, accuracy: 2, "Grid has two entries per row")
             capture("stations-grid-portrait" + (dark ? "-dark" : ""))
@@ -52,7 +52,7 @@ final class StationPickerUITests: XCTestCase {
             XCTAssertFalse(app.collectionViews["stations-vertical-scroll"].exists)
             capture("stations-list-landscape" + (dark ? "-dark" : ""))
             reach("concertzender-oude-muziek", app: app, horizontal: true)
-            XCTAssertTrue(app.buttons["station-concertzender-oude-muziek"].isHittable, "Horizontal list reaches the last entry")
+            XCTAssertTrue(app.cells["station-concertzender-oude-muziek"].isHittable, "Horizontal list reaches the last entry")
             reach("kusc", app: app, horizontal: true, forward: false)
             XCTAssertTrue(kusc.isSelected, "Reverse scrolling cannot select another station")
             XCTAssertTrue((kusc.value as? String)?.contains("position 1") == true,
@@ -73,7 +73,7 @@ final class StationPickerUITests: XCTestCase {
             XCTAssertTrue(kusc.isSelected)
             XCTAssertTrue((kusc.value as? String)?.contains("position 1") == true)
             reach("concertzender-oude-muziek", app: app, horizontal: true)
-            app.buttons["station-concertzender-oude-muziek"].tap()
+            app.cells["station-concertzender-oude-muziek"].tap()
             rotate(.portrait, app: app)
             XCTAssertTrue(app.buttons["stations-mode-grid"].isSelected)
             app.buttons["Back to player"].tap()
@@ -89,8 +89,8 @@ final class StationPickerUITests: XCTestCase {
         let app = launch()
         defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
         app.buttons["choose-station"].tap()
-        let swiss = app.buttons["station-radio-swiss-classic"]
-        let kusc = app.buttons["station-kusc"]
+        let swiss = app.cells["station-radio-swiss-classic"]
+        let kusc = app.cells["station-kusc"]
         let done = app.buttons["stations-reorder-done"]
         XCTAssertFalse(done.exists)
         kusc.press(forDuration: 0.8)
@@ -151,7 +151,7 @@ final class StationPickerUITests: XCTestCase {
             app.buttons["Back to player"].tap()
             app.buttons["choose-station"].tap()
             reach("orpheus-russian-classical", app: app, horizontal: true)
-            let station = app.buttons["station-orpheus-russian-classical"]
+            let station = app.cells["station-orpheus-russian-classical"]
             enterReordering(on: station, in: app)
             let scroll = app.collectionViews["stations-horizontal-scroll"]
             XCTAssertTrue(station.label.contains("Russian Classical Music"))
@@ -206,7 +206,7 @@ final class StationPickerUITests: XCTestCase {
 
     @MainActor
     private func reach(_ id: String, app: XCUIApplication, horizontal: Bool, forward: Bool = true) {
-        let station = app.buttons["station-" + id]
+        let station = app.cells["station-" + id]
         let scroll = app.collectionViews[horizontal ? "stations-horizontal-scroll" : "stations-vertical-scroll"]
         for _ in 0..<32 {
             // Require a real on-screen cell before asking XCTest to activate it.
